@@ -17,6 +17,22 @@ define( 'CIRLOT_DOCS_TYPES', [
     'Handbooks', 'Interpretation', 'Guides', 'Rules of the Organization', 'Forms and Templates',
 ] );
 
+function cirlot_docs_get_audiences() {
+    $saved = get_option( 'cirlot_docs_audiences_list', '' );
+    if ( $saved !== '' ) {
+        return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
+    }
+    return CIRLOT_DOCS_AUDIENCES;
+}
+
+function cirlot_docs_get_types() {
+    $saved = get_option( 'cirlot_docs_types_list', '' );
+    if ( $saved !== '' ) {
+        return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
+    }
+    return CIRLOT_DOCS_TYPES;
+}
+
 // ──────────────────────────────────────────────
 // 0. Enqueue media uploader scripts
 // ──────────────────────────────────────────────
@@ -25,6 +41,7 @@ function cirlot_docs_enqueue_scripts( $hook ) {
     if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) return;
     if ( get_post_type() !== 'cirlot_document' && get_current_screen()->post_type !== 'cirlot_document' ) return;
     wp_enqueue_media();
+    wp_enqueue_script( 'pdfjs', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', [], '3.11.174', true );
 }
 
 // ──────────────────────────────────────────────
@@ -162,6 +179,8 @@ function cirlot_docs_meta_box_html( $post ) {
         .cd-dropdown li:hover, .cd-dropdown li.highlighted { background: #4a90d9; color: #fff; }
         .cd-dropdown li.disabled { color: #aaa; background: #f5f5f5; cursor: default; }
         .required { color: red; }
+        .cd-page-badge { cursor:pointer; background:#f0f6ff !important; border-color:#2271b1 !important; color:#2271b1 !important; font-size:11px !important; }
+        .cd-page-badge:hover { background:#2271b1 !important; color:#fff !important; }
     </style>
 
     <div class="cirlot-docs-wrap">
@@ -175,7 +194,7 @@ function cirlot_docs_meta_box_html( $post ) {
             $icon_class = match( $ext ) { 'pdf' => 'pdf', 'doc', 'docx' => 'word', 'xls', 'xlsx' => 'excel', default => 'generic' };
             $icon_label = match( $ext ) { 'pdf' => 'PDF', 'doc' => 'DOC', 'docx' => 'DOCX', 'xls' => 'XLS', 'xlsx' => 'XLSX', default => strtoupper( $ext ) ?: 'FILE' };
             ?>
-            <div class="cd-file-card" id="cd-file-preview" <?php echo $file_id ? '' : 'style="display:none"'; ?>>
+            <div class="cd-file-card" id="cd-file-preview" style="margin-bottom:0;<?php echo $file_id ? '' : 'display:none;'; ?>">
                 <div class="cd-file-icon <?php echo esc_attr( $icon_class ); ?>" id="cd-file-icon-badge"><?php echo esc_html( $icon_label ); ?></div>
                 <div class="cd-file-meta" id="cd-file-meta">
                     <?php if ( $file_id ) : ?>
@@ -190,7 +209,13 @@ function cirlot_docs_meta_box_html( $post ) {
                 </div>
             </div>
 
+            <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && $file_format === 'pdf' ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
+                <div id="cd-page-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+                <span id="cd-extract-status" style="display:block;font-size:11px;color:#999;margin-top:5px;min-height:14px;"></span>
+            </div>
+
             <input type="hidden" name="document_file_id" id="cd-file-id" value="<?php echo esc_attr( $file_id ); ?>">
+            <input type="hidden" id="cd-file-url" value="<?php echo esc_attr( $file_url ); ?>">
             <?php if ( ! $file_id ) : ?>
             <button type="button" id="cd-upload-btn" class="button"><?php esc_html_e( 'Upload File' ); ?></button>
             <?php endif; ?>
@@ -228,7 +253,7 @@ function cirlot_docs_meta_box_html( $post ) {
                         <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
                     </div>
                     <ul class="cd-dropdown" id="cd-audience-dropdown">
-                        <?php foreach ( CIRLOT_DOCS_AUDIENCES as $opt ) : ?>
+                        <?php foreach ( cirlot_docs_get_audiences() as $opt ) : ?>
                         <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
                         <?php endforeach; ?>
                     </ul>
@@ -245,7 +270,7 @@ function cirlot_docs_meta_box_html( $post ) {
                         <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select type…' ); ?>" autocomplete="off">
                     </div>
                     <ul class="cd-dropdown" id="cd-type-dropdown">
-                        <?php foreach ( CIRLOT_DOCS_TYPES as $opt ) : ?>
+                        <?php foreach ( cirlot_docs_get_types() as $opt ) : ?>
                         <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
                         <?php endforeach; ?>
                     </ul>
@@ -261,6 +286,22 @@ function cirlot_docs_meta_box_html( $post ) {
         </div>
 
     </div><!-- .cirlot-docs-wrap -->
+
+    <!-- Page Text Modal -->
+    <div id="cd-page-modal" style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.65);">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:720px;max-width:90vw;max-height:85vh;background:#fff;border-radius:6px;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.3);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid #e0e0e0;">
+                <h3 id="cd-modal-title" style="margin:0;font-size:15px;"></h3>
+                <button type="button" id="cd-modal-close" style="background:none;border:none;cursor:pointer;font-size:24px;color:#666;line-height:1;padding:0;">&times;</button>
+            </div>
+            <div style="flex:1;overflow-y:auto;padding:20px;">
+                <pre id="cd-modal-content" style="white-space:pre-wrap;font-family:ui-monospace,'Cascadia Code',Menlo,monospace;margin:0;font-size:12.5px;line-height:1.7;color:#1d2327;"></pre>
+            </div>
+            <div style="padding:10px 20px;border-top:1px solid #e0e0e0;display:flex;justify-content:flex-end;">
+                <button type="button" id="cd-modal-copy" class="button"><?php esc_html_e( 'Copy Text' ); ?></button>
+            </div>
+        </div>
+    </div>
 
     <script>
     (function($) {
@@ -285,6 +326,7 @@ function cirlot_docs_meta_box_html( $post ) {
                 var a   = mediaFrame.state().get('selection').first().toJSON();
                 var ext = extOf(a.filename);
                 $('#cd-file-id').val(a.id);
+                $('#cd-file-url').val(a.url);
                 $('#cd-file-icon-badge')
                     .attr('class', 'cd-file-icon ' + iconClass(ext))
                     .text(iconLabel(ext));
@@ -296,14 +338,21 @@ function cirlot_docs_meta_box_html( $post ) {
                 $('#cd-file-preview').show();
                 // swap standalone upload button for the card's Replace button
                 $('#cd-upload-btn').not('#cd-file-preview #cd-upload-btn').hide();
+                if (ext === 'pdf') cdExtractPdf(a.url);
+                else $('#cd-page-badges-wrap').hide();
             });
             mediaFrame.open();
         });
 
         $(document).on('click', '#cd-remove-file', function() {
             $('#cd-file-id').val('');
+            $('#cd-file-url').val('');
             $('#cd-file-preview').hide();
             $('#cd-file-meta').html('');
+            $('#cd-page-badges-wrap').hide();
+            $('#cd-page-badges').empty();
+            $('#cd-extract-status').text('');
+            cdPageTexts = {};
             // show standalone upload button if visible
             var $standalone = $('button#cd-upload-btn').not('#cd-file-preview button#cd-upload-btn');
             if (!$standalone.length) {
@@ -421,6 +470,100 @@ function cirlot_docs_meta_box_html( $post ) {
         initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
         initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
 
+        // ── PDF Text Extraction ───────────────────────
+        var cdPageTexts = {};
+
+        async function cdExtractPdf(pdfUrl) {
+            pdfUrl = pdfUrl || $('#cd-file-url').val();
+            if (!pdfUrl) return;
+
+            var $wrap   = $('#cd-page-badges-wrap');
+            var $status = $('#cd-extract-status');
+            var $badges = $('#cd-page-badges');
+
+            $wrap.show();
+            $badges.empty();
+            $status.text('Loading…');
+            cdPageTexts = {};
+
+            try {
+                if (typeof pdfjsLib === 'undefined') {
+                    $status.text('PDF.js not loaded — please refresh.');
+                    return;
+                }
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                var pdf      = await pdfjsLib.getDocument(pdfUrl).promise;
+                var numPages = pdf.numPages;
+
+                for (var i = 1; i <= numPages; i++) {
+                    $status.text(i + ' / ' + numPages);
+                    var page    = await pdf.getPage(i);
+                    var vp      = page.getViewport({ scale: 1 });
+                    var content = await page.getTextContent();
+
+                    var pageH = vp.height;
+                    var top   = pageH * 0.93;
+                    var bot   = pageH * 0.07;
+
+                    var lineMap = {};
+                    content.items.forEach(function(item) {
+                        var y = item.transform[5];
+                        if (y < bot || y > top) return;
+                        var bucket = Math.round(y / 3) * 3;
+                        if (!lineMap[bucket]) lineMap[bucket] = [];
+                        lineMap[bucket].push(item);
+                    });
+
+                    var sortedY = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
+                    var lines   = sortedY.map(function(y) {
+                        return lineMap[y].map(function(it) { return it.str; }).join('');
+                    }).filter(function(l) { return l.trim() !== ''; });
+
+                    cdPageTexts[i] = lines.join('\n');
+
+                    (function(pageNum) {
+                        var $badge = $('<button type="button" class="button button-small cd-page-badge"></button>').text('Page ' + pageNum);
+                        $badge.on('click', function() { cdOpenPageModal(pageNum); });
+                        $badges.append($badge);
+                    })(i);
+                }
+
+                $status.text(numPages + ' page' + (numPages !== 1 ? 's' : ''));
+            } catch (err) {
+                $status.text('Error: ' + err.message);
+            }
+        }
+
+        // Auto-extract on page load if a PDF is already set
+        <?php if ( $file_id && $file_format === 'pdf' && $file_url ) : ?>
+        $(function() { cdExtractPdf(<?php echo json_encode( $file_url ); ?>); });
+        <?php endif; ?>
+
+        function cdOpenPageModal(pageNum) {
+            $('#cd-modal-title').text('Page ' + pageNum);
+            $('#cd-modal-content').text(cdPageTexts[pageNum] || '');
+            $('#cd-modal-copy').text('<?php esc_html_e( 'Copy Text' ); ?>');
+            $('#cd-page-modal').show();
+        }
+
+        $('#cd-modal-close').on('click', function() { $('#cd-page-modal').hide(); });
+        $('#cd-page-modal').on('click', function(e) {
+            if (e.target === this) $(this).hide();
+        });
+        $(document).on('keydown', function(e) {
+            if (e.key === 'Escape') $('#cd-page-modal').hide();
+        });
+        $('#cd-modal-copy').on('click', function() {
+            var text = $('#cd-modal-content').text();
+            var $btn = $(this);
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(function() {
+                    $btn.text('Copied!');
+                    setTimeout(function() { $btn.text('<?php esc_html_e( 'Copy Text' ); ?>'); }, 1500);
+                });
+            }
+        });
+
     })(jQuery);
     </script>
     <?php
@@ -477,14 +620,14 @@ function cirlot_docs_save_meta( $post_id ) {
 }
 
 // ──────────────────────────────────────────────
-// 5. Admin Menu — Configuration submenu
+// 5. Admin Menu — Settings submenu
 // ──────────────────────────────────────────────
 add_action( 'admin_menu', 'cirlot_docs_admin_menu' );
 function cirlot_docs_admin_menu() {
     add_submenu_page(
         'edit.php?post_type=cirlot_document',
-        __( 'Documents Configuration' ),
-        __( 'Configuration' ),
+        __( 'Documents Settings' ),
+        __( 'Settings' ),
         'manage_options',
         'cirlot-docs-settings',
         'cirlot_docs_settings_page'
@@ -501,6 +644,24 @@ function cirlot_docs_settings_page() {
         update_option( 'cirlot_docs_default_audience',  sanitize_text_field( $_POST['cirlot_docs_default_audience'] ?? '' ) );
         update_option( 'cirlot_docs_default_type',      sanitize_text_field( $_POST['cirlot_docs_default_type'] ?? '' ) );
         update_option( 'cirlot_docs_allowed_formats',   array_map( 'sanitize_text_field', (array) ( $_POST['cirlot_docs_allowed_formats'] ?? [ 'pdf', 'word', 'excel' ] ) ) );
+        update_option( 'cirlot_docs_gemini_model',      sanitize_text_field( $_POST['cirlot_docs_gemini_model'] ?? 'gemini-2.5-flash' ) );
+        if ( isset( $_POST['cirlot_docs_gemini_api_key'] ) && $_POST['cirlot_docs_gemini_api_key'] !== '' ) {
+            update_option( 'cirlot_docs_gemini_api_key', sanitize_text_field( $_POST['cirlot_docs_gemini_api_key'] ) );
+        }
+
+        // Audiences list
+        $raw_audiences = sanitize_textarea_field( $_POST['cirlot_docs_audiences_list'] ?? '' );
+        update_option( 'cirlot_docs_audiences_list', $raw_audiences );
+        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_audiences ) ) ) as $term ) {
+            if ( ! term_exists( $term, 'document_audience' ) ) wp_insert_term( $term, 'document_audience' );
+        }
+
+        // Document Types list
+        $raw_types = sanitize_textarea_field( $_POST['cirlot_docs_types_list'] ?? '' );
+        update_option( 'cirlot_docs_types_list', $raw_types );
+        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
+            if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
+        }
 
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.' ) . '</p></div>';
         flush_rewrite_rules();
@@ -510,13 +671,18 @@ function cirlot_docs_settings_page() {
     $default_audience = get_option( 'cirlot_docs_default_audience', '' );
     $default_type     = get_option( 'cirlot_docs_default_type', '' );
     $allowed_formats  = (array) get_option( 'cirlot_docs_allowed_formats', [ 'pdf', 'word', 'excel' ] );
+    $gemini_model     = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $gemini_api_key   = get_option( 'cirlot_docs_gemini_api_key', '' );
 
-    // Existing taxonomy terms for datalist suggestions
+    $audiences_list = get_option( 'cirlot_docs_audiences_list', implode( "\n", CIRLOT_DOCS_AUDIENCES ) );
+    $types_list     = get_option( 'cirlot_docs_types_list',     implode( "\n", CIRLOT_DOCS_TYPES ) );
+
+    // For datalist suggestions (default audience / default type fields)
     $audience_terms = get_terms( [ 'taxonomy' => 'document_audience', 'hide_empty' => false ] );
     $type_terms     = get_terms( [ 'taxonomy' => 'document_type',     'hide_empty' => false ] );
     ?>
     <div class="wrap">
-        <h1><?php esc_html_e( 'Documents Configuration' ); ?></h1>
+        <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
         <form method="post">
             <?php wp_nonce_field( 'cirlot_docs_settings_save', 'cirlot_docs_settings_nonce' ); ?>
             <table class="form-table" role="presentation">
@@ -575,38 +741,66 @@ function cirlot_docs_settings_page() {
                     </td>
                 </tr>
 
+                <tr>
+                    <td colspan="2"><hr><h2 style="margin:0 0 4px;"><?php esc_html_e( 'AI Settings (Gemini)' ); ?></h2></td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="cd-gemini-model"><?php esc_html_e( 'Gemini Model' ); ?></label></th>
+                    <td>
+                        <?php
+                        $gemini_models = [
+                            'gemini-2.5-flash' => 'Gemini 2.5 Flash',
+                            'gemini-3.0-flash' => 'Gemini 3.0 Flash',
+                            'gemini-3.1-flash' => 'Gemini 3.1 Flash',
+                            'gemini-2.5-pro'   => 'Gemini 2.5 Pro',
+                            'gemini-3.1-pro'   => 'Gemini 3.1 Pro',
+                        ];
+                        ?>
+                        <select id="cd-gemini-model" name="cirlot_docs_gemini_model">
+                            <?php foreach ( $gemini_models as $model_id => $model_name ) : ?>
+                            <option value="<?php echo esc_attr( $model_id ); ?>" <?php selected( $gemini_model, $model_id ); ?>>
+                                <?php echo esc_html( $model_name ); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="cd-gemini-api-key"><?php esc_html_e( 'Gemini API Key' ); ?></label></th>
+                    <td>
+                        <input type="password" id="cd-gemini-api-key" name="cirlot_docs_gemini_api_key"
+                               value="<?php echo esc_attr( $gemini_api_key ); ?>"
+                               class="regular-text" autocomplete="new-password">
+                        <p class="description"><?php esc_html_e( 'Google Gemini API key for AI document processing. Leave blank to keep the current key.' ); ?></p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td colspan="2"><hr><h2 style="margin:0 0 4px;"><?php esc_html_e( 'Taxonomy Lists' ); ?></h2>
+                    <p class="description" style="margin:4px 0 0;"><?php esc_html_e( 'One item per line. Adding new items also registers them as taxonomy terms. Removing an item from this list does not delete the term.' ); ?></p></td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="cd-audiences-list"><?php esc_html_e( 'Audiences' ); ?></label></th>
+                    <td>
+                        <textarea id="cd-audiences-list" name="cirlot_docs_audiences_list"
+                                  rows="6" class="large-text"><?php echo esc_textarea( $audiences_list ); ?></textarea>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="cd-types-list"><?php esc_html_e( 'Document Types' ); ?></label></th>
+                    <td>
+                        <textarea id="cd-types-list" name="cirlot_docs_types_list"
+                                  rows="12" class="large-text"><?php echo esc_textarea( $types_list ); ?></textarea>
+                    </td>
+                </tr>
+
             </table>
             <?php submit_button( __( 'Save Settings' ) ); ?>
         </form>
-
-        <hr>
-        <h2><?php esc_html_e( 'Taxonomy Terms' ); ?></h2>
-        <div style="display:flex;gap:40px;flex-wrap:wrap;">
-            <div>
-                <h3><?php esc_html_e( 'Audiences' ); ?></h3>
-                <?php if ( $audience_terms && ! is_wp_error( $audience_terms ) ) : ?>
-                <ul>
-                    <?php foreach ( $audience_terms as $t ) : ?>
-                    <li><?php echo esc_html( $t->name ); ?> <span style="color:#888;">(<?php echo (int) $t->count; ?>)</span></li>
-                    <?php endforeach; ?>
-                </ul>
-                <?php else : ?>
-                <p><?php esc_html_e( 'No audience terms yet.' ); ?></p>
-                <?php endif; ?>
-            </div>
-            <div>
-                <h3><?php esc_html_e( 'Document Types' ); ?></h3>
-                <?php if ( $type_terms && ! is_wp_error( $type_terms ) ) : ?>
-                <ul>
-                    <?php foreach ( $type_terms as $t ) : ?>
-                    <li><?php echo esc_html( $t->name ); ?> <span style="color:#888;">(<?php echo (int) $t->count; ?>)</span></li>
-                    <?php endforeach; ?>
-                </ul>
-                <?php else : ?>
-                <p><?php esc_html_e( 'No document type terms yet.' ); ?></p>
-                <?php endif; ?>
-            </div>
-        </div>
     </div>
     <?php
 }
