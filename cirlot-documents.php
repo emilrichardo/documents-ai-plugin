@@ -1169,8 +1169,24 @@ function cirlot_docs_settings_page() { // phpcs:ignore
             <div class="cd-sc-code"><code id="cd-sc-4">[cirlot_document_search type="<?php echo esc_html( $first_type ); ?>" audience="<?php echo esc_html( $first_aud ); ?>" per_page="5"]</code><button class="cd-sc-copy" data-target="cd-sc-4"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Without AI assistant' ); ?></h3>
+            <h3><?php esc_html_e( 'Without AI inline suggestions' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Disables AI recommendations in the search bar.' ); ?></p>
             <div class="cd-sc-code"><code id="cd-sc-5">[cirlot_document_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-5"><?php esc_html_e( 'Copy' ); ?></button></div>
+        </div>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'Without AI chat bubble' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Hides the floating AI chat button (bottom-right corner).' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-6">[cirlot_document_search show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
+        </div>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'Custom results per page' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Default is 20. Max is 50.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-7">[cirlot_document_search per_page="10"]</code><button class="cd-sc-copy" data-target="cd-sc-7"><?php esc_html_e( 'Copy' ); ?></button></div>
+        </div>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'Search only (no AI)' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-8">[cirlot_document_search show_ai="false" show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <table class="cd-sc-params" style="margin-top:18px;">
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
