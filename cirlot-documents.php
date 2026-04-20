@@ -42,6 +42,107 @@ function cirlot_docs_get_global_fields() {
     return [ [ 'id' => 'description', 'label' => 'Document Description', 'type' => 'textarea' ] ];
 }
 
+// ── Discover first available embedding model ──
+function cirlot_docs_get_embed_model( $api_key ) {
+    $cached = get_transient( 'cirlot_docs_embed_model' );
+    if ( $cached ) return $cached;
+
+    foreach ( [ 'v1beta', 'v1' ] as $ver ) {
+        $r = wp_remote_get(
+            "https://generativelanguage.googleapis.com/{$ver}/models?key=" . urlencode( $api_key ),
+            [ 'timeout' => 10 ]
+        );
+        if ( is_wp_error( $r ) ) continue;
+        $body   = json_decode( wp_remote_retrieve_body( $r ), true );
+        $models = $body['models'] ?? [];
+
+        $preferred = [ 'models/text-embedding-004', 'models/embedding-001' ];
+        $available = [];
+        foreach ( $models as $m ) {
+            if ( in_array( 'embedContent', $m['supportedGenerationMethods'] ?? [], true ) ) {
+                $available[] = $m['name'];
+            }
+        }
+        foreach ( $preferred as $p ) {
+            if ( in_array( $p, $available, true ) ) {
+                set_transient( 'cirlot_docs_embed_model', [ 'name' => $p, 'ver' => $ver ], HOUR_IN_SECONDS );
+                return [ 'name' => $p, 'ver' => $ver ];
+            }
+        }
+        if ( ! empty( $available ) ) {
+            $pick = [ 'name' => $available[0], 'ver' => $ver ];
+            set_transient( 'cirlot_docs_embed_model', $pick, HOUR_IN_SECONDS );
+            return $pick;
+        }
+    }
+    return null;
+}
+
+// ── Gemini embedding helper ───────────────────
+function cirlot_docs_gemini_embed( $text, $api_key, &$error_msg = null ) {
+    $text  = mb_substr( trim( $text ), 0, 9000 );
+    $model = cirlot_docs_get_embed_model( $api_key );
+
+    if ( ! $model ) {
+        $error_msg = 'No embedding model found for this API key. Open Settings → AI and click Test Connection to verify the key, then check that the Gemini Embedding API is enabled in Google AI Studio.';
+        return null;
+    }
+
+    $model_id = str_replace( 'models/', '', $model['name'] );
+    $url      = "https://generativelanguage.googleapis.com/{$model['ver']}/models/{$model_id}:embedContent?key=" . urlencode( $api_key );
+
+    $r = wp_remote_post( $url, [
+        'headers' => [ 'Content-Type' => 'application/json' ],
+        'body'    => wp_json_encode( [ 'content' => [ 'parts' => [ [ 'text' => $text ] ] ] ] ),
+        'timeout' => 30,
+    ] );
+
+    if ( is_wp_error( $r ) ) {
+        $error_msg = $r->get_error_message();
+        return null;
+    }
+    $code = (int) wp_remote_retrieve_response_code( $r );
+    $body = json_decode( wp_remote_retrieve_body( $r ), true );
+    if ( $code !== 200 ) {
+        $error_msg = $body['error']['message'] ?? "HTTP {$code}";
+        return null;
+    }
+    return $body['embedding']['values'] ?? null;
+}
+
+// ── Cosine similarity ─────────────────────────
+function cirlot_docs_cosine_similarity( array $a, array $b ) {
+    $dot = 0.0; $magA = 0.0; $magB = 0.0;
+    $n   = min( count( $a ), count( $b ) );
+    for ( $i = 0; $i < $n; $i++ ) {
+        $dot  += $a[ $i ] * $b[ $i ];
+        $magA += $a[ $i ] * $a[ $i ];
+        $magB += $b[ $i ] * $b[ $i ];
+    }
+    if ( $magA == 0 || $magB == 0 ) return 0.0;
+    return (float) ( $dot / ( sqrt( $magA ) * sqrt( $magB ) ) );
+}
+
+// ── Build indexable text for a document ───────
+function cirlot_docs_doc_index_text( $pid ) {
+    $parts   = [];
+    $parts[] = get_the_title( $pid );
+    foreach ( cirlot_docs_get_global_fields() as $gf ) {
+        $fid = $gf['id'];
+        $val = $fid === 'description'
+            ? get_post_meta( $pid, '_document_description', true )
+            : get_post_meta( $pid, '_document_cf_' . $fid, true );
+        if ( $val ) $parts[] = $gf['label'] . ': ' . $val;
+    }
+    $audience = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
+    if ( $audience && ! is_wp_error( $audience ) ) $parts[] = 'Audience: ' . implode( ', ', $audience );
+    $types = wp_get_post_terms( $pid, 'document_type', [ 'fields' => 'names' ] );
+    if ( $types && ! is_wp_error( $types ) ) $parts[] = 'Type: ' . implode( ', ', $types );
+    $summary = get_post_meta( $pid, '_document_summary', true );
+    if ( $summary ) $parts[] = $summary;
+    return implode( "\n", $parts );
+}
+
 // ──────────────────────────────────────────────
 // 0. Enqueue media uploader scripts
 // ──────────────────────────────────────────────
@@ -362,6 +463,13 @@ function cirlot_docs_meta_box_html( $post ) {
                 <button type="button" id="cd-ai-process-btn" class="button button-primary">
                     &#9889; <?php esc_html_e( 'Process with AI' ); ?>
                 </button>
+                <button type="button" id="cd-gen-embedding-btn" class="button">
+                    &#128200; <?php esc_html_e( 'Index for Search' ); ?>
+                </button>
+                <?php $has_emb = (bool) get_post_meta( $post->ID, '_document_embedding', true ); ?>
+                <span id="cd-embedding-badge" style="font-size:11px;padding:2px 8px;border-radius:3px;background:<?php echo $has_emb ? '#d4edda' : '#f8d7da'; ?>;color:<?php echo $has_emb ? '#155724' : '#721c24'; ?>;">
+                    <?php echo $has_emb ? '&#10003; ' . esc_html__( 'Indexed' ) : esc_html__( 'Not indexed' ); ?>
+                </span>
                 <span id="cd-ai-status" style="font-size:12px;color:#555;"></span>
             </div>
         </div>
@@ -391,6 +499,8 @@ function cirlot_docs_meta_box_html( $post ) {
         var cdGlobalFields    = <?php echo wp_json_encode( $global_fields ); ?>;
         var cdAudienceOptions = <?php echo wp_json_encode( cirlot_docs_get_audiences() ); ?>;
         var cdTypeOptions     = <?php echo wp_json_encode( cirlot_docs_get_types() ); ?>;
+        var cdDocId           = <?php echo (int) $post->ID; ?>;
+        var cdHasEmbedding    = <?php echo get_post_meta( $post->ID, '_document_embedding', true ) ? 'true' : 'false'; ?>;
 
         // ── Media uploader ──────────────────────────────
         var mediaFrame;
@@ -704,6 +814,7 @@ function cirlot_docs_meta_box_html( $post ) {
             $.post(cdAjaxUrl, {
                 action:   'cirlot_docs_ai_process',
                 nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
                 raw_text: rawText,
                 fields:   JSON.stringify(fieldsToFill)
             })
@@ -731,6 +842,9 @@ function cirlot_docs_meta_box_html( $post ) {
                         $('[name="document_cf[' + f.id + ']"]').val(data[f.id]);
                     }
                 });
+                if (data._embedding_saved) {
+                    cdSetEmbeddingBadge(true);
+                }
                 $('#cd-ai-status').text('<?php esc_html_e( 'Done.' ); ?>');
                 setTimeout(function() { $('#cd-ai-status').text(''); }, 3000);
             })
@@ -740,6 +854,42 @@ function cirlot_docs_meta_box_html( $post ) {
             })
             .always(function() {
                 $btn.prop('disabled', false).html('&#9889; <?php esc_html_e( 'Process with AI' ); ?>');
+            });
+        });
+
+        function cdSetEmbeddingBadge(indexed) {
+            var $b = $('#cd-embedding-badge');
+            if (indexed) {
+                $b.css({'background':'#d4edda','color':'#155724'}).html('&#10003; <?php esc_html_e( 'Indexed' ); ?>');
+            } else {
+                $b.css({'background':'#f8d7da','color':'#721c24'}).text('<?php esc_html_e( 'Not indexed' ); ?>');
+            }
+        }
+
+        $('#cd-gen-embedding-btn').on('click', function() {
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('<?php esc_html_e( 'Indexing…' ); ?>');
+            $('#cd-ai-status').text('');
+            $.post(cdAjaxUrl, {
+                action:  'cirlot_docs_generate_embedding',
+                nonce:   cdAjaxNonce,
+                post_id: cdDocId
+            })
+            .done(function(res) {
+                if (!res.success) {
+                    $('#cd-ai-status').text('Error: ' + res.data);
+                    return;
+                }
+                cdSetEmbeddingBadge(true);
+                $('#cd-ai-status').text('<?php esc_html_e( 'Indexed.' ); ?>');
+                setTimeout(function() { $('#cd-ai-status').text(''); }, 3000);
+            })
+            .fail(function(xhr) {
+                var msg = xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data : xhr.statusText;
+                $('#cd-ai-status').text('Error: ' + msg);
+            })
+            .always(function() {
+                $btn.prop('disabled', false).html('&#128200; <?php esc_html_e( 'Index for Search' ); ?>');
             });
         });
 
@@ -878,7 +1028,8 @@ function cirlot_docs_ai_process() {
     $prompt .= "Return ONLY a valid JSON object. Keys are field ids, values are strings or arrays as specified.\n";
     $prompt .= "For 'list' type, separate items with newline characters.\n";
     $prompt .= "For 'array' type, return a JSON array of strings.\n";
-    $prompt .= "No explanation, no markdown fences — just the raw JSON object.";
+    $prompt .= "No explanation, no markdown fences — just the raw JSON object.\n";
+    $prompt .= "Always include an extra field: id \"_summary\", a 1-2 sentence plain-text summary of the document suitable for search indexing.";
 
     $response = wp_remote_post(
         'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
@@ -908,7 +1059,68 @@ function cirlot_docs_ai_process() {
     $result = json_decode( trim( $text ), true );
     if ( ! is_array( $result ) ) wp_send_json_error( __( 'Could not parse AI response. Try again.' ) );
 
+    // Extract and save summary + embedding
+    $summary         = isset( $result['_summary'] ) ? sanitize_textarea_field( $result['_summary'] ) : '';
+    unset( $result['_summary'] );
+
+    $post_id         = absint( $_POST['post_id'] ?? 0 );
+    $embedding_saved = false;
+
+    if ( $post_id && current_user_can( 'edit_post', $post_id ) ) {
+        if ( $summary ) {
+            update_post_meta( $post_id, '_document_summary', $summary );
+        }
+        $index_text = trim( $summary . "\n" . mb_substr( $raw_text, 0, 8000 ) );
+        $embedding  = cirlot_docs_gemini_embed( $index_text, $api_key, $embed_error );
+        if ( $embedding ) {
+            update_post_meta( $post_id, '_document_embedding', wp_json_encode( $embedding ) );
+            $embedding_saved = true;
+        }
+    }
+
+    $result['_embedding_saved'] = $embedding_saved;
     wp_send_json_success( $result );
+}
+
+// ── AJAX: List available Gemini models (diagnostic) ─
+add_action( 'wp_ajax_cirlot_docs_list_models', 'cirlot_docs_list_models_ajax' );
+function cirlot_docs_list_models_ajax() {
+    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized.' );
+    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    if ( ! $api_key ) wp_send_json_error( 'No API key.' );
+    $r = wp_remote_get( 'https://generativelanguage.googleapis.com/v1beta/models?key=' . urlencode( $api_key ), [ 'timeout' => 15 ] );
+    if ( is_wp_error( $r ) ) wp_send_json_error( $r->get_error_message() );
+    $body   = json_decode( wp_remote_retrieve_body( $r ), true );
+    $models = $body['models'] ?? [];
+    $embed  = array_values( array_filter( $models, function( $m ) {
+        return in_array( 'embedContent', $m['supportedGenerationMethods'] ?? [], true );
+    } ) );
+    wp_send_json_success( array_column( $embed, 'name' ) );
+}
+
+// ── AJAX: Generate embedding for existing doc ─
+add_action( 'wp_ajax_cirlot_docs_generate_embedding', 'cirlot_docs_generate_embedding_ajax' );
+function cirlot_docs_generate_embedding_ajax() {
+    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+    if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+
+    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    if ( ! $api_key ) wp_send_json_error( 'Gemini API key not configured.' );
+
+    $index_text = cirlot_docs_doc_index_text( $post_id );
+    if ( ! trim( $index_text ) ) wp_send_json_error( 'No indexable content found. Add a description or title first.' );
+
+    $embedding = cirlot_docs_gemini_embed( $index_text, $api_key, $embed_error );
+    if ( ! $embedding ) wp_send_json_error( 'Embedding failed: ' . ( $embed_error ?: 'no response from API' ) );
+
+    update_post_meta( $post_id, '_document_embedding', wp_json_encode( $embedding ) );
+    wp_send_json_success( [ 'indexed' => true ] );
 }
 
 // ──────────────────────────────────────────────
@@ -2222,51 +2434,106 @@ function cirlot_docs_ai_recommend_ajax() {
     $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
-    // Fetch candidate documents via keyword search
-    $candidates = [];
-    $search_args = [
+    // Semantic search: embed query → cosine similarity → top candidates
+    $query_embedding = cirlot_docs_gemini_embed( $message, $api_key );
+
+    $all_ids = get_posts( [
         'post_type'      => 'cirlot_document',
         'post_status'    => 'publish',
-        'posts_per_page' => 25,
-        's'              => $message,
-    ];
-    $q = new WP_Query( $search_args );
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+    ] );
 
-    // If no matches, fall back to all documents
-    if ( ! $q->have_posts() ) {
-        $q = new WP_Query( [
+    $candidate_ids = [];
+
+    if ( $query_embedding && ! empty( $all_ids ) ) {
+        $scored        = [];
+        $unindexed_ids = [];
+
+        foreach ( $all_ids as $pid ) {
+            $emb_raw = get_post_meta( (int) $pid, '_document_embedding', true );
+            if ( $emb_raw ) {
+                $doc_emb = json_decode( $emb_raw, true );
+                if ( is_array( $doc_emb ) ) {
+                    $scored[] = [
+                        'pid'   => (int) $pid,
+                        'score' => cirlot_docs_cosine_similarity( $query_embedding, $doc_emb ),
+                    ];
+                } else {
+                    $unindexed_ids[] = (int) $pid;
+                }
+            } else {
+                $unindexed_ids[] = (int) $pid;
+            }
+        }
+
+        usort( $scored, function ( $a, $b ) {
+            return $b['score'] <=> $a['score'];
+        } );
+
+        $candidate_ids = array_column( array_slice( $scored, 0, 12 ), 'pid' );
+
+        // Supplement with keyword-matched unindexed docs if few semantic results
+        if ( count( $candidate_ids ) < 6 && ! empty( $unindexed_ids ) ) {
+            $kw_q = new WP_Query( [
+                'post_type'      => 'cirlot_document',
+                'post_status'    => 'publish',
+                'posts_per_page' => 8,
+                'post__in'       => $unindexed_ids,
+                's'              => $message,
+                'fields'         => 'ids',
+            ] );
+            $candidate_ids = array_unique( array_merge( $candidate_ids, array_map( 'intval', $kw_q->posts ) ) );
+            $candidate_ids = array_slice( $candidate_ids, 0, 15 );
+        }
+    } else {
+        // Embedding unavailable — keyword fallback
+        $kw_q = new WP_Query( [
             'post_type'      => 'cirlot_document',
             'post_status'    => 'publish',
-            'posts_per_page' => 40,
-            'orderby'        => 'date',
-            'order'          => 'DESC',
+            'posts_per_page' => 25,
+            's'              => $message,
+            'fields'         => 'ids',
         ] );
+        $candidate_ids = array_map( 'intval', $kw_q->posts );
+
+        if ( empty( $candidate_ids ) ) {
+            $fb_q = new WP_Query( [
+                'post_type'      => 'cirlot_document',
+                'post_status'    => 'publish',
+                'posts_per_page' => 20,
+                'orderby'        => 'date',
+                'order'          => 'DESC',
+                'fields'         => 'ids',
+            ] );
+            $candidate_ids = array_map( 'intval', $fb_q->posts );
+        }
     }
 
-    while ( $q->have_posts() ) {
-        $q->the_post();
-        $pid     = get_the_ID();
+    // Build candidate data array
+    $candidates = [];
+    foreach ( $candidate_ids as $pid ) {
+        $pid     = (int) $pid;
         $file_id = get_post_meta( $pid, '_document_file_id', true );
         $cf      = [];
         foreach ( cirlot_docs_get_global_fields() as $gf ) {
-            $fid       = $gf['id'];
+            $fid        = $gf['id'];
             $cf[ $fid ] = $fid === 'description'
                 ? get_post_meta( $pid, '_document_description', true )
                 : get_post_meta( $pid, '_document_cf_' . $fid, true );
         }
         $candidates[] = [
-            'id'          => $pid,
-            'title'       => get_the_title(),
-            'description' => get_post_meta( $pid, '_document_description', true ),
-            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
-            'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
-            'format'      => get_post_meta( $pid, '_document_file_format', true ),
-            'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
-            'file_url'    => $file_id ? wp_get_attachment_url( $file_id ) : '',
+            'id'            => $pid,
+            'title'         => get_the_title( $pid ),
+            'description'   => get_post_meta( $pid, '_document_description', true ),
+            'audience'      => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
+            'type'          => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
+            'format'        => get_post_meta( $pid, '_document_file_format', true ),
+            'pub_date'      => get_post_meta( $pid, '_document_pub_date', true ),
+            'file_url'      => $file_id ? wp_get_attachment_url( $file_id ) : '',
             'custom_fields' => $cf,
         ];
     }
-    wp_reset_postdata();
 
     // Build catalog for Gemini
     $catalog = '';
