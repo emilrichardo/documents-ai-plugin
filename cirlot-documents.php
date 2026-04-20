@@ -123,6 +123,13 @@ function cirlot_docs_meta_box_html( $post ) {
     $file_format = get_post_meta( $post->ID, '_document_file_format', true );
     $description = get_post_meta( $post->ID, '_document_description', true );
 
+    $custom_fields = [];
+    $raw_cf = get_post_meta( $post->ID, '_document_custom_fields', true );
+    if ( $raw_cf ) {
+        $decoded = json_decode( $raw_cf, true );
+        if ( is_array( $decoded ) ) $custom_fields = $decoded;
+    }
+
     // Taxonomy terms
     $audience_terms = wp_get_post_terms( $post->ID, 'document_audience', [ 'fields' => 'names' ] );
     $type_terms     = wp_get_post_terms( $post->ID, 'document_type',     [ 'fields' => 'names' ] );
@@ -181,6 +188,14 @@ function cirlot_docs_meta_box_html( $post ) {
         .required { color: red; }
         .cd-page-badge { cursor:pointer; background:#f0f6ff !important; border-color:#2271b1 !important; color:#2271b1 !important; font-size:11px !important; }
         .cd-page-badge:hover { background:#2271b1 !important; color:#fff !important; }
+        .cd-ai-label { font-weight:normal; font-size:12px; display:inline-flex; align-items:center; gap:5px; color:#555; cursor:pointer; }
+        .cd-custom-field { margin-bottom:10px; padding:10px 12px; border:1px solid #e5e5e5; border-radius:4px; background:#fafafa; }
+        .cd-custom-field .cd-field-value { width:100%; box-sizing:border-box; margin-top:4px; }
+        #cd-ai-process-wrap { margin-top:20px; padding:15px 18px; background:linear-gradient(135deg,#f0f6ff 0%,#e8f3ff 100%); border:1.5px solid #b8d4f5; border-radius:8px; }
+        #cd-ai-process-btn { font-size:13px !important; padding:6px 20px !important; height:auto !important; }
+        #cd-add-field-form { margin-top:8px; padding:10px 12px; border:1px solid #e0e0e0; border-radius:4px; background:#f9f9f9; }
+        .cd-ai-field-option { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:13px; cursor:pointer; font-weight:normal; margin:0; }
+        #cd-ai-fields-list { margin-top:4px; padding-left:20px; }
     </style>
 
     <div class="cirlot-docs-wrap">
@@ -280,9 +295,91 @@ function cirlot_docs_meta_box_html( $post ) {
         </div>
 
         <!-- Description -->
-        <div>
+        <div style="margin-bottom:16px;">
             <label for="cd-description"><?php esc_html_e( 'Document Description' ); ?></label>
             <textarea id="cd-description" name="document_description"><?php echo esc_textarea( $description ); ?></textarea>
+        </div>
+
+        <!-- Custom AI Fields -->
+        <div id="cd-custom-fields-wrap">
+            <div id="cd-custom-fields-list">
+                <?php foreach ( $custom_fields as $field ) :
+                    $fid = esc_attr( $field['id'] );
+                    $flabel = esc_html( $field['label'] ?? '' );
+                    $ftype  = $field['type'] ?? 'text';
+                    $fval   = $field['value'] ?? '';
+                ?>
+                <div class="cd-custom-field" data-id="<?php echo $fid; ?>">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <strong style="font-size:13px;"><?php echo $flabel; ?></strong>
+                        <button type="button" class="cd-field-remove button button-small">&times;</button>
+                    </div>
+                    <?php if ( $ftype === 'text' ) : ?>
+                    <input type="text" class="cd-field-value large-text" value="<?php echo esc_attr( $fval ); ?>">
+                    <?php else : ?>
+                    <textarea class="cd-field-value large-text" rows="<?php echo $ftype === 'list' ? 4 : 3; ?>"><?php echo esc_textarea( $fval ); ?></textarea>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div style="margin-top:8px;">
+                <button type="button" id="cd-add-field-btn" class="button">+ <?php esc_html_e( 'Add Field' ); ?></button>
+                <div id="cd-add-field-form" style="display:none;">
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input type="text" id="cd-new-field-label" placeholder="<?php esc_attr_e( 'Field name…' ); ?>" style="flex:1;min-width:150px;">
+                        <select id="cd-new-field-type">
+                            <option value="text"><?php esc_html_e( 'Text' ); ?></option>
+                            <option value="textarea"><?php esc_html_e( 'Textarea' ); ?></option>
+                            <option value="list"><?php esc_html_e( 'List' ); ?></option>
+                        </select>
+                        <button type="button" id="cd-new-field-add" class="button button-primary"><?php esc_html_e( 'Add' ); ?></button>
+                        <button type="button" id="cd-new-field-cancel" class="button"><?php esc_html_e( 'Cancel' ); ?></button>
+                    </div>
+                </div>
+            </div>
+
+            <input type="hidden" name="document_custom_fields" id="cd-custom-fields-data"
+                   value="<?php echo esc_attr( wp_json_encode( $custom_fields ) ); ?>">
+        </div>
+
+        <!-- Process with AI -->
+        <div id="cd-ai-process-wrap">
+            <div style="margin-bottom:12px;">
+                <strong style="font-size:13px;display:block;margin-bottom:6px;"><?php esc_html_e( 'Fields to complete:' ); ?></strong>
+                <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-weight:600;font-size:13px;cursor:pointer;margin:0;">
+                    <input type="checkbox" id="cd-ai-select-all" checked>
+                    <?php esc_html_e( 'Select All' ); ?>
+                </label>
+                <div id="cd-ai-fields-list">
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="title">
+                        <?php esc_html_e( 'Title' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="description" checked>
+                        <?php esc_html_e( 'Document Description' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="file_format" checked>
+                        <?php esc_html_e( 'File Format' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="audience" checked>
+                        <?php esc_html_e( 'Audience' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="document_type" checked>
+                        <?php esc_html_e( 'Document Type' ); ?>
+                    </label>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <button type="button" id="cd-ai-process-btn" class="button button-primary">
+                    &#9889; <?php esc_html_e( 'Process with AI' ); ?>
+                </button>
+                <span id="cd-ai-status" style="font-size:12px;color:#555;"></span>
+            </div>
         </div>
 
     </div><!-- .cirlot-docs-wrap -->
@@ -305,6 +402,12 @@ function cirlot_docs_meta_box_html( $post ) {
 
     <script>
     (function($) {
+        var cdAjaxUrl        = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+        var cdAjaxNonce      = <?php echo wp_json_encode( wp_create_nonce( 'cirlot_docs_ai' ) ); ?>;
+        var cdFields         = <?php echo wp_json_encode( $custom_fields ); ?>;
+        var cdAudienceOptions = <?php echo wp_json_encode( cirlot_docs_get_audiences() ); ?>;
+        var cdTypeOptions     = <?php echo wp_json_encode( cirlot_docs_get_types() ); ?>;
+
         // ── Media uploader ──────────────────────────────
         var mediaFrame;
         var iconMap = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'excel', xlsx: 'excel' };
@@ -316,6 +419,11 @@ function cirlot_docs_meta_box_html( $post ) {
         function iconLabel(ext) {
             var labels = { pdf:'PDF', doc:'DOC', docx:'DOCX', xls:'XLS', xlsx:'XLSX' };
             return labels[ext] || (ext ? ext.toUpperCase() : 'FILE');
+        }
+        function cdTitleFromFilename(filename) {
+            var name = filename.replace(/\.[^/.]+$/, '');
+            name = name.replace(/[-_]+/g, ' ').trim();
+            return name.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
         }
 
         $(document).on('click', '#cd-upload-btn', function(e) {
@@ -335,6 +443,11 @@ function cirlot_docs_meta_box_html( $post ) {
                     '<span><a href="' + a.url + '" target="_blank">' + $('<span>').text(a.filename).html() + '</a></span>' +
                     (a.filesizeHumanReadable ? '<span>' + a.filesizeHumanReadable + '</span>' : '')
                 );
+                var autoTitle = cdTitleFromFilename(a.filename);
+                if (autoTitle) { $('#title').val(autoTitle).trigger('keyup').trigger('focus').trigger('blur'); }
+                if (ext === 'pdf') {
+                    $('input[name="document_file_format"][value="pdf"]').prop('checked', true);
+                }
                 $('#cd-file-preview').show();
                 // swap standalone upload button for the card's Replace button
                 $('#cd-upload-btn').not('#cd-file-preview #cd-upload-btn').hide();
@@ -465,10 +578,17 @@ function cirlot_docs_meta_box_html( $post ) {
                     if ($h.length) addTag($h.data('value'));
                 }
             });
+
+            function clearTags() {
+                $box.find('.cd-tag').remove();
+                updateHidden();
+            }
+
+            return { addTag: addTag, clearTags: clearTags };
         }
 
-        initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
-        initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
+        var cdAudienceSelect = initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
+        var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
 
         // ── PDF Text Extraction ───────────────────────
         var cdPageTexts = {};
@@ -535,9 +655,209 @@ function cirlot_docs_meta_box_html( $post ) {
         }
 
         // Auto-extract on page load if a PDF is already set
-        <?php if ( $file_id && $file_format === 'pdf' && $file_url ) : ?>
-        $(function() { cdExtractPdf(<?php echo json_encode( $file_url ); ?>); });
+        <?php
+        $file_ext_loaded = $file_id ? strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) : '';
+        if ( $file_id && $file_ext_loaded === 'pdf' && $file_url ) :
+        ?>
+        $(function() {
+            $('input[name="document_file_format"][value="pdf"]').prop('checked', true);
+            $('#cd-page-badges-wrap').show();
+            cdExtractPdf(<?php echo json_encode( $file_url ); ?>);
+        });
         <?php endif; ?>
+
+        // ── Custom AI Fields ──────────────────────────
+        function cdUid() {
+            return 'field_' + Math.random().toString(36).slice(2, 9);
+        }
+
+        function cdRenderField(field) {
+            var esc = function(s) { return $('<span>').text(s).html(); };
+            var inputHtml;
+            if (field.type === 'text') {
+                inputHtml = '<input type="text" class="cd-field-value large-text" value="' + esc(field.value || '') + '">';
+            } else {
+                var rows = field.type === 'list' ? 4 : 3;
+                inputHtml = '<textarea class="cd-field-value large-text" rows="' + rows + '">' + esc(field.value || '') + '</textarea>';
+            }
+            return $(
+                '<div class="cd-custom-field" data-id="' + esc(field.id) + '">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<strong style="font-size:13px;">' + esc(field.label) + '</strong>' +
+                        '<button type="button" class="cd-field-remove button button-small">&times;</button>' +
+                    '</div>' +
+                    inputHtml +
+                '</div>'
+            );
+        }
+
+        function cdSerializeFields() {
+            var result = [];
+            $('#cd-custom-fields-list .cd-custom-field').each(function() {
+                var id    = $(this).data('id');
+                var field = cdFields.find(function(f) { return f.id === id; });
+                if (!field) return;
+                field.value = $(this).find('.cd-field-value').val() || '';
+                result.push(field);
+            });
+            cdFields = result;
+            $('#cd-custom-fields-data').val(JSON.stringify(result));
+        }
+
+        $(document).on('click', '.cd-field-remove', function() {
+            var id = $(this).closest('.cd-custom-field').data('id');
+            cdFields = cdFields.filter(function(f) { return f.id !== id; });
+            $(this).closest('.cd-custom-field').remove();
+            cdSerializeFields();
+            cdSyncAiFieldList();
+        });
+
+        $(document).on('input change', '.cd-field-value', cdSerializeFields);
+
+        $('#cd-add-field-btn').on('click', function() {
+            $('#cd-add-field-form').show();
+            $('#cd-new-field-label').focus();
+        });
+        $('#cd-new-field-cancel').on('click', function() {
+            $('#cd-add-field-form').hide();
+            $('#cd-new-field-label').val('');
+        });
+
+        function cdAddField() {
+            var label = $('#cd-new-field-label').val().trim();
+            if (!label) { $('#cd-new-field-label').focus(); return; }
+            var field = { id: cdUid(), label: label, type: $('#cd-new-field-type').val(), value: '' };
+            cdFields.push(field);
+            $('#cd-custom-fields-list').append(cdRenderField(field));
+            cdSerializeFields();
+            cdSyncAiFieldList();
+            $('#cd-add-field-form').hide();
+            $('#cd-new-field-label').val('');
+        }
+        $('#cd-new-field-add').on('click', cdAddField);
+        $('#cd-new-field-label').on('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); cdAddField(); }
+        });
+
+        // ── AI fields checklist sync ──────────────────
+        function cdSyncAiFieldList() {
+            $('#cd-ai-fields-list .cd-ai-custom-field-option').remove();
+            cdFields.forEach(function(f) {
+                var esc = function(s) { return $('<span>').text(s).html(); };
+                var $opt = $('<label class="cd-ai-field-option cd-ai-custom-field-option"></label>');
+                $opt.append('<input type="checkbox" class="cd-ai-field-check" data-field-id="' + esc(f.id) + '" checked> ');
+                $opt.append($('<span>').text(f.label));
+                $('#cd-ai-fields-list').append($opt);
+            });
+            cdUpdateSelectAll();
+        }
+
+        function cdUpdateSelectAll() {
+            var $checks = $('.cd-ai-field-check');
+            var checked = $checks.filter(':checked').length;
+            var $all = $('#cd-ai-select-all');
+            $all.prop('checked', checked === $checks.length);
+            $all.prop('indeterminate', checked > 0 && checked < $checks.length);
+        }
+
+        $('#cd-ai-select-all').on('change', function() {
+            $('.cd-ai-field-check').prop('checked', $(this).prop('checked'));
+        });
+
+        $(document).on('change', '.cd-ai-field-check', cdUpdateSelectAll);
+
+        cdSyncAiFieldList();
+
+        // ── Process with AI ───────────────────────────
+        $('#cd-ai-process-btn').on('click', function() {
+            cdSerializeFields();
+
+            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
+                return '--- Page ' + p + ' ---\n' + cdPageTexts[p];
+            }).join('\n\n');
+
+            if (!rawText) {
+                $('#cd-ai-status').text('<?php esc_html_e( 'No PDF text — load a PDF and wait for extraction.' ); ?>');
+                return;
+            }
+
+            var staticDefs = {
+                title:         { id: 'title',         label: '<?php esc_js( __( 'Document Title' ) ); ?>',       type: 'text' },
+                description:   { id: 'description',   label: '<?php esc_js( __( 'Document Description' ) ); ?>', type: 'textarea' },
+                file_format:   { id: 'file_format',   label: '<?php esc_js( __( 'File Format' ) ); ?>',          type: 'file_format' },
+                audience:      { id: 'audience',      label: '<?php esc_js( __( 'Audience' ) ); ?>',             type: 'multiselect', options: cdAudienceOptions },
+                document_type: { id: 'document_type', label: '<?php esc_js( __( 'Document Type' ) ); ?>',        type: 'multiselect', options: cdTypeOptions }
+            };
+
+            var fieldsToFill = [];
+            $('.cd-ai-field-check:checked').each(function() {
+                var fid = $(this).data('field-id');
+                if (staticDefs[fid]) {
+                    fieldsToFill.push(staticDefs[fid]);
+                } else {
+                    var f = cdFields.find(function(cf) { return cf.id === fid; });
+                    if (f) fieldsToFill.push({ id: f.id, label: f.label, type: f.type });
+                }
+            });
+
+            if (!fieldsToFill.length) {
+                $('#cd-ai-status').text('<?php esc_html_e( 'Select at least one field.' ); ?>');
+                return;
+            }
+
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('<?php esc_html_e( 'Processing…' ); ?>');
+            $('#cd-ai-status').text('');
+
+            $.post(cdAjaxUrl, {
+                action:   'cirlot_docs_ai_process',
+                nonce:    cdAjaxNonce,
+                raw_text: rawText,
+                fields:   JSON.stringify(fieldsToFill)
+            })
+            .done(function(res) {
+                if (!res.success) {
+                    $('#cd-ai-status').text('Error: ' + res.data);
+                    return;
+                }
+                var data = res.data;
+                if (data.title !== undefined) {
+                    $('#title').val(data.title);
+                }
+                if (data.description !== undefined) {
+                    $('#cd-description').val(data.description);
+                }
+                if (data.file_format !== undefined) {
+                    $('input[name="document_file_format"][value="' + data.file_format + '"]').prop('checked', true);
+                }
+                if (data.audience !== undefined) {
+                    var audiences = Array.isArray(data.audience) ? data.audience : String(data.audience).split(',');
+                    cdAudienceSelect.clearTags();
+                    audiences.forEach(function(a) { var t = a.trim(); if (t) cdAudienceSelect.addTag(t); });
+                }
+                if (data.document_type !== undefined) {
+                    var types = Array.isArray(data.document_type) ? data.document_type : String(data.document_type).split(',');
+                    cdTypeSelect.clearTags();
+                    types.forEach(function(t) { var s = t.trim(); if (s) cdTypeSelect.addTag(s); });
+                }
+                cdFields.forEach(function(f) {
+                    if (data[f.id] !== undefined) {
+                        $('#cd-custom-fields-list .cd-custom-field[data-id="' + f.id + '"] .cd-field-value').val(data[f.id]);
+                        f.value = data[f.id];
+                    }
+                });
+                cdSerializeFields();
+                $('#cd-ai-status').text('<?php esc_html_e( 'Done.' ); ?>');
+                setTimeout(function() { $('#cd-ai-status').text(''); }, 3000);
+            })
+            .fail(function(xhr) {
+                var msg = xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data : xhr.statusText;
+                $('#cd-ai-status').text('Error: ' + msg);
+            })
+            .always(function() {
+                $btn.prop('disabled', false).html('&#9889; <?php esc_html_e( 'Process with AI' ); ?>');
+            });
+        });
 
         function cdOpenPageModal(pageNum) {
             $('#cd-modal-title').text('Page ' + pageNum);
@@ -605,6 +925,26 @@ function cirlot_docs_save_meta( $post_id ) {
     if ( isset( $_POST['document_description'] ) ) {
         update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $_POST['document_description'] ) );
     }
+    update_post_meta( $post_id, '_document_description_ai', ! empty( $_POST['document_description_ai'] ) ? '1' : '' );
+
+    // Custom AI fields
+    if ( isset( $_POST['document_custom_fields'] ) ) {
+        $raw_json = stripslashes( $_POST['document_custom_fields'] );
+        $decoded  = json_decode( $raw_json, true );
+        if ( is_array( $decoded ) ) {
+            $allowed_types = [ 'text', 'textarea', 'list' ];
+            $clean = array_map( function( $f ) use ( $allowed_types ) {
+                return [
+                    'id'    => preg_replace( '/[^a-z0-9_]/', '', $f['id'] ?? '' ),
+                    'label' => sanitize_text_field( $f['label'] ?? '' ),
+                    'type'  => in_array( $f['type'] ?? '', $allowed_types, true ) ? $f['type'] : 'text',
+                    'value' => sanitize_textarea_field( $f['value'] ?? '' ),
+                    'ai'    => ! empty( $f['ai'] ),
+                ];
+            }, array_values( $decoded ) );
+            update_post_meta( $post_id, '_document_custom_fields', wp_json_encode( $clean ) );
+        }
+    }
 
     // Audience taxonomy
     if ( isset( $_POST['document_audience_terms'] ) ) {
@@ -620,7 +960,86 @@ function cirlot_docs_save_meta( $post_id ) {
 }
 
 // ──────────────────────────────────────────────
-// 5. Admin Menu — Settings submenu
+// 5. AI Processing — Gemini AJAX handler
+// ──────────────────────────────────────────────
+add_action( 'wp_ajax_cirlot_docs_ai_process', 'cirlot_docs_ai_process' );
+function cirlot_docs_ai_process() {
+    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+    if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
+
+    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
+    $fields   = json_decode( stripslashes( $_POST['fields'] ?? '[]' ), true );
+
+    if ( ! $raw_text )     wp_send_json_error( __( 'No text provided. Extract PDF pages first.' ) );
+    if ( empty( $fields ) ) wp_send_json_error( __( 'No fields selected for AI completion.' ) );
+
+    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+
+    if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured in Settings.' ) );
+
+    $available_audiences = implode( ', ', cirlot_docs_get_audiences() );
+    $available_types     = implode( ', ', cirlot_docs_get_types() );
+
+    $fields_desc = '';
+    foreach ( $fields as $f ) {
+        $id    = $f['id']    ?? '';
+        $label = $f['label'] ?? '';
+        $type  = $f['type']  ?? 'text';
+
+        if ( $id === 'file_format' ) {
+            $fields_desc .= '- id: "file_format", label: "' . $label . '", type: text (respond with EXACTLY one of: pdf, word, excel)' . "\n";
+        } elseif ( $id === 'audience' ) {
+            $fields_desc .= '- id: "audience", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_audiences . ')' . "\n";
+        } elseif ( $id === 'document_type' ) {
+            $fields_desc .= '- id: "document_type", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_types . ')' . "\n";
+        } else {
+            $type_hint    = $type === 'list' ? 'list (one item per line)' : $type;
+            $fields_desc .= '- id: "' . $id . '", label: "' . $label . '", type: ' . $type_hint . "\n";
+        }
+    }
+
+    $prompt  = "You are a professional document analyst. Read the document text and fill in each field.\n\n";
+    $prompt .= "DOCUMENT TEXT:\n" . mb_substr( $raw_text, 0, 30000 ) . "\n\n";
+    $prompt .= "FIELDS TO COMPLETE:\n" . $fields_desc . "\n";
+    $prompt .= "Return ONLY a valid JSON object. Keys are field ids, values are strings or arrays as specified.\n";
+    $prompt .= "For 'list' type, separate items with newline characters.\n";
+    $prompt .= "For 'array' type, return a JSON array of strings.\n";
+    $prompt .= "No explanation, no markdown fences — just the raw JSON object.";
+
+    $response = wp_remote_post(
+        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
+        [
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => wp_json_encode( [
+                'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+                'generationConfig' => [ 'temperature' => 0.1, 'responseMimeType' => 'application/json' ],
+            ] ),
+            'timeout' => 60,
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+    if ( $code !== 200 ) {
+        wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    }
+
+    $text = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $text = preg_replace( '/^```(?:json)?\s*/m', '', trim( $text ) );
+    $text = preg_replace( '/\s*```\s*$/m', '', $text );
+
+    $result = json_decode( trim( $text ), true );
+    if ( ! is_array( $result ) ) wp_send_json_error( __( 'Could not parse AI response. Try again.' ) );
+
+    wp_send_json_success( $result );
+}
+
+// ──────────────────────────────────────────────
+// 6. Admin Menu — Settings submenu
 // ──────────────────────────────────────────────
 add_action( 'admin_menu', 'cirlot_docs_admin_menu' );
 function cirlot_docs_admin_menu() {
