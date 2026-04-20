@@ -1177,8 +1177,10 @@ function cirlot_docs_settings_page() { // phpcs:ignore
             <tbody>
                 <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from URL.' ); ?></td></tr>
                 <tr><td><code>audience</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select an audience. Also reads ?audience= from URL.' ); ?></td></tr>
-                <tr><td><code>per_page</code></td><td><code>10</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
-                <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to hide the AI assistant.' ); ?></td></tr>
+
+                <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to disable inline AI suggestions in the search bar.' ); ?></td></tr>
+                <tr><td><code>show_chat</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to hide the floating AI chat bubble.' ); ?></td></tr>
+                <tr><td><code>per_page</code></td><td><code>20</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
             </tbody>
         </table>
     </div>
@@ -1323,10 +1325,11 @@ register_deactivation_hook( __FILE__, 'flush_rewrite_rules' );
 add_shortcode( 'cirlot_document_search', 'cirlot_docs_search_shortcode' );
 function cirlot_docs_search_shortcode( $atts ) {
     $atts = shortcode_atts( [
-        'type'     => '',
-        'audience' => '',
-        'per_page' => 10,
-        'show_ai'  => 'true',
+        'type'      => '',
+        'audience'  => '',
+        'per_page'  => 20,
+        'show_ai'   => 'true',
+        'show_chat' => 'true',
     ], $atts );
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );
@@ -1347,7 +1350,8 @@ function cirlot_docs_search_shortcode( $atts ) {
         if ( strtolower( $a ) === strtolower( $default_audience ) ) { $matched_audience = $a; break; }
     }
 
-    $show_ai   = $atts['show_ai'] !== 'false';
+    $show_ai   = $atts['show_ai']   !== 'false';
+    $show_chat = $atts['show_chat'] !== 'false';
     $per_page  = max( 1, min( 50, (int) $atts['per_page'] ) );
     $uid       = 'cds_' . wp_unique_id();
     $nonce     = wp_create_nonce( 'cirlot_docs_search' );
@@ -1362,7 +1366,8 @@ function cirlot_docs_search_shortcode( $atts ) {
     $js_nonce   = wp_json_encode( $nonce );
     $js_ainonce = wp_json_encode( $ai_nonce );
     $js_pp      = (int) $per_page;
-    $js_showai  = $show_ai ? 'true' : 'false';
+    $js_showai  = $show_ai   ? 'true' : 'false';
+    $js_showchat = $show_chat ? 'true' : 'false';
     $js_notext  = esc_js( __( 'No documents found. Try different search terms.' ) );
     $js_errtxt  = esc_js( __( 'Error loading results.' ) );
     $js_loading = esc_js( __( 'Searching…' ) );
@@ -1370,48 +1375,75 @@ function cirlot_docs_search_shortcode( $atts ) {
     $js_page    = esc_js( __( 'Page' ) );
     $js_of      = esc_js( __( 'of' ) );
     $js_dl      = esc_js( __( 'Download' ) );
-    $js_apply   = esc_js( __( 'Apply filters →' ) );
-    $js_sorry   = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
-    $js_conn    = esc_js( __( 'Connection error. Please try again.' ) );
-    $js_send    = esc_js( __( 'Send' ) );
+    $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
+    $js_conn       = esc_js( __( 'Connection error. Please try again.' ) );
+    $js_send       = esc_js( __( 'Send' ) );
+    $js_ai_thinking = esc_js( __( 'AI is analyzing your query…' ) );
+    $js_ai_label   = esc_js( __( 'AI Suggestion' ) );
+    $js_ai_view    = esc_js( __( 'View details' ) );
     $js_nopdf        = esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) );
     $js_selone       = esc_js( __( 'Select at least one field.' ) );
     $js_globalfields = wp_json_encode( cirlot_docs_get_global_fields() );
 
     $js = <<<ENDSCRIPT
 jQuery(function($){
-    var uid={$js_uid},ajaxUrl={$js_ajax},nonce={$js_nonce},aiNonce={$js_ainonce},perPage={$js_pp},showAi={$js_showai};
+    var uid={$js_uid},ajaxUrl={$js_ajax},nonce={$js_nonce},aiNonce={$js_ainonce},perPage={$js_pp},showAi={$js_showai},showChat={$js_showchat};
     var globalFields={$js_globalfields};
     var \$wrap=\$('#'+uid),\$results=\$wrap.find('.cd-fs-results'),currentPage=1,botHistory=[],lastFilters=null;
     var \$aiExplain=\$wrap.find('.cd-fs-ai-explain');
     var \$kwWrap=\$wrap.find('.cd-fs-keyword-wrap');
     var \$kw=\$wrap.find('.cd-fs-keyword');
     var \$suggestions=\$('<div class="cd-fs-suggestions"></div>').appendTo(\$kwWrap);
-    var _suggTimer,_explainXhr;
+    var _suggTimer,_explainXhr,_aiTimer;
 
     \$kw.on('input',function(){
         clearTimeout(_suggTimer);
+        clearTimeout(_aiTimer);
         var val=\$(this).val().trim();
-        if(val.length<2){\$suggestions.hide().empty();return;}
-        _suggTimer=setTimeout(function(){
-            \$.post(ajaxUrl,{action:'cirlot_docs_search',nonce:nonce,keyword:val,page:1,per_page:6})
-            .done(function(res){
-                \$suggestions.empty();
-                if(!res.success||!res.data.results.length){\$suggestions.hide();return;}
-                \$.each(res.data.results,function(_,doc){
-                    var fmt=doc.format||'generic';
-                    var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
-                    var \$s=\$('<div class="cd-fs-suggestion"></div>');
-                    \$('<span class="cd-fs-suggestion-title"></span>').text(doc.title).appendTo(\$s);
-                    \$s.append(\$('<span class="cd-fs-doc-tag format-'+fmt+'">'+lbl+'</span>'));
-                    \$s.on('click',function(){\$kw.val(doc.title);\$suggestions.hide().empty();doSearch(1);});
-                    \$suggestions.append(\$s);
+        /* autocomplete dropdown */
+        if(val.length>=2){
+            _suggTimer=setTimeout(function(){
+                \$.post(ajaxUrl,{action:'cirlot_docs_search',nonce:nonce,keyword:val,page:1,per_page:6})
+                .done(function(res){
+                    \$suggestions.empty();
+                    if(!res.success||!res.data.results.length){\$suggestions.hide();return;}
+                    \$.each(res.data.results,function(_,doc){
+                        var fmt=doc.format||'generic';
+                        var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
+                        var \$s=\$('<div class="cd-fs-suggestion"></div>');
+                        \$('<span class="cd-fs-suggestion-title"></span>').text(doc.title).appendTo(\$s);
+                        \$s.append(\$('<span class="cd-fs-doc-tag format-'+fmt+'">'+lbl+'</span>'));
+                        \$s.on('click',function(){\$kw.val(doc.title);\$suggestions.hide().empty();doSearch(1);});
+                        \$suggestions.append(\$s);
+                    });
+                    \$suggestions.show();
                 });
-                \$suggestions.show();
-            });
-        },380);
+            },380);
+        } else {
+            \$suggestions.hide().empty();
+        }
+        /* AI recommendation on typing */
+        if(showAi){
+            if(val.length<2){\$aiExplain.empty();\$results.empty();return;}
+            \$aiExplain.empty();\$results.empty();
+            _aiTimer=setTimeout(function(){
+                var aud=\$wrap.find('.cd-fs-audience').val();
+                var typ=\$wrap.find('.cd-fs-type').val();
+                fetchAiRecommend(val,aud,typ);
+            },600);
+        }
     });
     \$(document).on('click.cdsugg'+uid,function(e){if(!\$(e.target).closest('.cd-fs-keyword-wrap').length)\$suggestions.hide();});
+
+    var \$kwClear=\$wrap.find('.cd-fs-kw-clear');
+    \$kw.on('input.clear',function(){\$kwClear.toggleClass('visible',\$(this).val().length>0);});
+    \$kwClear.on('click',function(){
+        clearTimeout(_aiTimer);clearTimeout(_suggTimer);
+        if(_explainXhr)_explainXhr.abort();
+        \$kw.val('');\$kwClear.removeClass('visible');
+        \$suggestions.hide().empty();\$aiExplain.empty();
+        doSearch(1);\$kw.focus();
+    });
 
     var \$modalOverlay=\$('#cd-doc-modal-overlay-'+uid);
     \$('body').append(\$modalOverlay.detach());
@@ -1507,24 +1539,37 @@ jQuery(function($){
         }
     }
 
-    function fetchAiExplain(results,kw,aud,typ){
+    function fetchAiRecommend(kw,aud,typ){
         if(_explainXhr)_explainXhr.abort();
-        \$aiExplain.html('<div class="cd-fs-ai-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Analyzing results…</div>');
-        var titles=[];
-        \$.each(results.slice(0,8),function(_,d){titles.push(d.title);});
+        var query=[kw,aud,typ].filter(Boolean).join(' ');
+        if(!query){\$aiExplain.empty();return;}
+        \$aiExplain.html('<div class="cd-fs-ai-thinking"><div class="cd-fs-ai-thinking-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><span class="cd-fs-ai-thinking-text">{$js_ai_thinking}<span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></span></div>');
         _explainXhr=\$.post(ajaxUrl,{
-            action:'cirlot_docs_ai_explain',nonce:aiNonce,
-            keyword:kw,audience:aud,type:typ,
-            titles:JSON.stringify(titles)
+            action:'cirlot_docs_ai_recommend',nonce:aiNonce,
+            message:query,history:'[]'
         }).done(function(res){
-            if(res.success&&res.data.explanation){
-                var \$box=\$('<div class="cd-fs-ai-explain-box"></div>');
-                \$box.append('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>');
-                \$box.append(\$('<span></span>').text(res.data.explanation));
-                \$aiExplain.html('').append(\$box);
-            } else {
-                \$aiExplain.empty();
-            }
+            if(!res.success){\$aiExplain.empty();return;}
+            var \$box=\$('<div class="cd-fs-ai-suggest-box"></div>');
+            var \$lbl=\$('<div class="cd-fs-ai-suggest-label"></div>');
+            \$lbl.append('<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>');
+            \$lbl.append(\$('<span>{$js_ai_label}</span>'));
+            \$box.append(\$lbl);
+            if(res.data.message)\$box.append(\$('<p class="cd-fs-ai-suggest-msg"></p>').text(res.data.message));
+            \$.each(res.data.docs||[],function(_,doc){
+                var fmt=doc.format||'generic';
+                var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
+                var \$card=\$('<div class="cd-fs-ai-suggest-doc"></div>');
+                \$('<div class="cd-fs-doc-icon '+fmt+'"></div>').text(lbl).appendTo(\$card);
+                var \$info=\$('<div class="cd-fs-ai-suggest-doc-info"></div>');
+                \$('<div class="cd-fs-ai-suggest-doc-title"></div>').text(doc.title).appendTo(\$info);
+                var \$actions=\$('<div class="cd-fs-ai-suggest-doc-actions"></div>');
+                \$('<button class="cd-fs-ai-suggest-view" type="button">{$js_ai_view}</button>').on('click',function(){openModal(doc);}).appendTo(\$actions);
+                if(doc.file_url)\$('<a class="cd-fs-doc-dl" target="_blank" download>{$js_dl} \u2193</a>').attr('href',doc.file_url).appendTo(\$actions);
+                \$info.append(\$actions);
+                \$card.append(\$info);
+                \$box.append(\$card);
+            });
+            \$aiExplain.html('').append(\$box);
         }).fail(function(){\$aiExplain.empty();});
     }
 
@@ -1540,17 +1585,10 @@ jQuery(function($){
             keyword:kw,audience:aud,type:typ,
             page:page,per_page:perPage
         }).done(function(res){
-            if(res.success){
-                renderResults(res.data);
-                if(showAi&&res.data.results.length)fetchAiExplain(res.data.results,kw,aud,typ);
-                else \$aiExplain.empty();
-            } else {
-                \$results.html('<div class="cd-fs-empty">{$js_errtxt}</div>');
-                \$aiExplain.empty();
-            }
+            if(res.success)renderResults(res.data);
+            else \$results.html('<div class="cd-fs-empty">{$js_errtxt}</div>');
         }).fail(function(){
             \$results.html('<div class="cd-fs-empty">{$js_errtxt}</div>');
-            \$aiExplain.empty();
         });
     }
 
@@ -1558,7 +1596,7 @@ jQuery(function($){
     \$wrap.find('.cd-fs-keyword').on('keydown',function(e){if(e.key==='Enter')doSearch(1);});
     doSearch(1);
 
-    if(!showAi)return;
+    if(!showChat)return;
 
     var \$toggle=\$('#cd-bot-toggle-'+uid),\$panel=\$('#cd-bot-panel-'+uid);
     var \$messages=\$('#cd-bot-messages-'+uid),\$input=\$('#cd-bot-input-'+uid),\$send=\$('#cd-bot-send-'+uid);
@@ -1566,31 +1604,40 @@ jQuery(function($){
     \$toggle.on('click',function(){\$panel.toggleClass('open');if(\$panel.hasClass('open'))\$input.focus();});
     \$('#cd-bot-close-'+uid).on('click',function(){\$panel.removeClass('open');});
 
-    function addMsg(text,role,filters){
-        var \$msg=\$('<div class="cd-bot-msg '+role+'"></div>').text(text);
-        if(filters&&(filters.keyword||filters.audience||filters.type)){
-            lastFilters=filters;
-            var \$btn=\$('<button class="cd-bot-apply" type="button">{$js_apply}</button>');
-            \$btn.on('click',function(){
-                if(filters.keyword)\$wrap.find('.cd-fs-keyword').val(filters.keyword);
-                if(filters.audience)\$wrap.find('.cd-fs-audience').val(filters.audience);
-                if(filters.type)\$wrap.find('.cd-fs-type').val(filters.type);
-                doSearch(1);\$panel.removeClass('open');
+    function addTurn(role,text,docs){
+        var \$turn=\$('<div class="cd-bot-turn '+role+'"></div>');
+        \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
+        if(docs&&docs.length){
+            \$.each(docs,function(_,doc){
+                var fmt=doc.format||'generic';
+                var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
+                var \$card=\$('<div class="cd-bot-doc-card"></div>');
+                \$('<div class="cd-bot-doc-icon '+fmt+'"></div>').text(lbl).appendTo(\$card);
+                var \$info=\$('<div class="cd-bot-doc-info"></div>');
+                \$('<div class="cd-bot-doc-title"></div>').text(doc.title).appendTo(\$info);
+                if(doc.file_url){
+                    \$('<a class="cd-bot-doc-dl" target="_blank" download>\u2193 Download</a>').attr('href',doc.file_url).appendTo(\$info);
+                }
+                \$card.append(\$info);
+                \$card.on('click',function(e){if(!\$(e.target).closest('a').length)openModal(doc);});
+                \$turn.append(\$card);
             });
-            \$msg.append(\$('<br>')).append(\$btn);
         }
-        \$messages.append(\$msg);\$messages.scrollTop(\$messages[0].scrollHeight);
+        \$messages.append(\$turn);\$messages.scrollTop(\$messages[0].scrollHeight);
     }
 
     function sendBotMessage(){
         var msg=\$input.val().trim();if(!msg)return;
-        addMsg(msg,'user');\$input.val('');\$send.prop('disabled',true).text('…');
+        addTurn('user',msg);\$input.val('');\$send.prop('disabled',true).text('…');
         botHistory.push({role:'user',text:msg});
-        \$.post(ajaxUrl,{action:'cirlot_docs_ai_search',nonce:aiNonce,message:msg,history:JSON.stringify(botHistory.slice(-6))})
+        var \$thinking=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> …</div>').appendTo(\$messages);
+        \$messages.scrollTop(\$messages[0].scrollHeight);
+        \$.post(ajaxUrl,{action:'cirlot_docs_ai_recommend',nonce:aiNonce,message:msg,history:JSON.stringify(botHistory.slice(-6))})
         .done(function(res){
-            if(res.success){addMsg(res.data.message,'bot',res.data.filters);botHistory.push({role:'model',text:res.data.message});}
-            else addMsg('{$js_sorry}','bot');
-        }).fail(function(){addMsg('{$js_conn}','bot');})
+            \$thinking.remove();
+            if(res.success){addTurn('bot',res.data.message,res.data.docs);botHistory.push({role:'model',text:res.data.message});}
+            else addTurn('bot','{$js_sorry}');
+        }).fail(function(){\$thinking.remove();addTurn('bot','{$js_conn}');})
         .always(function(){\$send.prop('disabled',false).text('{$js_send}');});
     }
 
@@ -1608,15 +1655,20 @@ ENDSCRIPT;
     <style>
     .cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
     .cd-fs-card{background:#fff;border:1.5px solid #d8dde6;border-radius:14px;padding:36px 40px 32px;}
-    .cd-fs-title{text-align:center;font-size:26px;font-weight:700;color:#1a2744;margin:0 0 28px;display:flex;align-items:center;gap:16px;}
+    .cd-fs-title{text-align:center;font-size:26px;font-weight:700;color:#1a2744;margin:0 0 6px;display:flex;align-items:center;gap:16px;}
     .cd-fs-title::before,.cd-fs-title::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,transparent,#c8d0dc);}
     .cd-fs-title::after{background:linear-gradient(to left,transparent,#c8d0dc);}
+    .cd-fs-subtitle{text-align:center;font-size:13px;color:#6b7280;margin:0 0 24px;display:flex;align-items:center;justify-content:center;gap:6px;}
+    .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#e8f0fb,#dbeafe);border:1px solid #bfdbfe;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:#2c4a7c;}
     /* Single-row controls */
     .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
     .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
-    .cd-fs-keyword-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
-    .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 14px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:#1a2744;background:#fff;outline:none;transition:border-color .18s;}
+    .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
+    .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:#1a2744;background:#fff;outline:none;transition:border-color .18s;}
     .cd-fs-keyword:focus{border-color:#2c4a7c;}
+    .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
+    .cd-fs-kw-clear:hover{color:#1a2744;background:#f0f2f5;}
+    .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
     .cd-fs-select-wrap{flex:1;min-width:120px;}
     .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:#1a2744;background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
     .cd-fs-select-wrap select:focus{border-color:#2c4a7c;}
@@ -1656,10 +1708,26 @@ ENDSCRIPT;
     .cd-fs-suggestion:hover,.cd-fs-suggestion.highlighted{background:#f0f6ff;color:#1a2744;}
     .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* AI explanation */
-    .cd-fs-ai-explain{margin-top:14px;}
-    .cd-fs-ai-explain-box{display:flex;align-items:flex-start;gap:10px;background:linear-gradient(135deg,#f0f6ff 0%,#e8f3ff 100%);border:1px solid #c0d4f0;border-radius:10px;padding:12px 16px;font-size:13px;color:#1a2744;line-height:1.65;}
-    .cd-fs-ai-explain-box svg{flex-shrink:0;color:#2c4a7c;margin-top:1px;}
-    .cd-fs-ai-thinking{font-size:12px;color:#9ca3af;padding:6px 2px;display:flex;align-items:center;gap:6px;}
+    .cd-fs-ai-explain{margin-top:16px;}
+    .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
+    .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#2c4a7c;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+    .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
+    .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
+    .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
+    .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
+    .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:#1a2744;margin-bottom:8px;line-height:1.4;}
+    .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:#1e3a5f;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .cd-fs-ai-suggest-view:hover{background:#2c4a7c;}
+    @keyframes cd-dot-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
+    .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
+    .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,#1e3a5f,#2c4a7c);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .cd-fs-ai-thinking-icon svg{color:#fff;}
+    .cd-fs-ai-thinking-text{font-size:13px;color:#2c4a7c;font-weight:500;}
+    .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
+    .cd-fs-ai-dots span{width:5px;height:5px;background:#2c4a7c;border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
+    .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
+    .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
     /* Document modal */
     .cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
     .cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
@@ -1696,18 +1764,31 @@ ENDSCRIPT;
     /* card clickable */
     .cd-fs-doc-card{cursor:pointer;}
     /* AI Bot */
-    .cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:#1e3a5f;color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(30,58,95,.35);display:flex;align-items:center;gap:8px;transition:background .18s,transform .12s;}
-    .cd-bot-toggle:hover{background:#2c4a7c;transform:translateY(-2px);}
-    .cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:360px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,.15);display:none;flex-direction:column;max-height:480px;}
+    .cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,#1e3a5f,#2c4a7c);color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
+    .cd-bot-toggle:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(30,58,95,.5);}
+    .cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:540px;}
     .cd-bot-panel.open{display:flex;}
-    .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;}
+    .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border-radius:14px 14px 0 0;}
+    .cd-bot-header-info{display:flex;flex-direction:column;gap:2px;}
     .cd-bot-header strong{font-size:14px;color:#1a2744;}
+    .cd-bot-header span{font-size:11px;color:#6b7280;}
     .cd-bot-close{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0;}
     .cd-bot-messages{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
-    .cd-bot-msg{max-width:90%;padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.5;}
-    .cd-bot-msg.bot{background:#f0f6ff;color:#1a2744;align-self:flex-start;border-bottom-left-radius:3px;}
-    .cd-bot-msg.user{background:#1e3a5f;color:#fff;align-self:flex-end;border-bottom-right-radius:3px;}
-    .cd-bot-apply{display:inline-block;margin-top:7px;padding:5px 12px;background:#2c4a7c;color:#fff;border:none;border-radius:5px;font-size:12px;cursor:pointer;}
+    .cd-bot-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
+    .cd-bot-turn.user{align-self:flex-end;align-items:flex-end;}
+    .cd-bot-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .cd-bot-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
+    .cd-bot-turn.bot .cd-bot-msg{background:#f0f6ff;color:#1a2744;border-bottom-left-radius:3px;}
+    .cd-bot-turn.user .cd-bot-msg{background:#1e3a5f;color:#fff;border-bottom-right-radius:3px;}
+    .cd-bot-doc-card{display:flex;gap:10px;align-items:center;background:#fff;border:1.5px solid #d0dce8;border-radius:10px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s,border-color .15s;width:100%;box-sizing:border-box;}
+    .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:#2c4a7c;}
+    .cd-bot-doc-icon{flex-shrink:0;width:36px;height:44px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;}
+    .cd-bot-doc-icon.pdf{background:#e74c3c;}.cd-bot-doc-icon.word{background:#2b5797;}.cd-bot-doc-icon.excel{background:#1e7145;}.cd-bot-doc-icon.generic{background:#7f8c8d;}
+    .cd-bot-doc-info{flex:1;min-width:0;}
+    .cd-bot-doc-title{font-size:12px;font-weight:600;color:#1a2744;margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
+    .cd-bot-doc-dl{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#2c4a7c;text-decoration:none;background:#e8f0fb;padding:3px 9px;border-radius:4px;transition:background .15s;}
+    .cd-bot-doc-dl:hover{background:#c0d4f0;color:#1a2744;}
+    .cd-bot-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
     .cd-bot-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e9ef;flex-shrink:0;}
     .cd-bot-input{flex:1;height:38px;padding:0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
     .cd-bot-input:focus{border-color:#2c4a7c;}
@@ -1719,12 +1800,20 @@ ENDSCRIPT;
     <div class="cd-fs-wrap" id="<?php echo esc_attr( $uid ); ?>">
         <div class="cd-fs-card">
             <h2 class="cd-fs-title"><?php esc_html_e( 'Document Search' ); ?></h2>
+            <p class="cd-fs-subtitle">
+                <span class="cd-fs-subtitle-badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <?php esc_html_e( 'AI-powered' ); ?>
+                </span>
+                <?php esc_html_e( 'Type anything in any language and AI will find the most relevant document for you.' ); ?>
+            </p>
 
             <!-- Single-row controls: keyword + audience + type + search -->
             <div class="cd-fs-controls">
                 <div class="cd-fs-keyword-wrap">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input type="text" class="cd-fs-keyword" placeholder="<?php esc_attr_e( 'Search documents…' ); ?>" value="<?php echo esc_attr( sanitize_text_field( $_GET['q'] ?? '' ) ); ?>">
+                    <input type="text" class="cd-fs-keyword" placeholder="<?php esc_attr_e( 'e.g. reduced credit for undergraduate degree…' ); ?>" value="<?php echo esc_attr( sanitize_text_field( $_GET['q'] ?? '' ) ); ?>">
+                    <button type="button" class="cd-fs-kw-clear" aria-label="<?php esc_attr_e( 'Clear' ); ?>">&times;</button>
                 </div>
                 <div class="cd-fs-select-wrap">
                     <select class="cd-fs-audience">
@@ -1773,21 +1862,24 @@ ENDSCRIPT;
         </div>
     </div>
 
-    <?php if ( $show_ai ) : ?>
+    <?php if ( $show_chat ) : ?>
     <button class="cd-bot-toggle" id="cd-bot-toggle-<?php echo esc_attr( $uid ); ?>">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <?php esc_html_e( 'AI Assistant' ); ?>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <?php esc_html_e( 'Ask AI' ); ?>
     </button>
     <div class="cd-bot-panel" id="cd-bot-panel-<?php echo esc_attr( $uid ); ?>">
         <div class="cd-bot-header">
-            <strong><?php esc_html_e( '✨ Document AI Assistant' ); ?></strong>
+            <div class="cd-bot-header-info">
+                <strong><?php esc_html_e( 'Document Advisor' ); ?></strong>
+                <span><?php esc_html_e( 'Powered by AI · any language' ); ?></span>
+            </div>
             <button class="cd-bot-close" id="cd-bot-close-<?php echo esc_attr( $uid ); ?>">&times;</button>
         </div>
         <div class="cd-bot-messages" id="cd-bot-messages-<?php echo esc_attr( $uid ); ?>">
-            <div class="cd-bot-msg bot"><?php esc_html_e( 'Hello! Tell me what document you\'re looking for and I\'ll help you find it.' ); ?></div>
+            <div class="cd-bot-msg bot"><?php esc_html_e( 'Hi! Describe what you\'re looking for and I\'ll recommend the most relevant document.' ); ?></div>
         </div>
         <div class="cd-bot-input-wrap">
-            <input type="text" class="cd-bot-input" id="cd-bot-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'e.g. policies for new faculty…' ); ?>">
+            <input type="text" class="cd-bot-input" id="cd-bot-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'e.g. How do I apply for reduced tuition credit?' ); ?>">
             <button class="cd-bot-send" id="cd-bot-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
         </div>
     </div>
@@ -1925,6 +2017,134 @@ function cirlot_docs_ai_explain_ajax() {
     $text = trim( $body['candidates'][0]['content']['parts'][0]['text'] ?? '' );
 
     wp_send_json_success( [ 'explanation' => $text ] );
+}
+
+// ── AJAX: AI Document Recommendation ─────────
+add_action( 'wp_ajax_cirlot_docs_ai_recommend',        'cirlot_docs_ai_recommend_ajax' );
+add_action( 'wp_ajax_nopriv_cirlot_docs_ai_recommend', 'cirlot_docs_ai_recommend_ajax' );
+function cirlot_docs_ai_recommend_ajax() {
+    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+
+    $message = sanitize_textarea_field( $_POST['message'] ?? '' );
+    $history = json_decode( stripslashes( $_POST['history'] ?? '[]' ), true );
+
+    if ( ! $message ) wp_send_json_error( 'Empty message.' );
+
+    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
+
+    // Fetch candidate documents via keyword search
+    $candidates = [];
+    $search_args = [
+        'post_type'      => 'cirlot_document',
+        'post_status'    => 'publish',
+        'posts_per_page' => 25,
+        's'              => $message,
+    ];
+    $q = new WP_Query( $search_args );
+
+    // If no matches, fall back to all documents
+    if ( ! $q->have_posts() ) {
+        $q = new WP_Query( [
+            'post_type'      => 'cirlot_document',
+            'post_status'    => 'publish',
+            'posts_per_page' => 40,
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+        ] );
+    }
+
+    while ( $q->have_posts() ) {
+        $q->the_post();
+        $pid     = get_the_ID();
+        $file_id = get_post_meta( $pid, '_document_file_id', true );
+        $cf      = [];
+        foreach ( cirlot_docs_get_global_fields() as $gf ) {
+            $fid       = $gf['id'];
+            $cf[ $fid ] = $fid === 'description'
+                ? get_post_meta( $pid, '_document_description', true )
+                : get_post_meta( $pid, '_document_cf_' . $fid, true );
+        }
+        $candidates[] = [
+            'id'          => $pid,
+            'title'       => get_the_title(),
+            'description' => get_post_meta( $pid, '_document_description', true ),
+            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
+            'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
+            'format'      => get_post_meta( $pid, '_document_file_format', true ),
+            'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
+            'file_url'    => $file_id ? wp_get_attachment_url( $file_id ) : '',
+            'custom_fields' => $cf,
+        ];
+    }
+    wp_reset_postdata();
+
+    // Build catalog for Gemini
+    $catalog = '';
+    foreach ( $candidates as $i => $doc ) {
+        $line  = ( $i + 1 ) . ". [ID:{$doc['id']}] {$doc['title']}";
+        if ( $doc['type'] )        $line .= ' | ' . implode( ', ', (array) $doc['type'] );
+        if ( $doc['audience'] )    $line .= ' | Audience: ' . implode( ', ', (array) $doc['audience'] );
+        if ( $doc['description'] ) $line .= ' | ' . mb_substr( $doc['description'], 0, 160 );
+        $catalog .= $line . "\n";
+    }
+
+    $site   = get_bloginfo( 'name' );
+    $system = "You are a document recommendation assistant for {$site}. ";
+    $system .= 'Your job is to understand the user\'s need and recommend the most relevant document(s) from the catalog. ';
+    $system .= 'CRITICAL: Always respond in the EXACT SAME LANGUAGE the user used. ';
+    $system .= 'Be conversational — briefly explain why the recommended document(s) answer their question. ';
+    $system .= 'Return ONLY valid JSON (no markdown): {"message":"your friendly explanation","doc_ids":[array of integer IDs]}. ';
+    $system .= 'Recommend 1–3 documents maximum. If nothing matches, return empty array and explain kindly.';
+
+    $first_turn = $system . "\n\nDocument catalog:\n" . $catalog . "\n\nUser: " . $message;
+    $contents   = [ [ 'role' => 'user', 'parts' => [ [ 'text' => $first_turn ] ] ] ];
+
+    foreach ( (array) $history as $turn ) {
+        if ( isset( $turn['role'], $turn['text'] ) && in_array( $turn['role'], [ 'user', 'model' ], true ) ) {
+            $contents[] = [ 'role' => $turn['role'], 'parts' => [ [ 'text' => $turn['text'] ] ] ];
+        }
+    }
+
+    $response = wp_remote_post(
+        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
+        [
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => wp_json_encode( [
+                'contents'         => $contents,
+                'generationConfig' => [ 'temperature' => 0.5, 'responseMimeType' => 'application/json' ],
+            ] ),
+            'timeout' => 30,
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+
+    $text   = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $text   = preg_replace( '/^```(?:json)?\s*/m', '', trim( $text ) );
+    $text   = preg_replace( '/\s*```\s*$/m', '', $text );
+    $result = json_decode( trim( $text ), true );
+
+    if ( ! is_array( $result ) || ! isset( $result['message'] ) ) {
+        $result = [ 'message' => trim( $text ) ?: __( 'I couldn\'t process that. Please try again.' ), 'doc_ids' => [] ];
+    }
+
+    // Map doc_ids to full document data
+    $id_map   = array_column( $candidates, null, 'id' );
+    $rec_docs = [];
+    foreach ( (array) ( $result['doc_ids'] ?? [] ) as $rid ) {
+        $rid = (int) $rid;
+        if ( isset( $id_map[ $rid ] ) ) {
+            $rec_docs[] = $id_map[ $rid ];
+        }
+    }
+
+    wp_send_json_success( [ 'message' => $result['message'], 'docs' => $rec_docs ] );
 }
 
 // ── AJAX: AI Search Assistant ─────────────────
