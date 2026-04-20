@@ -58,21 +58,23 @@ function cirlot_docs_enqueue_scripts( $hook ) {
 // ──────────────────────────────────────────────
 add_action( 'init', 'cirlot_docs_register_post_type' );
 function cirlot_docs_register_post_type() {
+    $menu_name = get_option( 'cirlot_docs_menu_name', 'Documents' );
+    $menu_icon = get_option( 'cirlot_docs_menu_icon', 'dashicons-media-document' );
     register_post_type( 'cirlot_document', [
         'labels' => [
-            'name'               => __( 'Documents' ),
-            'singular_name'      => __( 'Document' ),
-            'add_new'            => __( 'Add New Document' ),
-            'add_new_item'       => __( 'Add New Document' ),
-            'edit_item'          => __( 'Edit Document' ),
-            'all_items'          => __( 'All Documents' ),
-            'search_items'       => __( 'Search Documents' ),
+            'name'               => $menu_name,
+            'singular_name'      => rtrim( $menu_name, 's' ),
+            'add_new'            => sprintf( __( 'Add New %s' ), rtrim( $menu_name, 's' ) ),
+            'add_new_item'       => sprintf( __( 'Add New %s' ), rtrim( $menu_name, 's' ) ),
+            'edit_item'          => sprintf( __( 'Edit %s' ), rtrim( $menu_name, 's' ) ),
+            'all_items'          => sprintf( __( 'All %s' ), $menu_name ),
+            'search_items'       => sprintf( __( 'Search %s' ), $menu_name ),
         ],
         'public'       => true,
         'has_archive'  => true,
         'rewrite'      => [ 'slug' => get_option( 'cirlot_docs_archive_slug', 'documents' ) ],
         'supports'     => [ 'title' ],
-        'menu_icon'    => 'dashicons-media-document',
+        'menu_icon'    => $menu_icon,
         'show_in_rest' => false,
     ] );
 }
@@ -935,6 +937,8 @@ function cirlot_docs_settings_page() { // phpcs:ignore
         $tab = sanitize_key( $_POST['cd_active_tab'] ?? 'general' );
 
         if ( $tab === 'general' ) {
+            update_option( 'cirlot_docs_menu_name',        sanitize_text_field( $_POST['cirlot_docs_menu_name'] ?? 'Documents' ) ?: 'Documents' );
+            update_option( 'cirlot_docs_menu_icon',        sanitize_text_field( $_POST['cirlot_docs_menu_icon'] ?? 'dashicons-media-document' ) );
             update_option( 'cirlot_docs_archive_slug',     sanitize_text_field( $_POST['cirlot_docs_archive_slug'] ?? 'documents' ) );
             update_option( 'cirlot_docs_default_audience', sanitize_text_field( $_POST['cirlot_docs_default_audience'] ?? '' ) );
             update_option( 'cirlot_docs_default_type',     sanitize_text_field( $_POST['cirlot_docs_default_type'] ?? '' ) );
@@ -978,6 +982,8 @@ function cirlot_docs_settings_page() { // phpcs:ignore
     }
 
     /* ---- data ---- */
+    $menu_name        = get_option( 'cirlot_docs_menu_name', 'Documents' );
+    $menu_icon        = get_option( 'cirlot_docs_menu_icon', 'dashicons-media-document' );
     $slug             = get_option( 'cirlot_docs_archive_slug', 'documents' );
     $default_audience = get_option( 'cirlot_docs_default_audience', '' );
     $default_type     = get_option( 'cirlot_docs_default_type', '' );
@@ -1024,6 +1030,12 @@ function cirlot_docs_settings_page() { // phpcs:ignore
     .cd-sc-params th{text-align:left;padding:6px 10px;background:#f0f0f1;border:1px solid #dcdcde;}
     .cd-sc-params td{padding:6px 10px;border:1px solid #dcdcde;color:#50575e;vertical-align:top;}
     .cd-sc-params td code{background:#f0f0f1;padding:1px 5px;border-radius:2px;font-size:11px;}
+    .cd-icon-grid{display:flex;flex-wrap:wrap;gap:6px;max-width:520px;margin-top:8px;}
+    .cd-icon-option{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:2px solid #c3c4c7;border-radius:6px;cursor:pointer;background:#fff;transition:border-color .15s,background .15s;}
+    .cd-icon-option:hover{border-color:#2271b1;background:#f0f6ff;}
+    .cd-icon-option.selected{border-color:#2271b1;background:#e8f0fb;}
+    .cd-icon-option .dashicons{font-size:20px;width:20px;height:20px;color:#1d2327;}
+    .cd-icon-option.selected .dashicons{color:#2271b1;}
     </style>
 
     <div class="cd-settings-tabs">
@@ -1042,6 +1054,44 @@ function cirlot_docs_settings_page() { // phpcs:ignore
     <!-- General -->
     <div class="cd-tab-pane<?php echo $active_tab === 'general' ? ' active' : ''; ?>">
         <table class="form-table" role="presentation">
+            <tr>
+                <th><label for="cd-menu-name"><?php esc_html_e( 'Menu Name' ); ?></label></th>
+                <td>
+                    <input type="text" id="cd-menu-name" name="cirlot_docs_menu_name" value="<?php echo esc_attr( $menu_name ); ?>" class="regular-text">
+                    <p class="description"><?php esc_html_e( 'Name shown in the WordPress admin sidebar (e.g. Documents, Records, Files).' ); ?></p>
+                </td>
+            </tr>
+            <tr>
+                <th><?php esc_html_e( 'Menu Icon' ); ?></th>
+                <td>
+                    <input type="hidden" id="cd-menu-icon" name="cirlot_docs_menu_icon" value="<?php echo esc_attr( $menu_icon ); ?>">
+                    <div class="cd-icon-grid">
+                        <?php
+                        $icons = [
+                            'dashicons-media-document', 'dashicons-admin-page',
+                            'dashicons-book', 'dashicons-book-alt',
+                            'dashicons-portfolio', 'dashicons-archive',
+                            'dashicons-clipboard', 'dashicons-index-card',
+                            'dashicons-list-view', 'dashicons-media-text',
+                            'dashicons-media-archive', 'dashicons-media-spreadsheet',
+                            'dashicons-format-aside', 'dashicons-text-page',
+                            'dashicons-download', 'dashicons-open-folder',
+                            'dashicons-category', 'dashicons-tag',
+                            'dashicons-analytics', 'dashicons-chart-bar',
+                            'dashicons-cloud', 'dashicons-database',
+                            'dashicons-search', 'dashicons-star-filled',
+                        ];
+                        foreach ( $icons as $icon ) :
+                            $selected = $icon === $menu_icon ? ' selected' : '';
+                        ?>
+                        <div class="cd-icon-option<?php echo $selected; ?>" data-icon="<?php echo esc_attr( $icon ); ?>" title="<?php echo esc_attr( $icon ); ?>">
+                            <span class="dashicons <?php echo esc_attr( $icon ); ?>"></span>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <p class="description" style="margin-top:6px;"><?php esc_html_e( 'Icon displayed in the admin sidebar.' ); ?></p>
+                </td>
+            </tr>
             <tr>
                 <th><label for="cd-archive-slug"><?php esc_html_e( 'Archive Slug' ); ?></label></th>
                 <td>
@@ -1203,6 +1253,16 @@ function cirlot_docs_settings_page() { // phpcs:ignore
 
     <script>
     (function() {
+        // Icon picker
+        var iconInput = document.getElementById('cd-menu-icon');
+        document.querySelectorAll('.cd-icon-option').forEach(function(el) {
+            el.addEventListener('click', function() {
+                document.querySelectorAll('.cd-icon-option').forEach(function(e) { e.classList.remove('selected'); });
+                el.classList.add('selected');
+                iconInput.value = el.dataset.icon;
+            });
+        });
+
         // Copy shortcode buttons
         document.querySelectorAll('.cd-sc-copy').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -1394,6 +1454,7 @@ function cirlot_docs_search_shortcode( $atts ) {
     $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
     $js_conn       = esc_js( __( 'Connection error. Please try again.' ) );
     $js_send       = esc_js( __( 'Send' ) );
+    $js_ask_doc    = esc_js( __( 'Ask me anything about this document and I\'ll answer in your language.' ) );
     $js_ai_thinking = esc_js( __( 'AI is analyzing your query…' ) );
     $js_ai_label   = esc_js( __( 'AI Suggestion' ) );
     $js_ai_view    = esc_js( __( 'View details' ) );
@@ -1466,6 +1527,26 @@ jQuery(function($){
     var \$modalIcon=\$('#cd-doc-modal-icon-'+uid),\$modalTitle=\$('#cd-doc-modal-title-'+uid);
     var \$modalTags=\$('#cd-doc-modal-tags-'+uid),\$modalBody=\$('#cd-doc-modal-body-'+uid);
     var \$modalFooter=\$('#cd-doc-modal-footer-'+uid);
+    var \$modalTabsBar=\$('#cd-doc-modal-tabs-'+uid);
+    var \$paneDetails=\$('#cd-doc-modal-pane-details-'+uid);
+    var \$panePreview=\$('#cd-doc-modal-pane-preview-'+uid);
+    var \$paneChat=\$('#cd-doc-modal-pane-chat-'+uid);
+    var \$modalIframe=\$('#cd-doc-modal-iframe-'+uid);
+    var \$noPreview=\$('#cd-doc-no-preview-'+uid);
+    var \$dcMsgs=\$('#cd-doc-chat-msgs-'+uid);
+    var \$dcInput=\$('#cd-doc-chat-input-'+uid);
+    var \$dcSend=\$('#cd-doc-chat-send-'+uid);
+    var _dcHistory=[],_dcDocId=null;
+
+    \$modalTabsBar.on('click','.cd-doc-modal-tab',function(){
+        var pane=\$(this).data('pane');
+        \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active');
+        \$(this).addClass('active');
+        \$paneDetails.add(\$panePreview).add(\$paneChat).removeClass('active');
+        if(pane==='details')\$paneDetails.addClass('active');
+        else if(pane==='preview')\$panePreview.addClass('active');
+        else if(pane==='chat')\$paneChat.addClass('active');
+    });
 
     function openModal(doc){
         var fmt=doc.format||'generic';
@@ -1500,6 +1581,18 @@ jQuery(function($){
         if(doc.file_url){
             \$modalFooter.find('.cd-doc-modal-footer-right').prepend('<a href="'+doc.file_url+'" target="_blank" class="cd-doc-modal-dl" download>\u2193 Download</a>');
         }
+        /* Reset to Details tab */
+        \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active').first().addClass('active');
+        \$paneDetails.addClass('active');\$panePreview.add(\$paneChat).removeClass('active');
+        /* PDF preview */
+        var isPdf=fmt==='pdf';
+        if(isPdf&&doc.file_url){\$modalIframe.attr('src',doc.file_url);\$modalIframe.show();\$noPreview.hide();}
+        else{\$modalIframe.attr('src','about:blank');\$modalIframe.hide();\$noPreview.show();}
+        /* Reset chat per doc */
+        if(_dcDocId!==doc.id){
+            _dcDocId=doc.id;_dcHistory=[];
+            \$dcMsgs.html('<div class="cd-bot-turn bot"><div class="cd-bot-msg">{$js_ask_doc}</div></div>');
+        }
         \$modalOverlay.addClass('open');
         \$('body').css('overflow','hidden');
     }
@@ -1508,6 +1601,31 @@ jQuery(function($){
         \$modalOverlay.removeClass('open');
         \$('body').css('overflow','');
     }
+
+    function addDocChatTurn(role,text){
+        var \$turn=\$('<div class="cd-bot-turn '+role+'"></div>');
+        \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
+        \$dcMsgs.append(\$turn);\$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
+    }
+
+    function sendDocChat(){
+        var msg=\$dcInput.val().trim();if(!msg||!_dcDocId)return;
+        addDocChatTurn('user',msg);\$dcInput.val('');\$dcSend.prop('disabled',true).text('…');
+        _dcHistory.push({role:'user',text:msg});
+        var \$th=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></div>').appendTo(\$dcMsgs);
+        \$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
+        \$.post(ajaxUrl,{action:'cirlot_docs_ai_doc_chat',nonce:aiNonce,doc_id:_dcDocId,message:msg,history:JSON.stringify(_dcHistory.slice(-6))})
+        .done(function(res){
+            \$th.remove();
+            var reply=res.success?res.data.message:'{$js_sorry}';
+            addDocChatTurn('bot',reply);
+            if(res.success)_dcHistory.push({role:'model',text:reply});
+        }).fail(function(){\$th.remove();addDocChatTurn('bot','{$js_conn}');})
+        .always(function(){\$dcSend.prop('disabled',false).text('{$js_send}');});
+    }
+
+    \$dcSend.on('click',sendDocChat);
+    \$dcInput.on('keydown',function(e){if(e.key==='Enter')sendDocChat();});
 
     \$('#cd-doc-modal-close-'+uid).on('click',closeModal);
     \$('#cd-doc-modal-cancel-'+uid).on('click',closeModal);
@@ -1534,9 +1652,10 @@ jQuery(function($){
             \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
             if(doc.pub_date)tags+='<span class="cd-fs-doc-tag date">'+formatDate(doc.pub_date)+'</span>';
             var dl=doc.file_url?'<a href="'+doc.file_url+'" target="_blank" class="cd-fs-doc-dl" download>{$js_dl} \u2193</a>':'';
+            var docSvg='<svg width="22" height="26" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2h10l6 6v18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><polyline points="14 2 14 8 20 8"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/><line x1="7" y1="21" x2="12" y2="21"/></svg>';
             var \$card=\$(
                 '<div class="cd-fs-doc-card">'+
-                '<div class="cd-fs-doc-icon '+fmt+'">'+lbl+'</div>'+
+                '<div class="cd-fs-doc-icon '+fmt+'">'+docSvg+'</div>'+
                 '<div class="cd-fs-doc-body">'+
                 '<p class="cd-fs-doc-title">'+\$('<span>').text(doc.title).html()+'</p>'+
                 '<div class="cd-fs-doc-meta">'+tags+'</div></div>'+
@@ -1696,8 +1815,8 @@ ENDSCRIPT;
     .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
     .cd-fs-doc-card{display:flex;gap:16px;padding:18px 20px;border:1px solid #e5e9ef;border-radius:10px;margin-bottom:12px;background:#fff;transition:box-shadow .18s,border-color .18s;}
     .cd-fs-doc-card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08);border-color:#b8cce4;}
-    .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;letter-spacing:.3px;}
-    .cd-fs-doc-icon.pdf{background:#e74c3c;}.cd-fs-doc-icon.word{background:#2b5797;}.cd-fs-doc-icon.excel{background:#1e7145;}.cd-fs-doc-icon.generic{background:#7f8c8d;}
+    .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#dbeafe;}
+    .cd-fs-doc-icon svg{color:#2563eb;}
     .cd-fs-doc-body{flex:1;min-width:0;}
     .cd-fs-doc-title{font-size:15px;font-weight:700;color:#1a2744;margin:0 0 6px;}
     .cd-fs-doc-title a{color:inherit;text-decoration:none;}.cd-fs-doc-title a:hover{color:#2c4a7c;text-decoration:underline;}
@@ -1747,7 +1866,7 @@ ENDSCRIPT;
     /* Document modal */
     .cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
     .cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
-    .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:640px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
+    .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
     .cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
     /* colored top accent based on format */
     .cd-doc-modal.fmt-pdf{border-top:4px solid #e74c3c;}
@@ -1765,11 +1884,31 @@ ENDSCRIPT;
     .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
     .cd-doc-modal-close:hover{color:#1a2744;background:#f0f2f5;}
+    /* Modal tabs */
+    .cd-doc-modal-tabs-bar{display:flex;border-bottom:1px solid #edf0f4;padding:0 20px;flex-shrink:0;background:#fafbfc;}
+    .cd-doc-modal-tab{background:none;border:none;border-bottom:2.5px solid transparent;padding:11px 16px;font-size:13px;font-weight:500;color:#6b7280;cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s;display:flex;align-items:center;gap:6px;}
+    .cd-doc-modal-tab:hover{color:#1a2744;}
+    .cd-doc-modal-tab.active{color:#1e3a5f;border-bottom-color:#1e3a5f;font-weight:600;}
+    .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
+    .cd-doc-modal-pane.active{display:flex;}
+    /* Details pane */
     .cd-doc-modal-body{padding:22px 24px;overflow-y:auto;flex:1;}
     .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
     .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
     .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
     .cd-doc-modal-value{font-size:14px;color:#1a2744;font-weight:500;line-height:1.5;}
+    /* Preview pane */
+    .cd-doc-modal-iframe{width:100%;flex:1;border:none;min-height:460px;}
+    .cd-doc-no-preview{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#9ca3af;font-size:14px;padding:40px;}
+    .cd-doc-no-preview svg{color:#d1d5db;}
+    /* Chat pane */
+    .cd-doc-chat-messages{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;}
+    .cd-doc-chat-input-wrap{display:flex;gap:8px;padding:12px 16px;border-top:1px solid #edf0f4;flex-shrink:0;}
+    .cd-doc-chat-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
+    .cd-doc-chat-input:focus{border-color:#2c4a7c;}
+    .cd-doc-chat-send{height:40px;padding:0 18px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .cd-doc-chat-send:hover{background:#2c4a7c;}
+    .cd-doc-chat-send:disabled{opacity:.5;cursor:default;}
     .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
     .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
     .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
@@ -1869,7 +2008,40 @@ ENDSCRIPT;
                 </div>
                 <button class="cd-doc-modal-close" id="cd-doc-modal-close-<?php echo esc_attr( $uid ); ?>" aria-label="Close">&times;</button>
             </div>
-            <div class="cd-doc-modal-body" id="cd-doc-modal-body-<?php echo esc_attr( $uid ); ?>"></div>
+            <div class="cd-doc-modal-tabs-bar" id="cd-doc-modal-tabs-<?php echo esc_attr( $uid ); ?>">
+                <button class="cd-doc-modal-tab active" data-pane="details">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <?php esc_html_e( 'Details' ); ?>
+                </button>
+                <button class="cd-doc-modal-tab" data-pane="preview">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+                    <?php esc_html_e( 'Preview' ); ?>
+                </button>
+                <button class="cd-doc-modal-tab" data-pane="chat">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <?php esc_html_e( 'Ask AI' ); ?>
+                </button>
+            </div>
+            <!-- Details pane -->
+            <div class="cd-doc-modal-pane active" id="cd-doc-modal-pane-details-<?php echo esc_attr( $uid ); ?>">
+                <div class="cd-doc-modal-body" id="cd-doc-modal-body-<?php echo esc_attr( $uid ); ?>"></div>
+            </div>
+            <!-- Preview pane -->
+            <div class="cd-doc-modal-pane" id="cd-doc-modal-pane-preview-<?php echo esc_attr( $uid ); ?>">
+                <iframe class="cd-doc-modal-iframe" id="cd-doc-modal-iframe-<?php echo esc_attr( $uid ); ?>" src="about:blank"></iframe>
+                <div class="cd-doc-no-preview" id="cd-doc-no-preview-<?php echo esc_attr( $uid ); ?>" style="display:none;">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span><?php esc_html_e( 'Preview only available for PDF files.' ); ?></span>
+                </div>
+            </div>
+            <!-- Chat pane -->
+            <div class="cd-doc-modal-pane" id="cd-doc-modal-pane-chat-<?php echo esc_attr( $uid ); ?>">
+                <div class="cd-doc-chat-messages" id="cd-doc-chat-msgs-<?php echo esc_attr( $uid ); ?>"></div>
+                <div class="cd-doc-chat-input-wrap">
+                    <input type="text" class="cd-doc-chat-input" id="cd-doc-chat-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'Ask anything about this document…' ); ?>">
+                    <button class="cd-doc-chat-send" id="cd-doc-chat-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
+                </div>
+            </div>
             <div class="cd-doc-modal-footer" id="cd-doc-modal-footer-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-footer-right">
                     <button class="cd-doc-modal-cancel" id="cd-doc-modal-cancel-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Close' ); ?></button>
@@ -2161,6 +2333,81 @@ function cirlot_docs_ai_recommend_ajax() {
     }
 
     wp_send_json_success( [ 'message' => $result['message'], 'docs' => $rec_docs ] );
+}
+
+// ── AJAX: AI Document Chat ────────────────────
+add_action( 'wp_ajax_cirlot_docs_ai_doc_chat',        'cirlot_docs_ai_doc_chat_ajax' );
+add_action( 'wp_ajax_nopriv_cirlot_docs_ai_doc_chat', 'cirlot_docs_ai_doc_chat_ajax' );
+function cirlot_docs_ai_doc_chat_ajax() {
+    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+
+    $doc_id  = absint( $_POST['doc_id']  ?? 0 );
+    $message = sanitize_textarea_field( $_POST['message'] ?? '' );
+    $history = json_decode( stripslashes( $_POST['history'] ?? '[]' ), true );
+
+    if ( ! $doc_id || ! $message ) wp_send_json_error( 'Invalid request.' );
+
+    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
+
+    $post = get_post( $doc_id );
+    if ( ! $post || $post->post_status !== 'publish' || $post->post_type !== 'cirlot_document' ) {
+        wp_send_json_error( 'Document not found.' );
+    }
+
+    // Build document context
+    $ctx  = 'Title: ' . $post->post_title . "\n";
+    $desc = get_post_meta( $doc_id, '_document_description', true );
+    if ( $desc ) $ctx .= "Description: {$desc}\n";
+
+    $audiences = wp_get_post_terms( $doc_id, 'document_audience', [ 'fields' => 'names' ] );
+    if ( $audiences && ! is_wp_error( $audiences ) ) $ctx .= 'Audience: ' . implode( ', ', $audiences ) . "\n";
+
+    $types = wp_get_post_terms( $doc_id, 'document_type', [ 'fields' => 'names' ] );
+    if ( $types && ! is_wp_error( $types ) ) $ctx .= 'Type: ' . implode( ', ', $types ) . "\n";
+
+    foreach ( cirlot_docs_get_global_fields() as $gf ) {
+        if ( $gf['id'] === 'description' ) continue;
+        $val = get_post_meta( $doc_id, '_document_cf_' . $gf['id'], true );
+        if ( $val ) $ctx .= $gf['label'] . ': ' . $val . "\n";
+    }
+
+    $pub = get_post_meta( $doc_id, '_document_pub_date', true );
+    if ( $pub ) $ctx .= "Publication date: {$pub}\n";
+
+    $system  = "You are a helpful assistant answering questions about a specific document. ";
+    $system .= "Answer ONLY based on the document context provided below. ";
+    $system .= "CRITICAL: Always respond in the EXACT SAME LANGUAGE the user writes in. ";
+    $system .= "Be concise and helpful. If the answer is not in the context, say so kindly.\n\n";
+    $system .= "Document context:\n{$ctx}";
+
+    $contents = [ [ 'role' => 'user', 'parts' => [ [ 'text' => $system . "\n\nUser: " . $message ] ] ] ];
+    foreach ( (array) $history as $turn ) {
+        if ( isset( $turn['role'], $turn['text'] ) && in_array( $turn['role'], [ 'user', 'model' ], true ) ) {
+            $contents[] = [ 'role' => $turn['role'], 'parts' => [ [ 'text' => $turn['text'] ] ] ];
+        }
+    }
+
+    $response = wp_remote_post(
+        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
+        [
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => wp_json_encode( [
+                'contents'         => $contents,
+                'generationConfig' => [ 'temperature' => 0.4, 'maxOutputTokens' => 350 ],
+            ] ),
+            'timeout' => 25,
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+
+    $text = trim( $body['candidates'][0]['content']['parts'][0]['text'] ?? '' );
+    wp_send_json_success( [ 'message' => $text ] );
 }
 
 // ── AJAX: AI Search Assistant ─────────────────
