@@ -737,7 +737,7 @@ function aidocs_drop_title_echo( array $blocks, $title ) {
         if ( $is_caps_heading ) {
             $run[] = $block;
             $joined = aidocs_comparable( implode( ' ', array_column( $run, 'text' ) ) );
-            if ( $joined === $needle ) { $run = []; continue; }         // the echo, dropped
+            if ( aidocs_is_title_echo( $joined, $needle ) ) { $run = []; continue; }  // the echo, dropped
             if ( strpos( $needle, $joined ) === 0 ) continue;           // still matching
             foreach ( $run as $held ) $out[] = $held;                   // not the title
             $run = [];
@@ -751,6 +751,21 @@ function aidocs_drop_title_echo( array $blocks, $title ) {
 
     foreach ( $run as $held ) $out[] = $held;
     return $out;
+}
+
+/**
+ * Does $joined read as the document's title, allowing for the extra word or
+ * two ("Policy Statement") a few documents print on the same caps heading
+ * right after the title itself?
+ *
+ * The trailer has to be short: a heading that starts with the title's words
+ * but goes on to become a materially different, longer heading — a real
+ * section, not an echo — must not be swallowed by this.
+ */
+function aidocs_is_title_echo( $joined, $needle ) {
+    if ( $joined === $needle ) return true;
+    if ( $needle === '' || strpos( $joined, $needle ) !== 0 ) return false;
+    return strlen( $joined ) - strlen( $needle ) <= 20;
 }
 
 /** Letters and digits only, lower-cased — for comparing a heading to a title. */

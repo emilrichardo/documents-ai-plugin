@@ -2479,8 +2479,8 @@ ENDSCRIPT;
     .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
     .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
     .cd-doc-ask-collapse:hover{color:var(--wp--preset--color--contrast,#1a2744);}
-    .cd-doc-modal-permalink{font-size:13px;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;font-weight:600;margin-right:4px;}
-    .cd-doc-modal-permalink:hover{text-decoration:underline;color:var(--wp--preset--color--contrast,#1a2744);}
+    .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--wp--preset--color--primary,#1e3a5f);border:1.5px solid var(--wp--preset--color--primary,#1e3a5f);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
+    .cd-doc-modal-permalink:hover{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;}
     /* Structured document content */
     .aidocs-content{margin-top:4px;}
     .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:26px 0 10px;line-height:1.35;}
@@ -2629,7 +2629,7 @@ ENDSCRIPT;
             </div>
             <div class="cd-doc-modal-footer" id="cd-doc-modal-footer-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-footer-right">
-                    <a href="#" class="cd-doc-modal-permalink" id="cd-doc-modal-permalink-<?php echo esc_attr( $uid ); ?>" style="display:none;"><?php esc_html_e( 'Open full page' ); ?></a>
+                    <a href="#" class="cd-doc-modal-permalink" id="cd-doc-modal-permalink-<?php echo esc_attr( $uid ); ?>" style="display:none;"><?php esc_html_e( 'View document' ); ?></a>
                     <button class="cd-doc-modal-cancel" id="cd-doc-modal-cancel-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Close' ); ?></button>
                 </div>
             </div>
@@ -2696,10 +2696,22 @@ function aidocs_single_document_content( $content ) {
     ?>
     <article class="aidocs-single fmt-<?php echo esc_attr( $fmt ); ?>">
 
+        <?php
+        $archive_link = get_post_type_archive_link( 'aidoc' );
+        if ( $archive_link ) :
+        ?>
+        <a href="<?php echo esc_url( $archive_link ); ?>" class="aidocs-single-back">
+            &larr; <?php esc_html_e( 'Back to documents' ); ?>
+        </a>
+        <?php endif; ?>
+
+        <!-- The theme's own template already renders the post title above
+             the_content(), so this header carries only what it adds: the
+             format icon, the audience/type/format tags and the download
+             action — repeating the title here would just duplicate it. -->
         <header class="aidocs-single-header">
             <div class="aidocs-single-icon <?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></div>
             <div class="aidocs-single-heading">
-                <h1 class="aidocs-single-title"><?php echo esc_html( get_the_title( $pid ) ); ?></h1>
                 <div class="aidocs-single-tags">
                     <span class="cd-fs-doc-tag format-<?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></span>
                     <?php foreach ( $audience as $a ) : ?>
@@ -2844,8 +2856,9 @@ function aidocs_single_view_styles() {
     .aidocs-single-icon.word{background:linear-gradient(145deg,#2b5797,#1a3d7a);}
     .aidocs-single-icon.excel{background:linear-gradient(145deg,#1e7145,#145232);}
     .aidocs-single-icon.generic{background:linear-gradient(145deg,#7f8c8d,#636e72);}
-    .aidocs-single-heading{flex:1;min-width:0;}
-    .aidocs-single-title{font-size:22px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 10px;line-height:1.35;}
+    .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;min-height:62px;}
+    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;margin-bottom:16px;font-size:13px;font-weight:600;color:var(--wp--preset--color--primary,#1e3a5f);text-decoration:none;}
+    .aidocs-single-back:hover{text-decoration:underline;}
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
     .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
