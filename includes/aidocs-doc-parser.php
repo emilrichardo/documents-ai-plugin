@@ -1015,10 +1015,68 @@ function aidocs_blocks_plain_text( array $blocks, $depth = 0 ) {
 
 /**
  * Render content blocks as frontend HTML. Output is fully escaped.
+ *
+ * Every level-2 or level-3 heading that is not a note starts a collapsible
+ * section — an accordion item whose summary is the heading and whose panel is
+ * everything up to the next such heading. Sections default open, so nothing
+ * that used to be visible becomes hidden by this; it only adds the ability to
+ * collapse a section. A note heading never collapses: what follows it is a
+ * callout the reader needs to see, not a section to tuck away.
  */
 function aidocs_render_content_blocks( array $blocks ) {
     if ( ! $blocks ) return '';
-    return '<div class="aidocs-content">' . aidocs_render_blocks( $blocks ) . '</div>';
+    return '<div class="aidocs-content">' . aidocs_render_sections( $blocks ) . '</div>';
+}
+
+/** Group blocks by their section headings and render each as an accordion item. */
+function aidocs_render_sections( array $blocks ) {
+    $html = '';
+    foreach ( aidocs_group_sections( $blocks ) as $section ) {
+        if ( ! $section['heading'] ) {
+            $html .= aidocs_render_blocks( $section['blocks'] );
+            continue;
+        }
+
+        $heading = $section['heading'];
+        $id      = ! empty( $heading['id'] ) ? ' id="' . esc_attr( $heading['id'] ) . '"' : '';
+        $level   = max( 2, min( 3, (int) ( $heading['level'] ?? 3 ) ) );
+
+        $html .= '<details class="aidocs-accordion-item" open' . $id . '>'
+               . '<summary class="aidocs-accordion-summary aidocs-content-h' . $level . '">'
+               . aidocs_render_runs( $heading )
+               . '</summary>'
+               . '<div class="aidocs-accordion-panel">' . aidocs_render_blocks( $section['blocks'] ) . '</div>'
+               . '</details>';
+    }
+    return $html;
+}
+
+/**
+ * Split a document body into sections at each heading that opens one.
+ *
+ * @return array List of {heading: block|null, blocks: block[]}. The first
+ *               entry holds whatever precedes the first section heading, and
+ *               is only included when that content is non-empty.
+ */
+function aidocs_group_sections( array $blocks ) {
+    $sections = [ [ 'heading' => null, 'blocks' => [] ] ];
+
+    foreach ( $blocks as $block ) {
+        $opens_section = ( $block['type'] ?? '' ) === 'heading'
+            && in_array( (int) ( $block['level'] ?? 0 ), [ 2, 3 ], true )
+            && empty( $block['note'] );
+
+        if ( $opens_section ) {
+            $sections[] = [ 'heading' => $block, 'blocks' => [] ];
+            continue;
+        }
+        $sections[ count( $sections ) - 1 ]['blocks'][] = $block;
+    }
+
+    if ( $sections[0]['heading'] === null && ! $sections[0]['blocks'] ) {
+        array_shift( $sections );
+    }
+    return $sections;
 }
 
 function aidocs_render_blocks( array $blocks ) {
@@ -1077,7 +1135,17 @@ function aidocs_render_list( array $block ) {
     $style = (string) ( $block['style'] ?? ( ! empty( $block['ordered'] ) ? 'decimal' : 'bullet' ) );
     $tag   = ( $style === 'bullet' ) ? 'ul' : 'ol';
     $class = 'aidocs-content-list aidocs-content-list--' . $style;
-    $start = ( $tag === 'ol' && ! empty( $block['start'] ) ) ? ' start="' . (int) $block['start'] . '"' : '';
+
+    // The number is a CSS counter badge, not the browser's own marker (see
+    // aidocs_content_block_css()), so continuing a list's numbering after an
+    // interrupting paragraph — "start" — has to prime that counter directly;
+    // the HTML start="" attribute alone would only affect a marker nothing
+    // here still uses.
+    $start = '';
+    if ( $tag === 'ol' && ! empty( $block['start'] ) ) {
+        $n     = (int) $block['start'];
+        $start = ' start="' . $n . '" style="counter-reset:cd-item ' . ( $n - 1 ) . '"';
+    }
 
     $html = '<' . $tag . $start . ' class="' . esc_attr( $class ) . '">';
     foreach ( (array) ( $block['items'] ?? [] ) as $item ) {
@@ -1136,24 +1204,65 @@ function aidocs_render_runs( array $block ) {
  */
 function aidocs_content_block_css() {
     return <<<'CSS'
-.aidocs-content strong{font-weight:700;color:#1a2744;}
+/* Theme hand-off: a block theme (this site's included) publishes its palette
+   and its button rounding as these custom properties on every frontend page.
+   Reading them here — with a fallback for wp-admin previews, where they are
+   never defined — is what lets buttons, badges and section headers pick up
+   the active theme's look instead of a colour fixed at build time. */
+.aidocs-content{
+    --cd-primary:var(--wp--preset--color--primary,#007565);
+    --cd-secondary:var(--wp--preset--color--secondary,#08a889);
+    --cd-base:var(--wp--preset--color--base,#ffffff);
+    --cd-contrast:var(--wp--preset--color--contrast,#1a2744);
+    --cd-radius:var(--wp--custom--button-border-radius,4px);
+}
+.aidocs-content strong{font-weight:700;color:var(--cd-contrast);}
 .aidocs-content em{font-style:italic;}
-.aidocs-content-h4{font-size:13px;font-weight:700;color:#3d5a80;margin:18px 0 6px;}
-.aidocs-content-list--bullet{list-style:disc;}
-.aidocs-content-list--decimal{list-style:decimal;}
-.aidocs-content-list--lower-alpha{list-style:lower-alpha;}
-.aidocs-content-list--upper-alpha{list-style:upper-alpha;}
-.aidocs-content-list--lower-roman{list-style:lower-roman;}
-.aidocs-content-list--upper-roman{list-style:upper-roman;}
+.aidocs-content-h4{font-size:13px;font-weight:700;color:var(--cd-primary);margin:18px 0 6px;}
+
+/* Accordion: every level-2/3 section heading is collapsible. Sections start
+   open, so nothing that used to be visible is hidden by adding this. */
+.aidocs-accordion-item{border:1px solid #e5e9ef;border-radius:var(--cd-radius);margin:0 0 10px;overflow:hidden;}
+.aidocs-accordion-item + .aidocs-accordion-item{margin-top:10px;}
+.aidocs-accordion-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 16px;margin:0;background:#f7f9f8;user-select:none;}
+.aidocs-accordion-summary::-webkit-details-marker{display:none;}
+.aidocs-accordion-summary::before{content:'';flex-shrink:0;width:7px;height:7px;border-right:2px solid var(--cd-primary);border-bottom:2px solid var(--cd-primary);transform:rotate(45deg);transition:transform .18s;}
+.aidocs-accordion-item[open] > .aidocs-accordion-summary::before{transform:rotate(-135deg);}
+.aidocs-accordion-item[open] > .aidocs-accordion-summary{border-bottom:1px solid #e5e9ef;}
+.aidocs-accordion-summary:hover{background:color-mix(in srgb,var(--cd-primary) 8%,#f7f9f8);}
+.aidocs-accordion-summary.aidocs-content-h2,.aidocs-accordion-summary.aidocs-content-h3{margin:0;color:var(--cd-contrast);}
+.aidocs-accordion-panel{padding:15px 16px 4px;}
+.aidocs-accordion-panel > .aidocs-content-h2:first-child,.aidocs-accordion-panel > .aidocs-content-h3:first-child,.aidocs-accordion-panel > .aidocs-content-h4:first-child{margin-top:0;}
+
+/* Lists: the marker is a small rounded badge carrying the item's own number
+   or letter, not the browser's native mark — set with a CSS counter so the
+   count still advances correctly through a., b., c. … or i., ii., iii. … */
+.aidocs-content-list{list-style:none;padding-left:0;counter-reset:cd-item;}
+.aidocs-content-list > li{position:relative;padding-left:32px;counter-increment:cd-item;}
+.aidocs-content-list > li::before{
+    content:counter(cd-item);
+    position:absolute;left:0;top:1px;
+    display:inline-flex;align-items:center;justify-content:center;
+    min-width:22px;height:22px;padding:0 4px;box-sizing:border-box;
+    background:var(--cd-secondary);color:var(--cd-base);
+    font-size:11.5px;font-weight:700;line-height:1;
+    border-radius:var(--cd-radius);
+}
+.aidocs-content-list--lower-alpha > li::before{content:counter(cd-item,lower-alpha);}
+.aidocs-content-list--upper-alpha > li::before{content:counter(cd-item,upper-alpha);}
+.aidocs-content-list--lower-roman > li::before{content:counter(cd-item,lower-roman);}
+.aidocs-content-list--upper-roman > li::before{content:counter(cd-item,upper-roman);}
+.aidocs-content-list--bullet > li::before{content:'';width:8px;min-width:0;height:8px;padding:0;top:8px;border-radius:50%;background:var(--cd-secondary);}
 .aidocs-content-list .aidocs-content-list{margin:8px 0 4px;}
 .aidocs-content-list .aidocs-content-p{margin:6px 0;}
+
 /* Notes: a labelled heading for note sections, a boxed callout for inline notes */
 .aidocs-note-heading{position:relative;padding-left:13px;border-left:3px solid #c8a24a;color:#8a6d1f;text-transform:none;letter-spacing:0;}
 .aidocs-note-heading--international{border-left-color:#3d7ea6;color:#2c5f7c;}
 .aidocs-note-heading--substantive-change{border-left-color:#c0562b;color:#9c4522;}
 .aidocs-note-heading--teach-out{border-left-color:#5b7c3d;color:#456029;}
 .aidocs-note-heading--restriction{border-left-color:#b0203c;color:#8c1930;}
-.aidocs-note{margin:0 0 16px;padding:12px 15px;background:#fdfaf2;border:1px solid #f0e3c4;border-left:3px solid #c8a24a;border-radius:0 8px 8px 0;}
+.aidocs-note{margin:0 0 16px;padding:12px 15px;background:#fdfaf2;border:1px solid #f0e3c4;border-left:3px solid #c8a24a;border-radius:0 var(--cd-radius) var(--cd-radius) 0;}
 .aidocs-note--international{background:#f4f9fc;border-color:#d3e6f0;border-left-color:#3d7ea6;}
 .aidocs-note--substantive-change{background:#fdf5f2;border-color:#f3ded4;border-left-color:#c0562b;}
 .aidocs-note--teach-out{background:#f6faf3;border-color:#dfead4;border-left-color:#5b7c3d;}
@@ -1166,8 +1275,8 @@ function aidocs_content_block_css() {
 .aidocs-note-text{margin:0;font-size:14px;line-height:1.75;color:#374151;}
 /* Tables */
 .aidocs-table-wrap{overflow-x:auto;margin:0 0 18px;}
-.aidocs-content-table{border-collapse:collapse;width:100%;font-size:13px;}
+.aidocs-content-table{border-collapse:collapse;width:100%;font-size:13px;border-radius:var(--cd-radius);}
 .aidocs-content-table th,.aidocs-content-table td{border:1px solid #e5e9ef;padding:8px 10px;text-align:left;vertical-align:top;line-height:1.6;color:#374151;}
-.aidocs-content-table th{background:#f6f8fa;font-weight:700;color:#1a2744;}
+.aidocs-content-table th{background:#f6f8fa;font-weight:700;color:var(--cd-contrast);}
 CSS;
 }
