@@ -85,9 +85,9 @@ A tabbed administration panel with full control over all system parameters:
 All frontend components are embeddable via shortcode with configurable parameters:
 
 ```
-[cirlot_document_search]
-[cirlot_document_search show_ai="false" show_chat="false"]
-[cirlot_document_search type="Policies" audience="Institution" per_page="10"]
+[aidocs_search]
+[aidocs_search show_ai="false" show_chat="false"]
+[aidocs_search type="Policies" audience="Institution" per_page="10"]
 ```
 
 Parameters control AI features, pre-selected filters, and results per page, allowing multiple instances on the same site with different configurations.

@@ -1,51 +1,134 @@
 <?php
 /**
- * Plugin Name: Cirlot Documents
- * Description: Custom post type for managing documents with file upload, metadata, and taxonomies.
- * Version: 1.0.0
- * Author: Cirlot
+ * Plugin Name: AI Documents
+ * Description: Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.
+ * Version: 1.2.0
+ * Requires PHP: 8.0
+ * Text Domain: ai-documents
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'CIRLOT_DOCS_DIR', plugin_dir_path( __FILE__ ) );
-define( 'CIRLOT_DOCS_URL', plugin_dir_url( __FILE__ ) );
+define( 'AIDOCS_VERSION', '1.2.0' );
+define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
+define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
-define( 'CIRLOT_DOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
-define( 'CIRLOT_DOCS_TYPES', [
+// Document structure: the regex parser and the block renderer. Paired with
+// assets/js/aidocs-pdf-structure.js, which turns a PDF's layout into the
+// canonical text the parser reads.
+require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
+
+define( 'AIDOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
+define( 'AIDOCS_TYPES', [
     'Policies', 'Guidelines', 'Good Practices', 'Position Statements',
     'Handbooks', 'Interpretation', 'Guides', 'Rules of the Organization', 'Forms and Templates',
 ] );
 
-function cirlot_docs_get_audiences() {
-    $saved = get_option( 'cirlot_docs_audiences_list', '' );
+// ──────────────────────────────────────────────
+// 0. One-time migration from the legacy prefix
+// ──────────────────────────────────────────────
+// Everything used to be namespaced `cirlot_*`. This moves existing content and
+// settings onto the `aidocs_*` namespace exactly once, then never runs again.
+// Post meta (`_document_*`) and both taxonomies were never prefixed, so they
+// carry over untouched.
+add_action( 'plugins_loaded', 'aidocs_maybe_migrate_legacy' );
+function aidocs_maybe_migrate_legacy() {
+    if ( get_option( 'aidocs_legacy_migrated' ) ) return;
+
+    global $wpdb;
+
+    // Claim the migration up front so two concurrent requests can't both run it.
+    update_option( 'aidocs_legacy_migrated', AIDOCS_VERSION, false );
+
+    // 1. Documents: cirlot_document → aidoc
+    $moved = (int) $wpdb->update(
+        $wpdb->posts,
+        [ 'post_type' => 'aidoc' ],
+        [ 'post_type' => 'cirlot_document' ]
+    );
+
+    // 2. Settings: cirlot_docs_* → aidocs_*
+    $legacy_prefix = 'cirlot_docs_';
+    $legacy_names  = $wpdb->get_col(
+        "SELECT option_name FROM {$wpdb->options}
+         WHERE option_name LIKE '" . $wpdb->esc_like( $legacy_prefix ) . "%'"
+    );
+    foreach ( (array) $legacy_names as $legacy_name ) {
+        $new_name = 'aidocs_' . substr( $legacy_name, strlen( $legacy_prefix ) );
+        $value    = get_option( $legacy_name, null );
+        if ( $value !== null && get_option( $new_name, null ) === null ) {
+            update_option( $new_name, $value );
+        }
+        delete_option( $legacy_name );
+    }
+
+    // 3. Cached embedding-model lookup (rediscovered on next use)
+    delete_transient( 'cirlot_docs_embed_model' );
+
+    // 4. Shortcodes already placed on pages
+    $sc_updated = (int) $wpdb->query( $wpdb->prepare(
+        "UPDATE {$wpdb->posts} SET post_content = REPLACE( post_content, %s, %s )
+         WHERE post_content LIKE %s",
+        '[cirlot_document_search',
+        '[aidocs_search',
+        '%' . $wpdb->esc_like( '[cirlot_document_search' ) . '%'
+    ) );
+
+    if ( $moved || $sc_updated ) {
+        wp_cache_flush();
+    }
+
+    // Can't flush_rewrite_rules() here — the post type is not registered until
+    // `init`. Dropping the stored rules makes WordPress rebuild them after it is.
+    delete_option( 'rewrite_rules' );
+}
+
+// ──────────────────────────────────────────────
+// 0b. One-time cleanup: drop settings for removed features
+// ──────────────────────────────────────────────
+// v1.2.0 removed the General settings tab (menu name/icon, archive slug,
+// allowed formats, default audience/type) and the configurable Custom Fields
+// system in favor of a single fixed Description field. Their option rows are
+// dead weight now — nothing reads them — so they're deleted once.
+add_action( 'plugins_loaded', 'aidocs_maybe_cleanup_removed_options' );
+function aidocs_maybe_cleanup_removed_options() {
+    if ( get_option( 'aidocs_removed_options_cleaned' ) ) return;
+    update_option( 'aidocs_removed_options_cleaned', AIDOCS_VERSION, false );
+
+    foreach ( [
+        'aidocs_menu_name',
+        'aidocs_menu_icon',
+        'aidocs_archive_slug',
+        'aidocs_default_audience',
+        'aidocs_default_type',
+        'aidocs_allowed_formats',
+        'aidocs_global_fields',
+    ] as $obsolete ) {
+        delete_option( $obsolete );
+    }
+}
+
+function aidocs_get_audiences() {
+    $saved = get_option( 'aidocs_audiences_list', '' );
     if ( $saved !== '' ) {
         return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
     }
-    return CIRLOT_DOCS_AUDIENCES;
+    return AIDOCS_AUDIENCES;
 }
 
-function cirlot_docs_get_types() {
-    $saved = get_option( 'cirlot_docs_types_list', '' );
+function aidocs_get_types() {
+    $saved = get_option( 'aidocs_types_list', '' );
     if ( $saved !== '' ) {
         return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
     }
-    return CIRLOT_DOCS_TYPES;
-}
-
-function cirlot_docs_get_global_fields() {
-    $saved = get_option( 'cirlot_docs_global_fields', '' );
-    if ( $saved !== '' ) {
-        $decoded = json_decode( $saved, true );
-        if ( is_array( $decoded ) ) return $decoded;
-    }
-    return [ [ 'id' => 'description', 'label' => 'Document Description', 'type' => 'textarea' ] ];
+    return AIDOCS_TYPES;
 }
 
 // ── Discover first available embedding model ──
-function cirlot_docs_get_embed_model( $api_key ) {
-    $cached = get_transient( 'cirlot_docs_embed_model' );
-    if ( $cached ) return $cached;
+function aidocs_get_embed_model( $api_key ) {
+    $cached = get_transient( 'aidocs_embed_model' );
+    if ( $cached === 'none' ) return null;   // cached negative
+    if ( is_array( $cached ) ) return $cached;
 
     foreach ( [ 'v1beta', 'v1' ] as $ver ) {
         $r = wp_remote_get(
@@ -65,23 +148,25 @@ function cirlot_docs_get_embed_model( $api_key ) {
         }
         foreach ( $preferred as $p ) {
             if ( in_array( $p, $available, true ) ) {
-                set_transient( 'cirlot_docs_embed_model', [ 'name' => $p, 'ver' => $ver ], HOUR_IN_SECONDS );
+                set_transient( 'aidocs_embed_model', [ 'name' => $p, 'ver' => $ver ], HOUR_IN_SECONDS );
                 return [ 'name' => $p, 'ver' => $ver ];
             }
         }
         if ( ! empty( $available ) ) {
             $pick = [ 'name' => $available[0], 'ver' => $ver ];
-            set_transient( 'cirlot_docs_embed_model', $pick, HOUR_IN_SECONDS );
+            set_transient( 'aidocs_embed_model', $pick, HOUR_IN_SECONDS );
             return $pick;
         }
     }
+    // Cache the negative result for 30 min to avoid hammering ListModels
+    set_transient( 'aidocs_embed_model', 'none', 30 * MINUTE_IN_SECONDS );
     return null;
 }
 
 // ── Gemini embedding helper ───────────────────
-function cirlot_docs_gemini_embed( $text, $api_key, &$error_msg = null ) {
+function aidocs_gemini_embed( $text, $api_key, &$error_msg = null ) {
     $text  = mb_substr( trim( $text ), 0, 9000 );
-    $model = cirlot_docs_get_embed_model( $api_key );
+    $model = aidocs_get_embed_model( $api_key );
 
     if ( ! $model ) {
         $error_msg = 'No embedding model found for this API key. Open Settings → AI and click Test Connection to verify the key, then check that the Gemini Embedding API is enabled in Google AI Studio.';
@@ -111,7 +196,7 @@ function cirlot_docs_gemini_embed( $text, $api_key, &$error_msg = null ) {
 }
 
 // ── Cosine similarity ─────────────────────────
-function cirlot_docs_cosine_similarity( array $a, array $b ) {
+function aidocs_cosine_similarity( array $a, array $b ) {
     $dot = 0.0; $magA = 0.0; $magB = 0.0;
     $n   = min( count( $a ), count( $b ) );
     for ( $i = 0; $i < $n; $i++ ) {
@@ -124,58 +209,104 @@ function cirlot_docs_cosine_similarity( array $a, array $b ) {
 }
 
 // ── Build indexable text for a document ───────
-function cirlot_docs_doc_index_text( $pid ) {
+function aidocs_doc_index_text( $pid ) {
     $parts   = [];
     $parts[] = get_the_title( $pid );
-    foreach ( cirlot_docs_get_global_fields() as $gf ) {
-        $fid = $gf['id'];
-        $val = $fid === 'description'
-            ? get_post_meta( $pid, '_document_description', true )
-            : get_post_meta( $pid, '_document_cf_' . $fid, true );
-        if ( $val ) $parts[] = $gf['label'] . ': ' . $val;
-    }
+    $description = get_post_meta( $pid, '_document_description', true );
+    if ( $description ) $parts[] = 'Document Description: ' . $description;
     $audience = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
     if ( $audience && ! is_wp_error( $audience ) ) $parts[] = 'Audience: ' . implode( ', ', $audience );
     $types = wp_get_post_terms( $pid, 'document_type', [ 'fields' => 'names' ] );
     if ( $types && ! is_wp_error( $types ) ) $parts[] = 'Type: ' . implode( ', ', $types );
     $summary = get_post_meta( $pid, '_document_summary', true );
     if ( $summary ) $parts[] = $summary;
+    $content = aidocs_content_plain_text( $pid );
+    if ( $content ) $parts[] = mb_substr( $content, 0, 6000 );
     return implode( "\n", $parts );
+}
+
+// ──────────────────────────────────────────────
+// Structured content — parse, store, render
+// ──────────────────────────────────────────────
+// A document's body is stored in `_document_content` as a JSON array of blocks.
+// Every block is one of:
+//   { "type": "heading",   "level": 2|3, "text": "…" }
+//   { "type": "paragraph", "text": "…" }
+//   { "type": "list",      "ordered": bool, "items": [ "…" ] }
+// Keeping the stored shape this dumb means the parser can get smarter (or be
+// swapped per document family) without touching the renderer or the frontend.
+
+/**
+ * Read a document's content blocks.
+ *
+ * @return array List of blocks; empty array when nothing has been extracted.
+ */
+function aidocs_get_content_blocks( $pid ) {
+    $raw = get_post_meta( $pid, '_document_content', true );
+    if ( ! $raw ) return [];
+    $decoded = json_decode( $raw, true );
+    return is_array( $decoded ) ? $decoded : [];
+}
+
+/**
+ * Flatten a document's content blocks back to plain text (search indexing, AI context).
+ */
+function aidocs_content_plain_text( $pid ) {
+    return aidocs_blocks_plain_text( aidocs_get_content_blocks( $pid ) );
+}
+
+/**
+ * Render a document's provenance line, if it has one.
+ *
+ * Shown at the end of the body, which is where the source documents carry it.
+ */
+function aidocs_render_document_history( $pid ) {
+    $history = get_post_meta( $pid, '_document_history', true );
+    if ( ! $history ) return '';
+    return '<div class="aidocs-doc-history">'
+        . '<span class="aidocs-doc-history-label">' . esc_html__( 'Document History' ) . '</span>'
+        . esc_html( $history )
+        . '</div>';
 }
 
 // ──────────────────────────────────────────────
 // 0. Enqueue media uploader scripts
 // ──────────────────────────────────────────────
-add_action( 'admin_enqueue_scripts', 'cirlot_docs_enqueue_scripts' );
-function cirlot_docs_enqueue_scripts( $hook ) {
+add_action( 'admin_enqueue_scripts', 'aidocs_enqueue_scripts' );
+function aidocs_enqueue_scripts( $hook ) {
     if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) return;
-    if ( get_post_type() !== 'cirlot_document' && get_current_screen()->post_type !== 'cirlot_document' ) return;
+    if ( get_post_type() !== 'aidoc' && get_current_screen()->post_type !== 'aidoc' ) return;
     wp_enqueue_media();
     wp_enqueue_script( 'pdfjs', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', [], '3.11.174', true );
+    wp_enqueue_script(
+        'aidocs-pdf-structure',
+        AIDOCS_URL . 'assets/js/aidocs-pdf-structure.js',
+        [ 'pdfjs' ],
+        AIDOCS_VERSION,
+        true
+    );
 }
 
 // ──────────────────────────────────────────────
 // 1. Register Custom Post Type
 // ──────────────────────────────────────────────
-add_action( 'init', 'cirlot_docs_register_post_type' );
-function cirlot_docs_register_post_type() {
-    $menu_name = get_option( 'cirlot_docs_menu_name', 'Documents' );
-    $menu_icon = get_option( 'cirlot_docs_menu_icon', 'dashicons-media-document' );
-    register_post_type( 'cirlot_document', [
+add_action( 'init', 'aidocs_register_post_type' );
+function aidocs_register_post_type() {
+    register_post_type( 'aidoc', [
         'labels' => [
-            'name'               => $menu_name,
-            'singular_name'      => rtrim( $menu_name, 's' ),
-            'add_new'            => sprintf( __( 'Add New %s' ), rtrim( $menu_name, 's' ) ),
-            'add_new_item'       => sprintf( __( 'Add New %s' ), rtrim( $menu_name, 's' ) ),
-            'edit_item'          => sprintf( __( 'Edit %s' ), rtrim( $menu_name, 's' ) ),
-            'all_items'          => sprintf( __( 'All %s' ), $menu_name ),
-            'search_items'       => sprintf( __( 'Search %s' ), $menu_name ),
+            'name'               => __( 'Documents' ),
+            'singular_name'      => __( 'Document' ),
+            'add_new'            => __( 'Add New Document' ),
+            'add_new_item'       => __( 'Add New Document' ),
+            'edit_item'          => __( 'Edit Document' ),
+            'all_items'          => __( 'All Documents' ),
+            'search_items'       => __( 'Search Documents' ),
         ],
         'public'       => true,
         'has_archive'  => true,
-        'rewrite'      => [ 'slug' => get_option( 'cirlot_docs_archive_slug', 'documents' ) ],
+        'rewrite'      => [ 'slug' => 'documents' ],
         'supports'     => [ 'title' ],
-        'menu_icon'    => $menu_icon,
+        'menu_icon'    => 'dashicons-media-document',
         'show_in_rest' => false,
     ] );
 }
@@ -183,10 +314,10 @@ function cirlot_docs_register_post_type() {
 // ──────────────────────────────────────────────
 // 2. Register Taxonomies
 // ──────────────────────────────────────────────
-add_action( 'init', 'cirlot_docs_register_taxonomies' );
-function cirlot_docs_register_taxonomies() {
+add_action( 'init', 'aidocs_register_taxonomies' );
+function aidocs_register_taxonomies() {
     // Audience
-    register_taxonomy( 'document_audience', 'cirlot_document', [
+    register_taxonomy( 'document_audience', 'aidoc', [
         'labels' => [
             'name'          => __( 'Audiences' ),
             'singular_name' => __( 'Audience' ),
@@ -199,7 +330,7 @@ function cirlot_docs_register_taxonomies() {
     ] );
 
     // Document Type
-    register_taxonomy( 'document_type', 'cirlot_document', [
+    register_taxonomy( 'document_type', 'aidoc', [
         'labels' => [
             'name'          => __( 'Document Types' ),
             'singular_name' => __( 'Document Type' ),
@@ -215,35 +346,25 @@ function cirlot_docs_register_taxonomies() {
 // ──────────────────────────────────────────────
 // 3. Meta Boxes
 // ──────────────────────────────────────────────
-add_action( 'add_meta_boxes', 'cirlot_docs_add_meta_boxes' );
-function cirlot_docs_add_meta_boxes() {
+add_action( 'add_meta_boxes', 'aidocs_add_meta_boxes' );
+function aidocs_add_meta_boxes() {
     add_meta_box(
-        'cirlot_documents_meta',
+        'aidocs_meta',
         __( 'Documents' ),
-        'cirlot_docs_meta_box_html',
-        'cirlot_document',
+        'aidocs_meta_box_html',
+        'aidoc',
         'normal',
         'high'
     );
 }
 
-function cirlot_docs_meta_box_html( $post ) {
-    wp_nonce_field( 'cirlot_docs_save', 'cirlot_docs_nonce' );
+function aidocs_meta_box_html( $post ) {
+    wp_nonce_field( 'aidocs_save', 'aidocs_nonce' );
 
     $file_id     = get_post_meta( $post->ID, '_document_file_id', true );
     $pub_date    = get_post_meta( $post->ID, '_document_pub_date', true );
     $file_format = get_post_meta( $post->ID, '_document_file_format', true );
-
-    $global_fields = cirlot_docs_get_global_fields();
-    $global_field_values = [];
-    foreach ( $global_fields as $gf ) {
-        $fid = $gf['id'];
-        if ( $fid === 'description' ) {
-            $global_field_values[$fid] = get_post_meta( $post->ID, '_document_description', true );
-        } else {
-            $global_field_values[$fid] = get_post_meta( $post->ID, '_document_cf_' . $fid, true );
-        }
-    }
+    $description = get_post_meta( $post->ID, '_document_description', true );
 
     // Taxonomy terms
     $audience_terms = wp_get_post_terms( $post->ID, 'document_audience', [ 'fields' => 'names' ] );
@@ -267,14 +388,14 @@ function cirlot_docs_meta_box_html( $post ) {
     $formats = [ 'pdf' => 'PDF', 'word' => 'Word', 'excel' => 'Excel' ];
     ?>
     <style>
-        .cirlot-docs-wrap { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-        .cirlot-docs-wrap .cd-row { display: flex; gap: 24px; margin-bottom: 16px; }
-        .cirlot-docs-wrap .cd-col { flex: 1; }
-        .cirlot-docs-wrap label { display: block; font-weight: 600; margin-bottom: 6px; }
-        .cirlot-docs-wrap input[type="text"],
-        .cirlot-docs-wrap input[type="date"],
-        .cirlot-docs-wrap textarea { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid #8c8f94; border-radius: 3px; }
-        .cirlot-docs-wrap textarea { height: 120px; resize: vertical; }
+        .aidocs-wrap { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .aidocs-wrap .cd-row { display: flex; gap: 24px; margin-bottom: 16px; }
+        .aidocs-wrap .cd-col { flex: 1; }
+        .aidocs-wrap label { display: block; font-weight: 600; margin-bottom: 6px; }
+        .aidocs-wrap input[type="text"],
+        .aidocs-wrap input[type="date"],
+        .aidocs-wrap textarea { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid #8c8f94; border-radius: 3px; }
+        .aidocs-wrap textarea { height: 120px; resize: vertical; }
         .cd-file-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
         .cd-file-icon { flex-shrink: 0; width: 44px; height: 52px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: .5px; color: #fff; position: relative; }
         .cd-file-icon::after { content: ''; position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 10px 10px 0; border-color: transparent rgba(0,0,0,.15) transparent transparent; }
@@ -313,7 +434,7 @@ function cirlot_docs_meta_box_html( $post ) {
         #cd-ai-fields-list { margin-top:4px; padding-left:20px; }
     </style>
 
-    <div class="cirlot-docs-wrap">
+    <div class="aidocs-wrap">
 
         <!-- File Upload -->
         <div style="margin-bottom:16px;">
@@ -383,7 +504,7 @@ function cirlot_docs_meta_box_html( $post ) {
                         <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
                     </div>
                     <ul class="cd-dropdown" id="cd-audience-dropdown">
-                        <?php foreach ( cirlot_docs_get_audiences() as $opt ) : ?>
+                        <?php foreach ( aidocs_get_audiences() as $opt ) : ?>
                         <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
                         <?php endforeach; ?>
                     </ul>
@@ -400,7 +521,7 @@ function cirlot_docs_meta_box_html( $post ) {
                         <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select type…' ); ?>" autocomplete="off">
                     </div>
                     <ul class="cd-dropdown" id="cd-type-dropdown">
-                        <?php foreach ( cirlot_docs_get_types() as $opt ) : ?>
+                        <?php foreach ( aidocs_get_types() as $opt ) : ?>
                         <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
                         <?php endforeach; ?>
                     </ul>
@@ -409,25 +530,10 @@ function cirlot_docs_meta_box_html( $post ) {
             </div>
         </div>
 
-        <!-- Global Custom Fields -->
-        <div id="cd-global-fields-wrap">
-            <?php foreach ( $global_fields as $gf ) :
-                $gf_id   = esc_attr( $gf['id'] );
-                $gf_name = 'document_cf[' . esc_attr( $gf['id'] ) . ']';
-                $gf_val  = $global_field_values[ $gf['id'] ] ?? '';
-            ?>
-            <div style="margin-bottom:16px;">
-                <label for="cd-gf-<?php echo $gf_id; ?>"><?php echo esc_html( $gf['label'] ); ?></label>
-                <?php if ( ( $gf['type'] ?? 'text' ) === 'text' ) : ?>
-                <input type="text" id="cd-gf-<?php echo $gf_id; ?>" name="<?php echo $gf_name; ?>"
-                       value="<?php echo esc_attr( $gf_val ); ?>" class="large-text">
-                <?php else : ?>
-                <textarea id="cd-gf-<?php echo $gf_id; ?>" name="<?php echo $gf_name; ?>"
-                          rows="<?php echo ( $gf['type'] ?? '' ) === 'list' ? 4 : 3; ?>"
-                ><?php echo esc_textarea( $gf_val ); ?></textarea>
-                <?php endif; ?>
-            </div>
-            <?php endforeach; ?>
+        <!-- Description -->
+        <div style="margin-bottom:16px;">
+            <label for="cd-description"><?php esc_html_e( 'Description' ); ?></label>
+            <textarea id="cd-description" name="document_description" rows="3"><?php echo esc_textarea( $description ); ?></textarea>
         </div>
 
         <!-- Process with AI -->
@@ -443,12 +549,10 @@ function cirlot_docs_meta_box_html( $post ) {
                         <input type="checkbox" class="cd-ai-field-check" data-field-id="title">
                         <?php esc_html_e( 'Title' ); ?>
                     </label>
-                    <?php foreach ( $global_fields as $gf ) : ?>
                     <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-ai-field-check" data-field-id="<?php echo esc_attr( $gf['id'] ); ?>" checked>
-                        <?php echo esc_html( $gf['label'] ); ?>
+                        <input type="checkbox" class="cd-ai-field-check" data-field-id="description" checked>
+                        <?php esc_html_e( 'Description' ); ?>
                     </label>
-                    <?php endforeach; ?>
                     <label class="cd-ai-field-option">
                         <input type="checkbox" class="cd-ai-field-check" data-field-id="audience">
                         <?php esc_html_e( 'Audience' ); ?>
@@ -463,9 +567,24 @@ function cirlot_docs_meta_box_html( $post ) {
                 <button type="button" id="cd-ai-process-btn" class="button button-primary">
                     &#9889; <?php esc_html_e( 'Process with AI' ); ?>
                 </button>
+                <button type="button" id="cd-extract-content-btn" class="button">
+                    &#128196; <?php esc_html_e( 'Extract Content' ); ?>
+                </button>
                 <button type="button" id="cd-gen-embedding-btn" class="button">
                     &#128200; <?php esc_html_e( 'Index for Search' ); ?>
                 </button>
+                <?php
+                $content_blocks = aidocs_get_content_blocks( $post->ID );
+                $has_content    = (bool) $content_blocks;
+                ?>
+                <span id="cd-content-badge" style="font-size:11px;padding:2px 8px;border-radius:3px;background:<?php echo $has_content ? '#d4edda' : '#f8d7da'; ?>;color:<?php echo $has_content ? '#155724' : '#721c24'; ?>;">
+                    <?php
+                    echo $has_content
+                        /* translators: %d: number of extracted content blocks. */
+                        ? '&#10003; ' . esc_html( sprintf( _n( '%d block', '%d blocks', count( $content_blocks ) ), count( $content_blocks ) ) )
+                        : esc_html__( 'No content' );
+                    ?>
+                </span>
                 <?php $has_emb = (bool) get_post_meta( $post->ID, '_document_embedding', true ); ?>
                 <span id="cd-embedding-badge" style="font-size:11px;padding:2px 8px;border-radius:3px;background:<?php echo $has_emb ? '#d4edda' : '#f8d7da'; ?>;color:<?php echo $has_emb ? '#155724' : '#721c24'; ?>;">
                     <?php echo $has_emb ? '&#10003; ' . esc_html__( 'Indexed' ) : esc_html__( 'Not indexed' ); ?>
@@ -474,7 +593,7 @@ function cirlot_docs_meta_box_html( $post ) {
             </div>
         </div>
 
-    </div><!-- .cirlot-docs-wrap -->
+    </div><!-- .aidocs-wrap -->
 
     <!-- Page Text Modal -->
     <div id="cd-page-modal" style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.65);">
@@ -495,10 +614,9 @@ function cirlot_docs_meta_box_html( $post ) {
     <script>
     (function($) {
         var cdAjaxUrl         = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
-        var cdAjaxNonce       = <?php echo wp_json_encode( wp_create_nonce( 'cirlot_docs_ai' ) ); ?>;
-        var cdGlobalFields    = <?php echo wp_json_encode( $global_fields ); ?>;
-        var cdAudienceOptions = <?php echo wp_json_encode( cirlot_docs_get_audiences() ); ?>;
-        var cdTypeOptions     = <?php echo wp_json_encode( cirlot_docs_get_types() ); ?>;
+        var cdAjaxNonce       = <?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai' ) ); ?>;
+        var cdAudienceOptions = <?php echo wp_json_encode( aidocs_get_audiences() ); ?>;
+        var cdTypeOptions     = <?php echo wp_json_encode( aidocs_get_types() ); ?>;
         var cdDocId           = <?php echo (int) $post->ID; ?>;
         var cdHasEmbedding    = <?php echo get_post_meta( $post->ID, '_document_embedding', true ) ? 'true' : 'false'; ?>;
 
@@ -705,44 +823,29 @@ function cirlot_docs_meta_box_html( $post ) {
                     $status.text('PDF.js not loaded — please refresh.');
                     return;
                 }
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                var pdf      = await pdfjsLib.getDocument(pdfUrl).promise;
-                var numPages = pdf.numPages;
-
-                for (var i = 1; i <= numPages; i++) {
-                    $status.text(i + ' / ' + numPages);
-                    var page    = await pdf.getPage(i);
-                    var vp      = page.getViewport({ scale: 1 });
-                    var content = await page.getTextContent();
-
-                    var pageH = vp.height;
-                    var top   = pageH * 0.93;
-                    var bot   = pageH * 0.07;
-
-                    var lineMap = {};
-                    content.items.forEach(function(item) {
-                        var y = item.transform[5];
-                        if (y < bot || y > top) return;
-                        var bucket = Math.round(y / 3) * 3;
-                        if (!lineMap[bucket]) lineMap[bucket] = [];
-                        lineMap[bucket].push(item);
-                    });
-
-                    var sortedY = Object.keys(lineMap).map(Number).sort(function(a, b) { return b - a; });
-                    var lines   = sortedY.map(function(y) {
-                        return lineMap[y].map(function(it) { return it.str; }).join('');
-                    }).filter(function(l) { return l.trim() !== ''; });
-
-                    cdPageTexts[i] = lines.join('\n');
-
-                    (function(pageNum) {
-                        var $badge = $('<button type="button" class="button button-small cd-page-badge"></button>').text('Page ' + pageNum);
-                        $badge.on('click', function() { cdOpenPageModal(pageNum); });
-                        $badges.append($badge);
-                    })(i);
+                if (typeof AidocsPdfStructure === 'undefined') {
+                    $status.text('Extractor not loaded — please refresh.');
+                    return;
                 }
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                var pdf = await pdfjsLib.getDocument(pdfUrl).promise;
 
-                $status.text(numPages + ' page' + (numPages !== 1 ? 's' : ''));
+                // The extractor reads the layout of the PDF — font weight,
+                // point size, left margin, line spacing — and writes it back
+                // into the text as the markers the server-side parser matches.
+                var extracted = await AidocsPdfStructure.extract(pdf, function(page, total) {
+                    $status.text(page + ' / ' + total);
+                });
+
+                extracted.pages.forEach(function(text, index) {
+                    var pageNum = index + 1;
+                    cdPageTexts[pageNum] = text;
+                    var $badge = $('<button type="button" class="button button-small cd-page-badge"></button>').text('Page ' + pageNum);
+                    $badge.on('click', function() { cdOpenPageModal(pageNum); });
+                    $badges.append($badge);
+                });
+
+                $status.text(pdf.numPages + ' page' + (pdf.numPages !== 1 ? 's' : ''));
             } catch (err) {
                 $status.text('Error: ' + err.message);
             }
@@ -786,20 +889,16 @@ function cirlot_docs_meta_box_html( $post ) {
             }
 
             var staticDefs = {
-                title:         { id: 'title',         label: '<?php echo esc_js( __( 'Document Title' ) ); ?>',  type: 'text' },
-                audience:      { id: 'audience',      label: '<?php echo esc_js( __( 'Audience' ) ); ?>',        type: 'multiselect', options: cdAudienceOptions },
-                document_type: { id: 'document_type', label: '<?php echo esc_js( __( 'Document Type' ) ); ?>',   type: 'multiselect', options: cdTypeOptions }
+                title:         { id: 'title',         label: '<?php echo esc_js( __( 'Document Title' ) ); ?>',       type: 'text' },
+                description:   { id: 'description',   label: '<?php echo esc_js( __( 'Description' ) ); ?>',          type: 'textarea' },
+                audience:      { id: 'audience',      label: '<?php echo esc_js( __( 'Audience' ) ); ?>',              type: 'multiselect', options: cdAudienceOptions },
+                document_type: { id: 'document_type', label: '<?php echo esc_js( __( 'Document Type' ) ); ?>',         type: 'multiselect', options: cdTypeOptions }
             };
 
             var fieldsToFill = [];
             $('.cd-ai-field-check:checked').each(function() {
                 var fid = $(this).data('field-id');
-                if (staticDefs[fid]) {
-                    fieldsToFill.push(staticDefs[fid]);
-                } else {
-                    var gf = cdGlobalFields.find(function(f) { return f.id === fid; });
-                    if (gf) fieldsToFill.push({ id: gf.id, label: gf.label, type: gf.type });
-                }
+                if (staticDefs[fid]) fieldsToFill.push(staticDefs[fid]);
             });
 
             if (!fieldsToFill.length) {
@@ -812,7 +911,7 @@ function cirlot_docs_meta_box_html( $post ) {
             $('#cd-ai-status').text('');
 
             $.post(cdAjaxUrl, {
-                action:   'cirlot_docs_ai_process',
+                action:   'aidocs_ai_process',
                 nonce:    cdAjaxNonce,
                 post_id:  cdDocId,
                 raw_text: rawText,
@@ -837,11 +936,9 @@ function cirlot_docs_meta_box_html( $post ) {
                     cdTypeSelect.clearTags();
                     types.forEach(function(t) { var s = t.trim(); if (s) cdTypeSelect.addTag(s); });
                 }
-                cdGlobalFields.forEach(function(f) {
-                    if (data[f.id] !== undefined) {
-                        $('[name="document_cf[' + f.id + ']"]').val(data[f.id]);
-                    }
-                });
+                if (data.description !== undefined) {
+                    $('#cd-description').val(data.description);
+                }
                 if (data._embedding_saved) {
                     cdSetEmbeddingBadge(true);
                 }
@@ -866,12 +963,73 @@ function cirlot_docs_meta_box_html( $post ) {
             }
         }
 
+        // ── Extract structured content (regex, no AI) ──
+        $('#cd-extract-content-btn').on('click', function() {
+            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
+                return cdPageTexts[p];
+            }).join('\n');
+
+            if (!rawText.trim()) {
+                $('#cd-ai-status').text('<?php echo esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) ); ?>');
+                return;
+            }
+
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Extracting…' ) ); ?>');
+            $('#cd-ai-status').text('');
+
+            $.post(cdAjaxUrl, {
+                action:   'aidocs_extract_content',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                raw_text: rawText
+            })
+            .done(function(res) {
+                if (!res.success) {
+                    $('#cd-ai-status').text('Error: ' + res.data);
+                    return;
+                }
+                var d = res.data;
+                $('#cd-content-badge')
+                    .css({ 'background': '#d4edda', 'color': '#155724' })
+                    .html('✓ ' + d.total + ' blocks');
+
+                // Reflect anything the labelled schema filled in for us.
+                if (d.filled && d.filled.description) {
+                    $('#cd-description').val(d.filled.description);
+                }
+                if (d.filled && d.filled.pub_date) {
+                    $('#cd-pub-date').val(d.filled.pub_date);
+                }
+                if (d.title && !$('#title').val()) {
+                    $('#title').val(d.title).trigger('keyup').trigger('focus').trigger('blur');
+                }
+
+                var msg = d.headings + ' headings, ' + d.paragraphs + ' paragraphs, ' + d.lists + ' lists';
+                if (d.notes)  msg += ', ' + d.notes + ' notes';
+                if (d.tables) msg += ', ' + d.tables + ' tables';
+                if (d.labeled) {
+                    var extra = Object.keys(d.filled || {});
+                    msg += ' · labelled schema detected'
+                        + (extra.length ? ' — filled ' + extra.join(', ') : '');
+                }
+                $('#cd-ai-status').text(msg);
+            })
+            .fail(function(xhr) {
+                var msg = xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data : xhr.statusText;
+                $('#cd-ai-status').text('Error: ' + msg);
+            })
+            .always(function() {
+                $btn.prop('disabled', false).html('&#128196; <?php echo esc_js( __( 'Extract Content' ) ); ?>');
+            });
+        });
+
         $('#cd-gen-embedding-btn').on('click', function() {
             var $btn = $(this);
             $btn.prop('disabled', true).text('<?php esc_html_e( 'Indexing…' ); ?>');
             $('#cd-ai-status').text('');
             $.post(cdAjaxUrl, {
-                action:  'cirlot_docs_generate_embedding',
+                action:  'aidocs_generate_embedding',
                 nonce:   cdAjaxNonce,
                 post_id: cdDocId
             })
@@ -926,10 +1084,10 @@ function cirlot_docs_meta_box_html( $post ) {
 // ──────────────────────────────────────────────
 // 4. Save Meta
 // ──────────────────────────────────────────────
-add_action( 'save_post_cirlot_document', 'cirlot_docs_save_meta' );
-function cirlot_docs_save_meta( $post_id ) {
-    if ( ! isset( $_POST['cirlot_docs_nonce'] ) ) return;
-    if ( ! wp_verify_nonce( $_POST['cirlot_docs_nonce'], 'cirlot_docs_save' ) ) return;
+add_action( 'save_post_aidoc', 'aidocs_save_meta' );
+function aidocs_save_meta( $post_id ) {
+    if ( ! isset( $_POST['aidocs_nonce'] ) ) return;
+    if ( ! wp_verify_nonce( $_POST['aidocs_nonce'], 'aidocs_save' ) ) return;
     if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
     if ( ! current_user_can( 'edit_post', $post_id ) ) return;
 
@@ -955,18 +1113,9 @@ function cirlot_docs_save_meta( $post_id ) {
         update_post_meta( $post_id, '_document_file_format', $_POST['document_file_format'] );
     }
 
-    // Global custom fields
-    if ( isset( $_POST['document_cf'] ) && is_array( $_POST['document_cf'] ) ) {
-        foreach ( cirlot_docs_get_global_fields() as $gf ) {
-            $fid = preg_replace( '/[^a-z0-9_]/', '', $gf['id'] ?? '' );
-            if ( ! $fid ) continue;
-            $val = sanitize_textarea_field( $_POST['document_cf'][ $fid ] ?? '' );
-            if ( $fid === 'description' ) {
-                update_post_meta( $post_id, '_document_description', $val );
-            } else {
-                update_post_meta( $post_id, '_document_cf_' . $fid, $val );
-            }
-        }
+    // Description
+    if ( isset( $_POST['document_description'] ) ) {
+        update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $_POST['document_description'] ) );
     }
 
     // Audience taxonomy
@@ -985,9 +1134,9 @@ function cirlot_docs_save_meta( $post_id ) {
 // ──────────────────────────────────────────────
 // 5. AI Processing — Gemini AJAX handler
 // ──────────────────────────────────────────────
-add_action( 'wp_ajax_cirlot_docs_ai_process', 'cirlot_docs_ai_process' );
-function cirlot_docs_ai_process() {
-    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+add_action( 'wp_ajax_aidocs_ai_process', 'aidocs_ai_process' );
+function aidocs_ai_process() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
     if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
 
     $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
@@ -996,13 +1145,13 @@ function cirlot_docs_ai_process() {
     if ( ! $raw_text )     wp_send_json_error( __( 'No text provided. Extract PDF pages first.' ) );
     if ( empty( $fields ) ) wp_send_json_error( __( 'No fields selected for AI completion.' ) );
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
 
     if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured in Settings.' ) );
 
-    $available_audiences = implode( ', ', cirlot_docs_get_audiences() );
-    $available_types     = implode( ', ', cirlot_docs_get_types() );
+    $available_audiences = implode( ', ', aidocs_get_audiences() );
+    $available_types     = implode( ', ', aidocs_get_types() );
 
     $fields_desc = '';
     foreach ( $fields as $f ) {
@@ -1071,9 +1220,9 @@ function cirlot_docs_ai_process() {
             update_post_meta( $post_id, '_document_summary', $summary );
         }
         $index_text = trim( $summary . "\n" . mb_substr( $raw_text, 0, 8000 ) );
-        $embedding  = cirlot_docs_gemini_embed( $index_text, $api_key, $embed_error );
+        $embedding  = aidocs_gemini_embed( $index_text, $api_key, $embed_error );
         if ( $embedding ) {
-            update_post_meta( $post_id, '_document_embedding', wp_json_encode( $embedding ) );
+            update_post_meta( $post_id, '_document_embedding', wp_slash( wp_json_encode( $embedding ) ) );
             $embedding_saved = true;
         }
     }
@@ -1083,11 +1232,11 @@ function cirlot_docs_ai_process() {
 }
 
 // ── AJAX: List available Gemini models (diagnostic) ─
-add_action( 'wp_ajax_cirlot_docs_list_models', 'cirlot_docs_list_models_ajax' );
-function cirlot_docs_list_models_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+add_action( 'wp_ajax_aidocs_list_models', 'aidocs_list_models_ajax' );
+function aidocs_list_models_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized.' );
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
     if ( ! $api_key ) wp_send_json_error( 'No API key.' );
     $r = wp_remote_get( 'https://generativelanguage.googleapis.com/v1beta/models?key=' . urlencode( $api_key ), [ 'timeout' => 15 ] );
     if ( is_wp_error( $r ) ) wp_send_json_error( $r->get_error_message() );
@@ -1100,9 +1249,9 @@ function cirlot_docs_list_models_ajax() {
 }
 
 // ── AJAX: Generate embedding for existing doc ─
-add_action( 'wp_ajax_cirlot_docs_generate_embedding', 'cirlot_docs_generate_embedding_ajax' );
-function cirlot_docs_generate_embedding_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai', 'nonce' );
+add_action( 'wp_ajax_aidocs_generate_embedding', 'aidocs_generate_embedding_ajax' );
+function aidocs_generate_embedding_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
     if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
 
     $post_id = absint( $_POST['post_id'] ?? 0 );
@@ -1110,104 +1259,145 @@ function cirlot_docs_generate_embedding_ajax() {
         wp_send_json_error( 'Invalid post.' );
     }
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
     if ( ! $api_key ) wp_send_json_error( 'Gemini API key not configured.' );
 
-    $index_text = cirlot_docs_doc_index_text( $post_id );
+    $index_text = aidocs_doc_index_text( $post_id );
     if ( ! trim( $index_text ) ) wp_send_json_error( 'No indexable content found. Add a description or title first.' );
 
-    $embedding = cirlot_docs_gemini_embed( $index_text, $api_key, $embed_error );
+    $embedding = aidocs_gemini_embed( $index_text, $api_key, $embed_error );
     if ( ! $embedding ) wp_send_json_error( 'Embedding failed: ' . ( $embed_error ?: 'no response from API' ) );
 
-    update_post_meta( $post_id, '_document_embedding', wp_json_encode( $embedding ) );
+    update_post_meta( $post_id, '_document_embedding', wp_slash( wp_json_encode( $embedding ) ) );
     wp_send_json_success( [ 'indexed' => true ] );
+}
+
+// ── AJAX: Extract structured content from PDF text (admin) ─
+add_action( 'wp_ajax_aidocs_extract_content', 'aidocs_extract_content_ajax' );
+function aidocs_extract_content_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+
+    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
+    if ( ! trim( $raw_text ) ) {
+        wp_send_json_error( __( 'No PDF text to parse. Load a PDF and wait for extraction.' ) );
+    }
+
+    $parsed = aidocs_parse_labeled_document( $raw_text );
+    $blocks = $parsed['blocks'];
+    if ( ! $blocks ) {
+        wp_send_json_error( __( 'The parser found no content in this document.' ) );
+    }
+
+    // wp_slash() is required: update_post_meta() runs wp_unslash() on the value,
+    // which would strip the backslashes out of JSON's \uXXXX escapes and leave
+    // unparseable meta behind. Only shows up on documents containing non-ASCII
+    // characters — curly quotes, em dashes — so it fails silently on the rest.
+    update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
+
+    // A labelled document carries its own description and date, so there is no
+    // reason to ask the AI for either. Existing values are never overwritten —
+    // an editor's correction outranks the parser.
+    $filled = [];
+    if ( $parsed['labeled'] ) {
+        if ( $parsed['teaser'] && ! get_post_meta( $post_id, '_document_description', true ) ) {
+            update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $parsed['teaser'] ) );
+            $filled['description'] = $parsed['teaser'];
+        }
+        $date = aidocs_normalize_doc_date( $parsed['last_updated'] );
+        if ( $date && ! get_post_meta( $post_id, '_document_pub_date', true ) ) {
+            update_post_meta( $post_id, '_document_pub_date', $date );
+            $filled['pub_date'] = $date;
+        }
+        if ( $parsed['document_history'] ) {
+            update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $parsed['document_history'] ) );
+            $filled['document_history'] = $parsed['document_history'];
+        }
+    }
+
+    $counts = array_count_values( wp_list_pluck( $blocks, 'type' ) );
+    wp_send_json_success( [
+        'total'      => count( $blocks ),
+        'headings'   => (int) ( $counts['heading'] ?? 0 ),
+        'paragraphs' => (int) ( $counts['paragraph'] ?? 0 ),
+        'lists'      => (int) ( $counts['list'] ?? 0 ),
+        'notes'      => (int) ( $counts['note'] ?? 0 ),
+        'tables'     => (int) ( $counts['table'] ?? 0 ),
+        'labeled'    => (bool) $parsed['labeled'],
+        'filled'     => $filled,
+        'title'      => $parsed['title'],
+        'html'       => aidocs_render_content_blocks( $blocks ),
+    ] );
+}
+
+// ── AJAX: Fetch a document's rendered content (frontend, lazy-loaded by the modal) ─
+add_action( 'wp_ajax_aidocs_doc_content',        'aidocs_doc_content_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_doc_content', 'aidocs_doc_content_ajax' );
+function aidocs_doc_content_ajax() {
+    check_ajax_referer( 'aidocs_search', 'nonce' );
+
+    $doc_id = absint( $_POST['doc_id'] ?? 0 );
+    $post   = $doc_id ? get_post( $doc_id ) : null;
+    if ( ! $post || $post->post_status !== 'publish' || $post->post_type !== 'aidoc' ) {
+        wp_send_json_error( 'Document not found.' );
+    }
+
+    wp_send_json_success( [
+        'html'      => aidocs_render_content_blocks( aidocs_get_content_blocks( $doc_id ) )
+                       . aidocs_render_document_history( $doc_id ),
+        'permalink' => get_permalink( $doc_id ),
+    ] );
 }
 
 // ──────────────────────────────────────────────
 // 6. Admin Menu — Settings submenu
 // ──────────────────────────────────────────────
-add_action( 'admin_menu', 'cirlot_docs_admin_menu' );
-function cirlot_docs_admin_menu() {
+add_action( 'admin_menu', 'aidocs_admin_menu' );
+function aidocs_admin_menu() {
     add_submenu_page(
-        'edit.php?post_type=cirlot_document',
+        'edit.php?post_type=aidoc',
         __( 'Documents Settings' ),
         __( 'Settings' ),
         'manage_options',
-        'cirlot-docs-settings',
-        'cirlot_docs_settings_page'
+        'aidocs-settings',
+        'aidocs_settings_page'
     );
 }
 
-function cirlot_docs_settings_page() { // phpcs:ignore
+function aidocs_settings_page() { // phpcs:ignore
     if ( ! current_user_can( 'manage_options' ) ) return;
 
-    $active_tab = sanitize_key( $_GET['tab'] ?? 'general' );
+    if ( isset( $_POST['aidocs_settings_nonce'] ) &&
+         wp_verify_nonce( $_POST['aidocs_settings_nonce'], 'aidocs_settings_save' ) ) {
 
-    if ( isset( $_POST['cirlot_docs_settings_nonce'] ) &&
-         wp_verify_nonce( $_POST['cirlot_docs_settings_nonce'], 'cirlot_docs_settings_save' ) ) {
+        update_option( 'aidocs_gemini_model', sanitize_text_field( $_POST['aidocs_gemini_model'] ?? 'gemini-2.5-flash' ) );
+        if ( ! empty( $_POST['aidocs_gemini_api_key'] ) ) {
+            update_option( 'aidocs_gemini_api_key', sanitize_text_field( $_POST['aidocs_gemini_api_key'] ) );
+        }
 
-        $tab = sanitize_key( $_POST['cd_active_tab'] ?? 'general' );
+        $raw_audiences = sanitize_textarea_field( $_POST['aidocs_audiences_list'] ?? '' );
+        update_option( 'aidocs_audiences_list', $raw_audiences );
+        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_audiences ) ) ) as $term ) {
+            if ( ! term_exists( $term, 'document_audience' ) ) wp_insert_term( $term, 'document_audience' );
+        }
+        $raw_types = sanitize_textarea_field( $_POST['aidocs_types_list'] ?? '' );
+        update_option( 'aidocs_types_list', $raw_types );
+        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
+            if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
+        }
 
-        if ( $tab === 'general' ) {
-            update_option( 'cirlot_docs_menu_name',        sanitize_text_field( $_POST['cirlot_docs_menu_name'] ?? 'Documents' ) ?: 'Documents' );
-            update_option( 'cirlot_docs_menu_icon',        sanitize_text_field( $_POST['cirlot_docs_menu_icon'] ?? 'dashicons-media-document' ) );
-            update_option( 'cirlot_docs_archive_slug',     sanitize_text_field( $_POST['cirlot_docs_archive_slug'] ?? 'documents' ) );
-            update_option( 'cirlot_docs_default_audience', sanitize_text_field( $_POST['cirlot_docs_default_audience'] ?? '' ) );
-            update_option( 'cirlot_docs_default_type',     sanitize_text_field( $_POST['cirlot_docs_default_type'] ?? '' ) );
-            update_option( 'cirlot_docs_allowed_formats',  array_map( 'sanitize_text_field', (array) ( $_POST['cirlot_docs_allowed_formats'] ?? [ 'pdf', 'word', 'excel' ] ) ) );
-            flush_rewrite_rules();
-        }
-        if ( $tab === 'ai' ) {
-            update_option( 'cirlot_docs_gemini_model', sanitize_text_field( $_POST['cirlot_docs_gemini_model'] ?? 'gemini-2.5-flash' ) );
-            if ( ! empty( $_POST['cirlot_docs_gemini_api_key'] ) ) {
-                update_option( 'cirlot_docs_gemini_api_key', sanitize_text_field( $_POST['cirlot_docs_gemini_api_key'] ) );
-            }
-        }
-        if ( $tab === 'taxonomy' ) {
-            $raw_audiences = sanitize_textarea_field( $_POST['cirlot_docs_audiences_list'] ?? '' );
-            update_option( 'cirlot_docs_audiences_list', $raw_audiences );
-            foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_audiences ) ) ) as $term ) {
-                if ( ! term_exists( $term, 'document_audience' ) ) wp_insert_term( $term, 'document_audience' );
-            }
-            $raw_types = sanitize_textarea_field( $_POST['cirlot_docs_types_list'] ?? '' );
-            update_option( 'cirlot_docs_types_list', $raw_types );
-            foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
-                if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
-            }
-        }
-        if ( $tab === 'fields' ) {
-            $raw_json = stripslashes( $_POST['cirlot_docs_global_fields_json'] ?? '[]' );
-            $decoded  = json_decode( $raw_json, true );
-            if ( is_array( $decoded ) ) {
-                $allowed_types = [ 'text', 'textarea', 'list' ];
-                $clean = array_values( array_filter( array_map( function( $f ) use ( $allowed_types ) {
-                    $id    = preg_replace( '/[^a-z0-9_]/', '', strtolower( $f['id']    ?? '' ) );
-                    $label = sanitize_text_field( $f['label'] ?? '' );
-                    $type  = in_array( $f['type'] ?? '', $allowed_types, true ) ? $f['type'] : 'text';
-                    return ( $id && $label ) ? compact( 'id', 'label', 'type' ) : null;
-                }, $decoded ) ) );
-                update_option( 'cirlot_docs_global_fields', wp_json_encode( $clean ) );
-            }
-        }
-        $active_tab = $tab;
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.' ) . '</p></div>';
     }
 
     /* ---- data ---- */
-    $menu_name        = get_option( 'cirlot_docs_menu_name', 'Documents' );
-    $menu_icon        = get_option( 'cirlot_docs_menu_icon', 'dashicons-media-document' );
-    $slug             = get_option( 'cirlot_docs_archive_slug', 'documents' );
-    $default_audience = get_option( 'cirlot_docs_default_audience', '' );
-    $default_type     = get_option( 'cirlot_docs_default_type', '' );
-    $allowed_formats  = (array) get_option( 'cirlot_docs_allowed_formats', [ 'pdf', 'word', 'excel' ] );
-    $gemini_model     = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
-    $gemini_api_key   = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $audiences_list   = get_option( 'cirlot_docs_audiences_list', implode( "\n", CIRLOT_DOCS_AUDIENCES ) );
-    $types_list       = get_option( 'cirlot_docs_types_list',     implode( "\n", CIRLOT_DOCS_TYPES ) );
-    $global_fields    = cirlot_docs_get_global_fields();
-    $audience_terms   = get_terms( [ 'taxonomy' => 'document_audience', 'hide_empty' => false ] );
-    $type_terms       = get_terms( [ 'taxonomy' => 'document_type',     'hide_empty' => false ] );
-    $tabs = [ 'general' => 'General', 'ai' => 'AI', 'taxonomy' => 'Taxonomy', 'fields' => 'Custom Fields', 'shortcodes' => 'Shortcodes' ];
+    $gemini_model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $gemini_api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $audiences_list = get_option( 'aidocs_audiences_list', implode( "\n", AIDOCS_AUDIENCES ) );
+    $types_list     = get_option( 'aidocs_types_list',     implode( "\n", AIDOCS_TYPES ) );
 
     $types_arr     = array_filter( array_map( 'trim', explode( "\n", $types_list ) ) );
     $audiences_arr = array_filter( array_map( 'trim', explode( "\n", $audiences_list ) ) );
@@ -1217,20 +1407,8 @@ function cirlot_docs_settings_page() { // phpcs:ignore
     <div class="wrap">
     <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
     <style>
-    .cd-settings-tabs{display:flex;border-bottom:1px solid #c3c4c7;margin-bottom:20px;}
-    .cd-settings-tab{padding:10px 18px;font-size:13px;font-weight:500;color:#50575e;text-decoration:none;border:1px solid transparent;border-bottom:none;margin-bottom:-1px;border-radius:3px 3px 0 0;}
-    .cd-settings-tab:hover{color:#2271b1;}.cd-settings-tab.active{background:#fff;border-color:#c3c4c7;color:#1d2327;font-weight:600;}
-    .cd-tab-pane{display:none;}.cd-tab-pane.active{display:block;}
-    .cd-gf-list{border:1px solid #c3c4c7;border-radius:4px;overflow:hidden;margin-bottom:12px;background:#fff;}
-    .cd-gf-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #e0e0e0;}
-    .cd-gf-item:last-child{border-bottom:none;}.cd-gf-item:hover{background:#f9f9f9;}
-    .cd-gf-drag{color:#bbb;cursor:grab;font-size:16px;flex-shrink:0;}
-    .cd-gf-label{flex:1;font-size:13px;font-weight:600;color:#1d2327;}
-    .cd-gf-type{font-size:11px;color:#646970;background:#f0f0f1;padding:2px 8px;border-radius:3px;}
-    .cd-gf-remove{background:none;border:none;cursor:pointer;color:#b32d2e;font-size:20px;line-height:1;padding:0;flex-shrink:0;}
-    .cd-gf-remove:hover{color:#8a2020;}
-    .cd-gf-add-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;}
-    .cd-gf-add-row input,.cd-gf-add-row select{height:32px;font-size:13px;}
+    .cd-settings-section{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:20px 24px;margin-bottom:24px;}
+    .cd-settings-section h2{margin-top:0;font-size:16px;}
     .cd-sc-box{background:#f6f7f7;border:1px solid #c3c4c7;border-radius:4px;padding:14px 18px;margin-bottom:14px;}
     .cd-sc-box h3{margin:0 0 8px;font-size:13px;color:#1d2327;}
     .cd-sc-code{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
@@ -1242,109 +1420,18 @@ function cirlot_docs_settings_page() { // phpcs:ignore
     .cd-sc-params th{text-align:left;padding:6px 10px;background:#f0f0f1;border:1px solid #dcdcde;}
     .cd-sc-params td{padding:6px 10px;border:1px solid #dcdcde;color:#50575e;vertical-align:top;}
     .cd-sc-params td code{background:#f0f0f1;padding:1px 5px;border-radius:2px;font-size:11px;}
-    .cd-icon-grid{display:flex;flex-wrap:wrap;gap:6px;max-width:520px;margin-top:8px;}
-    .cd-icon-option{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:2px solid #c3c4c7;border-radius:6px;cursor:pointer;background:#fff;transition:border-color .15s,background .15s;}
-    .cd-icon-option:hover{border-color:#2271b1;background:#f0f6ff;}
-    .cd-icon-option.selected{border-color:#2271b1;background:#e8f0fb;}
-    .cd-icon-option .dashicons{font-size:20px;width:20px;height:20px;color:#1d2327;}
-    .cd-icon-option.selected .dashicons{color:#2271b1;}
     </style>
 
-    <div class="cd-settings-tabs">
-        <?php foreach ( $tabs as $key => $label ) : ?>
-        <a class="cd-settings-tab<?php echo $active_tab === $key ? ' active' : ''; ?>"
-           href="<?php echo esc_url( add_query_arg( [ 'tab' => $key ], remove_query_arg( 'tab' ) ) ); ?>">
-           <?php echo esc_html( $label ); ?>
-        </a>
-        <?php endforeach; ?>
-    </div>
-
     <form method="post">
-    <?php wp_nonce_field( 'cirlot_docs_settings_save', 'cirlot_docs_settings_nonce' ); ?>
-    <input type="hidden" name="cd_active_tab" value="<?php echo esc_attr( $active_tab ); ?>">
+    <?php wp_nonce_field( 'aidocs_settings_save', 'aidocs_settings_nonce' ); ?>
 
-    <!-- General -->
-    <div class="cd-tab-pane<?php echo $active_tab === 'general' ? ' active' : ''; ?>">
-        <table class="form-table" role="presentation">
-            <tr>
-                <th><label for="cd-menu-name"><?php esc_html_e( 'Menu Name' ); ?></label></th>
-                <td>
-                    <input type="text" id="cd-menu-name" name="cirlot_docs_menu_name" value="<?php echo esc_attr( $menu_name ); ?>" class="regular-text">
-                    <p class="description"><?php esc_html_e( 'Name shown in the WordPress admin sidebar (e.g. Documents, Records, Files).' ); ?></p>
-                </td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Menu Icon' ); ?></th>
-                <td>
-                    <input type="hidden" id="cd-menu-icon" name="cirlot_docs_menu_icon" value="<?php echo esc_attr( $menu_icon ); ?>">
-                    <div class="cd-icon-grid">
-                        <?php
-                        $icons = [
-                            'dashicons-media-document', 'dashicons-admin-page',
-                            'dashicons-book', 'dashicons-book-alt',
-                            'dashicons-portfolio', 'dashicons-archive',
-                            'dashicons-clipboard', 'dashicons-index-card',
-                            'dashicons-list-view', 'dashicons-media-text',
-                            'dashicons-media-archive', 'dashicons-media-spreadsheet',
-                            'dashicons-format-aside', 'dashicons-text-page',
-                            'dashicons-download', 'dashicons-open-folder',
-                            'dashicons-category', 'dashicons-tag',
-                            'dashicons-analytics', 'dashicons-chart-bar',
-                            'dashicons-cloud', 'dashicons-database',
-                            'dashicons-search', 'dashicons-star-filled',
-                        ];
-                        foreach ( $icons as $icon ) :
-                            $selected = $icon === $menu_icon ? ' selected' : '';
-                        ?>
-                        <div class="cd-icon-option<?php echo $selected; ?>" data-icon="<?php echo esc_attr( $icon ); ?>" title="<?php echo esc_attr( $icon ); ?>">
-                            <span class="dashicons <?php echo esc_attr( $icon ); ?>"></span>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <p class="description" style="margin-top:6px;"><?php esc_html_e( 'Icon displayed in the admin sidebar.' ); ?></p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="cd-archive-slug"><?php esc_html_e( 'Archive Slug' ); ?></label></th>
-                <td>
-                    <input type="text" id="cd-archive-slug" name="cirlot_docs_archive_slug" value="<?php echo esc_attr( $slug ); ?>" class="regular-text">
-                    <p class="description"><?php esc_html_e( 'Default: documents' ); ?></p>
-                </td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Allowed File Formats' ); ?></th>
-                <td><?php foreach ( [ 'pdf' => 'PDF', 'word' => 'Word', 'excel' => 'Excel' ] as $fv => $fl ) : ?>
-                    <label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;">
-                        <input type="checkbox" name="cirlot_docs_allowed_formats[]" value="<?php echo esc_attr( $fv ); ?>" <?php checked( in_array( $fv, $allowed_formats, true ) ); ?>>
-                        <?php echo esc_html( $fl ); ?>
-                    </label>
-                <?php endforeach; ?></td>
-            </tr>
-            <tr>
-                <th><label for="cd-def-aud"><?php esc_html_e( 'Default Audience' ); ?></label></th>
-                <td>
-                    <input type="text" id="cd-def-aud" name="cirlot_docs_default_audience" value="<?php echo esc_attr( $default_audience ); ?>" class="regular-text" list="cd-aud-dl">
-                    <datalist id="cd-aud-dl"><?php foreach ( (array) $audience_terms as $t ) echo '<option value="' . esc_attr( $t->name ) . '">'; ?></datalist>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="cd-def-type"><?php esc_html_e( 'Default Document Type' ); ?></label></th>
-                <td>
-                    <input type="text" id="cd-def-type" name="cirlot_docs_default_type" value="<?php echo esc_attr( $default_type ); ?>" class="regular-text" list="cd-type-dl">
-                    <datalist id="cd-type-dl"><?php foreach ( (array) $type_terms as $t ) echo '<option value="' . esc_attr( $t->name ) . '">'; ?></datalist>
-                </td>
-            </tr>
-        </table>
-        <?php submit_button( __( 'Save General Settings' ) ); ?>
-    </div>
-
-    <!-- AI -->
-    <div class="cd-tab-pane<?php echo $active_tab === 'ai' ? ' active' : ''; ?>">
+    <div class="cd-settings-section">
+        <h2><?php esc_html_e( 'AI' ); ?></h2>
         <table class="form-table" role="presentation">
             <tr>
                 <th><label for="cd-gemini-model"><?php esc_html_e( 'Gemini Model' ); ?></label></th>
                 <td>
-                    <select id="cd-gemini-model" name="cirlot_docs_gemini_model">
+                    <select id="cd-gemini-model" name="aidocs_gemini_model">
                         <?php foreach ( [ 'gemini-2.5-flash' => 'Gemini 2.5 Flash', 'gemini-2.5-pro' => 'Gemini 2.5 Pro', 'gemini-1.5-flash' => 'Gemini 1.5 Flash', 'gemini-1.5-pro' => 'Gemini 1.5 Pro' ] as $mid => $mname ) : ?>
                         <option value="<?php echo esc_attr( $mid ); ?>" <?php selected( $gemini_model, $mid ); ?>><?php echo esc_html( $mname ); ?></option>
                         <?php endforeach; ?>
@@ -1354,108 +1441,76 @@ function cirlot_docs_settings_page() { // phpcs:ignore
             <tr>
                 <th><label for="cd-gemini-key"><?php esc_html_e( 'Gemini API Key' ); ?></label></th>
                 <td>
-                    <input type="password" id="cd-gemini-key" name="cirlot_docs_gemini_api_key" value="<?php echo esc_attr( $gemini_api_key ); ?>" class="regular-text" autocomplete="new-password">
+                    <input type="password" id="cd-gemini-key" name="aidocs_gemini_api_key" value="<?php echo esc_attr( $gemini_api_key ); ?>" class="regular-text" autocomplete="new-password">
                     <p class="description"><?php esc_html_e( 'Leave blank to keep the current key.' ); ?></p>
                 </td>
             </tr>
         </table>
-        <?php submit_button( __( 'Save AI Settings' ) ); ?>
     </div>
 
-    <!-- Taxonomy -->
-    <div class="cd-tab-pane<?php echo $active_tab === 'taxonomy' ? ' active' : ''; ?>">
+    <div class="cd-settings-section">
+        <h2><?php esc_html_e( 'Taxonomy' ); ?></h2>
         <p class="description" style="margin-bottom:16px;"><?php esc_html_e( 'One item per line. New items are registered as taxonomy terms automatically.' ); ?></p>
         <table class="form-table" role="presentation">
             <tr>
                 <th><label for="cd-audiences-list"><?php esc_html_e( 'Audiences' ); ?></label></th>
-                <td><textarea id="cd-audiences-list" name="cirlot_docs_audiences_list" rows="6" class="large-text"><?php echo esc_textarea( $audiences_list ); ?></textarea></td>
+                <td><textarea id="cd-audiences-list" name="aidocs_audiences_list" rows="6" class="large-text"><?php echo esc_textarea( $audiences_list ); ?></textarea></td>
             </tr>
             <tr>
                 <th><label for="cd-types-list"><?php esc_html_e( 'Document Types' ); ?></label></th>
-                <td><textarea id="cd-types-list" name="cirlot_docs_types_list" rows="10" class="large-text"><?php echo esc_textarea( $types_list ); ?></textarea></td>
+                <td><textarea id="cd-types-list" name="aidocs_types_list" rows="10" class="large-text"><?php echo esc_textarea( $types_list ); ?></textarea></td>
             </tr>
         </table>
-        <?php submit_button( __( 'Save Taxonomy Settings' ) ); ?>
     </div>
 
-    <!-- Custom Fields -->
-    <div class="cd-tab-pane<?php echo $active_tab === 'fields' ? ' active' : ''; ?>">
-        <p class="description" style="margin-bottom:16px;"><?php esc_html_e( 'Define the custom fields that appear on every document and in frontend results.' ); ?></p>
-        <input type="hidden" name="cirlot_docs_global_fields_json" id="cd-gf-json" value="<?php echo esc_attr( wp_json_encode( $global_fields ) ); ?>">
-        <div class="cd-gf-list" id="cd-gf-list">
-            <?php foreach ( $global_fields as $gf ) : ?>
-            <div class="cd-gf-item" data-id="<?php echo esc_attr( $gf['id'] ); ?>">
-                <span class="cd-gf-drag">⠿</span>
-                <span class="cd-gf-label"><?php echo esc_html( $gf['label'] ); ?></span>
-                <span class="cd-gf-type"><?php echo esc_html( $gf['type'] ); ?></span>
-                <?php if ( $gf['id'] !== 'description' ) : ?>
-                <button type="button" class="cd-gf-remove" title="<?php esc_attr_e( 'Remove' ); ?>">&times;</button>
-                <?php else : ?>
-                <span style="width:22px;display:inline-block;"></span>
-                <?php endif; ?>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <div class="cd-gf-add-row">
-            <input type="text" id="cd-gf-new-label" placeholder="<?php esc_attr_e( 'Field name…' ); ?>" style="flex:1;min-width:160px;">
-            <select id="cd-gf-new-type">
-                <option value="text"><?php esc_html_e( 'Text' ); ?></option>
-                <option value="textarea" selected><?php esc_html_e( 'Textarea' ); ?></option>
-                <option value="list"><?php esc_html_e( 'List' ); ?></option>
-            </select>
-            <button type="button" id="cd-gf-add-btn" class="button button-primary"><?php esc_html_e( '+ Add Field' ); ?></button>
-        </div>
-        <?php submit_button( __( 'Save Custom Fields' ) ); ?>
-    </div>
-
+    <?php submit_button( __( 'Save Settings' ) ); ?>
     </form>
 
-    <!-- Shortcodes (no form) -->
-    <div class="cd-tab-pane<?php echo $active_tab === 'shortcodes' ? ' active' : ''; ?>">
+    <div class="cd-settings-section">
+        <h2><?php esc_html_e( 'Shortcodes' ); ?></h2>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Basic — all documents with search' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-1">[cirlot_document_search]</code><button class="cd-sc-copy" data-target="cd-sc-1"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-1">[aidocs_search]</code><button class="cd-sc-copy" data-target="cd-sc-1"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Pre-filtered by Document Type' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-2">[cirlot_document_search type="<?php echo esc_html( $first_type ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-2"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-2">[aidocs_search type="<?php echo esc_html( $first_type ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-2"><?php esc_html_e( 'Copy' ); ?></button></div>
             <p class="cd-sc-desc"><?php esc_html_e( 'Available:' ); ?> <?php foreach ( $types_arr as $t ) echo '<code>' . esc_html( $t ) . '</code> '; ?></p>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Pre-filtered by Audience' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-3">[cirlot_document_search audience="<?php echo esc_html( $first_aud ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-3"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-3">[aidocs_search audience="<?php echo esc_html( $first_aud ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-3"><?php esc_html_e( 'Copy' ); ?></button></div>
             <p class="cd-sc-desc"><?php esc_html_e( 'Available:' ); ?> <?php foreach ( $audiences_arr as $a ) echo '<code>' . esc_html( $a ) . '</code> '; ?></p>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Combined + custom per_page' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-4">[cirlot_document_search type="<?php echo esc_html( $first_type ); ?>" audience="<?php echo esc_html( $first_aud ); ?>" per_page="5"]</code><button class="cd-sc-copy" data-target="cd-sc-4"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-4">[aidocs_search type="<?php echo esc_html( $first_type ); ?>" audience="<?php echo esc_html( $first_aud ); ?>" per_page="5"]</code><button class="cd-sc-copy" data-target="cd-sc-4"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Without AI inline suggestions' ); ?></h3>
             <p class="cd-sc-desc"><?php esc_html_e( 'Disables AI recommendations in the search bar.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-5">[cirlot_document_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-5"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-5">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-5"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Without AI chat bubble' ); ?></h3>
             <p class="cd-sc-desc"><?php esc_html_e( 'Hides the floating AI chat button (bottom-right corner).' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-6">[cirlot_document_search show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-6">[aidocs_search show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Custom results per page' ); ?></h3>
             <p class="cd-sc-desc"><?php esc_html_e( 'Default is 20. Max is 50.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-7">[cirlot_document_search per_page="10"]</code><button class="cd-sc-copy" data-target="cd-sc-7"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-7">[aidocs_search per_page="10"]</code><button class="cd-sc-copy" data-target="cd-sc-7"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Search only (no AI)' ); ?></h3>
             <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-8">[cirlot_document_search show_ai="false" show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-8">[aidocs_search show_ai="false" show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <table class="cd-sc-params" style="margin-top:18px;">
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
             <tbody>
                 <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from URL.' ); ?></td></tr>
                 <tr><td><code>audience</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select an audience. Also reads ?audience= from URL.' ); ?></td></tr>
-
                 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to disable inline AI suggestions in the search bar.' ); ?></td></tr>
                 <tr><td><code>show_chat</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to hide the floating AI chat bubble.' ); ?></td></tr>
                 <tr><td><code>per_page</code></td><td><code>20</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
@@ -1465,17 +1520,6 @@ function cirlot_docs_settings_page() { // phpcs:ignore
 
     <script>
     (function() {
-        // Icon picker
-        var iconInput = document.getElementById('cd-menu-icon');
-        document.querySelectorAll('.cd-icon-option').forEach(function(el) {
-            el.addEventListener('click', function() {
-                document.querySelectorAll('.cd-icon-option').forEach(function(e) { e.classList.remove('selected'); });
-                el.classList.add('selected');
-                iconInput.value = el.dataset.icon;
-            });
-        });
-
-        // Copy shortcode buttons
         document.querySelectorAll('.cd-sc-copy').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var el = document.getElementById(btn.dataset.target);
@@ -1487,60 +1531,6 @@ function cirlot_docs_settings_page() { // phpcs:ignore
                 });
             });
         });
-
-        // Custom Fields manager
-        var gfData = JSON.parse(document.getElementById('cd-gf-json').value || '[]');
-
-        function gfUid(label) {
-            return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0,30)
-                + '_' + Math.random().toString(36).slice(2,6);
-        }
-        function gfSerialize() {
-            var items = [];
-            document.querySelectorAll('#cd-gf-list .cd-gf-item').forEach(function(el) {
-                var id = el.dataset.id;
-                var entry = gfData.find(function(f) { return f.id === id; });
-                if (entry) items.push(entry);
-            });
-            gfData = items;
-            document.getElementById('cd-gf-json').value = JSON.stringify(items);
-        }
-        function gfMakeRow(id, label, type, removable) {
-            var item = document.createElement('div');
-            item.className = 'cd-gf-item';
-            item.dataset.id = id;
-            var drag = document.createElement('span'); drag.className = 'cd-gf-drag'; drag.textContent = '⠿';
-            var lbl  = document.createElement('span'); lbl.className  = 'cd-gf-label'; lbl.textContent = label;
-            var typ  = document.createElement('span'); typ.className  = 'cd-gf-type';  typ.textContent = type;
-            item.append(drag, lbl, typ);
-            if (removable) {
-                var btn = document.createElement('button');
-                btn.type = 'button'; btn.className = 'cd-gf-remove'; btn.title = 'Remove'; btn.textContent = '\u00d7';
-                item.appendChild(btn);
-            } else {
-                var pad = document.createElement('span'); pad.style.cssText = 'width:22px;display:inline-block;';
-                item.appendChild(pad);
-            }
-            return item;
-        }
-        document.getElementById('cd-gf-add-btn').addEventListener('click', function() {
-            var label = document.getElementById('cd-gf-new-label').value.trim();
-            var type  = document.getElementById('cd-gf-new-type').value;
-            if (!label) { document.getElementById('cd-gf-new-label').focus(); return; }
-            var id = gfUid(label);
-            gfData.push({ id: id, label: label, type: type });
-            document.getElementById('cd-gf-list').appendChild(gfMakeRow(id, label, type, true));
-            document.getElementById('cd-gf-json').value = JSON.stringify(gfData);
-            document.getElementById('cd-gf-new-label').value = '';
-        });
-        document.getElementById('cd-gf-list').addEventListener('click', function(e) {
-            if (!e.target.classList.contains('cd-gf-remove')) return;
-            var item = e.target.closest('.cd-gf-item');
-            if (!item) return;
-            gfData = gfData.filter(function(f) { return f.id !== item.dataset.id; });
-            item.remove();
-            gfSerialize();
-        });
     })();
     </script>
     </div>
@@ -1551,8 +1541,8 @@ function cirlot_docs_settings_page() { // phpcs:ignore
 // ──────────────────────────────────────────────
 // 6. Admin Columns
 // ──────────────────────────────────────────────
-add_filter( 'manage_cirlot_document_posts_columns', 'cirlot_docs_admin_columns' );
-function cirlot_docs_admin_columns( $cols ) {
+add_filter( 'manage_aidoc_posts_columns', 'aidocs_admin_columns' );
+function aidocs_admin_columns( $cols ) {
     $new = [ 'cb' => $cols['cb'], 'title' => $cols['title'] ];
     $new['_document_pub_date']    = __( 'Publication Date' );
     $new['_document_file_format'] = __( 'Format' );
@@ -1562,8 +1552,8 @@ function cirlot_docs_admin_columns( $cols ) {
     return $new;
 }
 
-add_action( 'manage_cirlot_document_posts_custom_column', 'cirlot_docs_admin_column_values', 10, 2 );
-function cirlot_docs_admin_column_values( $col, $post_id ) {
+add_action( 'manage_aidoc_posts_custom_column', 'aidocs_admin_column_values', 10, 2 );
+function aidocs_admin_column_values( $col, $post_id ) {
     switch ( $col ) {
         case '_document_pub_date':
             echo esc_html( get_post_meta( $post_id, '_document_pub_date', true ) );
@@ -1587,16 +1577,17 @@ function cirlot_docs_admin_column_values( $col, $post_id ) {
 // 6. Flush rewrite rules on activation
 // ──────────────────────────────────────────────
 register_activation_hook( __FILE__, function() {
-    cirlot_docs_register_post_type();
-    cirlot_docs_register_taxonomies();
+    aidocs_maybe_migrate_legacy();
+    aidocs_register_post_type();
+    aidocs_register_taxonomies();
 
     // Seed predefined terms
-    foreach ( CIRLOT_DOCS_AUDIENCES as $term ) {
+    foreach ( AIDOCS_AUDIENCES as $term ) {
         if ( ! term_exists( $term, 'document_audience' ) ) {
             wp_insert_term( $term, 'document_audience' );
         }
     }
-    foreach ( CIRLOT_DOCS_TYPES as $term ) {
+    foreach ( AIDOCS_TYPES as $term ) {
         if ( ! term_exists( $term, 'document_type' ) ) {
             wp_insert_term( $term, 'document_type' );
         }
@@ -1610,8 +1601,8 @@ register_deactivation_hook( __FILE__, 'flush_rewrite_rules' );
 // ──────────────────────────────────────────────
 // 8. Frontend Document Search Shortcode
 // ──────────────────────────────────────────────
-add_shortcode( 'cirlot_document_search', 'cirlot_docs_search_shortcode' );
-function cirlot_docs_search_shortcode( $atts ) {
+add_shortcode( 'aidocs_search', 'aidocs_search_shortcode' );
+function aidocs_search_shortcode( $atts ) {
     $atts = shortcode_atts( [
         'type'      => '',
         'audience'  => '',
@@ -1626,8 +1617,8 @@ function cirlot_docs_search_shortcode( $atts ) {
     $default_type     = $url_type     ?: $atts['type'];
     $default_audience = $url_audience ?: $atts['audience'];
 
-    $audiences = cirlot_docs_get_audiences();
-    $types     = cirlot_docs_get_types();
+    $audiences = aidocs_get_audiences();
+    $types     = aidocs_get_types();
 
     $matched_type = '';
     foreach ( $types as $t ) {
@@ -1642,8 +1633,8 @@ function cirlot_docs_search_shortcode( $atts ) {
     $show_chat = $atts['show_chat'] !== 'false';
     $per_page  = max( 1, min( 50, (int) $atts['per_page'] ) );
     $uid       = 'cds_' . wp_unique_id();
-    $nonce     = wp_create_nonce( 'cirlot_docs_search' );
-    $ai_nonce  = wp_create_nonce( 'cirlot_docs_ai_search' );
+    $nonce     = wp_create_nonce( 'aidocs_search' );
+    $ai_nonce  = wp_create_nonce( 'aidocs_ai_search' );
     $ajax_url  = admin_url( 'admin-ajax.php' );
 
     wp_enqueue_script( 'jquery' );
@@ -1666,18 +1657,18 @@ function cirlot_docs_search_shortcode( $atts ) {
     $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
     $js_conn       = esc_js( __( 'Connection error. Please try again.' ) );
     $js_send       = esc_js( __( 'Send' ) );
-    $js_ask_doc    = esc_js( __( 'Ask me anything about this document and I\'ll answer in your language.' ) );
     $js_ai_thinking = esc_js( __( 'AI is analyzing your query…' ) );
     $js_ai_label   = esc_js( __( 'AI Suggestion' ) );
     $js_ai_view    = esc_js( __( 'View details' ) );
     $js_nopdf        = esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) );
     $js_selone       = esc_js( __( 'Select at least one field.' ) );
-    $js_globalfields = wp_json_encode( cirlot_docs_get_global_fields() );
+    $js_doc_content     = esc_js( __( 'Document content' ) );
+    $js_loading_content = esc_js( __( 'Loading content…' ) );
+    $js_no_content      = esc_js( __( 'No structured content has been extracted for this document yet.' ) );
 
     $js = <<<ENDSCRIPT
 jQuery(function($){
     var uid={$js_uid},ajaxUrl={$js_ajax},nonce={$js_nonce},aiNonce={$js_ainonce},perPage={$js_pp},showAi={$js_showai},showChat={$js_showchat};
-    var globalFields={$js_globalfields};
     var \$wrap=\$('#'+uid),\$results=\$wrap.find('.cd-fs-results'),currentPage=1,botHistory=[],lastFilters=null;
     var \$aiExplain=\$wrap.find('.cd-fs-ai-explain');
     var \$kwWrap=\$wrap.find('.cd-fs-keyword-wrap');
@@ -1692,7 +1683,7 @@ jQuery(function($){
         /* autocomplete dropdown */
         if(val.length>=2){
             _suggTimer=setTimeout(function(){
-                \$.post(ajaxUrl,{action:'cirlot_docs_search',nonce:nonce,keyword:val,page:1,per_page:6})
+                \$.post(ajaxUrl,{action:'aidocs_search',nonce:nonce,keyword:val,page:1,per_page:6})
                 .done(function(res){
                     \$suggestions.empty();
                     if(!res.success||!res.data.results.length){\$suggestions.hide();return;}
@@ -1740,24 +1731,25 @@ jQuery(function($){
     var \$modalTags=\$('#cd-doc-modal-tags-'+uid),\$modalBody=\$('#cd-doc-modal-body-'+uid);
     var \$modalFooter=\$('#cd-doc-modal-footer-'+uid);
     var \$modalTabsBar=\$('#cd-doc-modal-tabs-'+uid);
-    var \$paneDetails=\$('#cd-doc-modal-pane-details-'+uid);
+    var \$paneContent=\$('#cd-doc-modal-pane-content-'+uid);
     var \$panePreview=\$('#cd-doc-modal-pane-preview-'+uid);
-    var \$paneChat=\$('#cd-doc-modal-pane-chat-'+uid);
     var \$modalIframe=\$('#cd-doc-modal-iframe-'+uid);
     var \$noPreview=\$('#cd-doc-no-preview-'+uid);
+    var \$modalPermalink=\$('#cd-doc-modal-permalink-'+uid);
     var \$dcMsgs=\$('#cd-doc-chat-msgs-'+uid);
     var \$dcInput=\$('#cd-doc-chat-input-'+uid);
     var \$dcSend=\$('#cd-doc-chat-send-'+uid);
+    var \$dcCollapse=\$('#cd-doc-ask-collapse-'+uid);
     var _dcHistory=[],_dcDocId=null;
+    var _contentCache={},_contentXhr=null;
 
     \$modalTabsBar.on('click','.cd-doc-modal-tab',function(){
         var pane=\$(this).data('pane');
         \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active');
         \$(this).addClass('active');
-        \$paneDetails.add(\$panePreview).add(\$paneChat).removeClass('active');
-        if(pane==='details')\$paneDetails.addClass('active');
-        else if(pane==='preview')\$panePreview.addClass('active');
-        else if(pane==='chat')\$paneChat.addClass('active');
+        \$paneContent.add(\$panePreview).removeClass('active');
+        if(pane==='preview')\$panePreview.addClass('active');
+        else \$paneContent.addClass('active');
     });
 
     function openModal(doc){
@@ -1770,22 +1762,19 @@ jQuery(function($){
         \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
         \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
         \$modalTags.html(tags);
+        /* Extracted fields first (the AI-filled metadata), structured body after */
         var body='';
-        var cf=doc.custom_fields||{};
-        var descVal=(cf.description!==undefined)?cf.description:doc.description;
-        if(descVal) body+='<div class="cd-doc-modal-desc">'+\$('<span>').text(descVal).html()+'</div>';
+        if(doc.description) body+='<div class="cd-doc-modal-desc">'+\$('<span>').text(doc.description).html()+'</div>';
         var grid='';
         if((doc.audience||[]).length) grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Audience</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.audience.join(', ')).html()+'</div></div>';
         if((doc.type||[]).length)     grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Document Type</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.type.join(', ')).html()+'</div></div>';
         if(doc.pub_date)              grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Publication Date</div><div class="cd-doc-modal-value">'+formatDate(doc.pub_date)+'</div></div>';
         if(doc.format)                grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Format</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.format.toUpperCase()).html()+'</div></div>';
-        \$.each(globalFields||[],function(_,gf){
-            if(gf.id==='description')return;
-            var v=cf[gf.id];
-            if(v) grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">'+\$('<span>').text(gf.label).html()+'</div><div class="cd-doc-modal-value">'+\$('<span>').text(v).html()+'</div></div>';
-        });
         if(grid) body+='<div class="cd-doc-modal-grid">'+grid+'</div>';
-        \$modalBody.html(body||'');
+        body+='<div class="aidocs-section-label">{$js_doc_content}</div>';
+        body+='<div class="cd-doc-content-slot"><div class="aidocs-content-loading">{$js_loading_content}</div></div>';
+        \$modalBody.html(body);
+        loadContent(doc.id);
         \$modalFooter.find('.cd-doc-modal-dl').remove();
         \$modalFooter.find('.cd-doc-modal-footer-left').remove();
         var footerLeft=doc.pub_date?'<span class="cd-doc-modal-footer-left">'+formatDate(doc.pub_date)+'</span>':'<span class="cd-doc-modal-footer-left"></span>';
@@ -1793,20 +1782,43 @@ jQuery(function($){
         if(doc.file_url){
             \$modalFooter.find('.cd-doc-modal-footer-right').prepend('<a href="'+doc.file_url+'" target="_blank" class="cd-doc-modal-dl" download>\u2193 Download</a>');
         }
-        /* Reset to Details tab */
+        \$modalPermalink.hide().attr('href','#');
+        /* Reset to Content tab */
         \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active').first().addClass('active');
-        \$paneDetails.addClass('active');\$panePreview.add(\$paneChat).removeClass('active');
+        \$paneContent.addClass('active');\$panePreview.removeClass('active');
         /* PDF preview */
         var isPdf=fmt==='pdf';
         if(isPdf&&doc.file_url){\$modalIframe.attr('src',doc.file_url);\$modalIframe.show();\$noPreview.hide();}
         else{\$modalIframe.attr('src','about:blank');\$modalIframe.hide();\$noPreview.show();}
-        /* Reset chat per doc */
+        /* Reset the Ask AI bar per doc */
         if(_dcDocId!==doc.id){
             _dcDocId=doc.id;_dcHistory=[];
-            \$dcMsgs.html('<div class="cd-bot-turn bot"><div class="cd-bot-msg">{$js_ask_doc}</div></div>');
+            \$dcMsgs.empty().removeClass('open');
+            \$dcCollapse.hide();
         }
         \$modalOverlay.addClass('open');
         \$('body').css('overflow','hidden');
+    }
+
+    /* Structured content is fetched on demand so search results stay light */
+    function loadContent(docId){
+        var \$slot=\$modalBody.find('.cd-doc-content-slot');
+        if(_contentCache[docId]!==undefined){
+            \$slot.html(_contentCache[docId]||'<div class="aidocs-content-empty">{$js_no_content}</div>');
+            return;
+        }
+        if(_contentXhr)_contentXhr.abort();
+        _contentXhr=\$.post(ajaxUrl,{action:'aidocs_doc_content',nonce:nonce,doc_id:docId})
+        .done(function(res){
+            if(!res.success){\$slot.html('<div class="aidocs-content-empty">{$js_no_content}</div>');return;}
+            _contentCache[docId]=res.data.html||'';
+            \$slot.html(res.data.html||'<div class="aidocs-content-empty">{$js_no_content}</div>');
+            if(res.data.permalink)\$modalPermalink.attr('href',res.data.permalink).show();
+        })
+        .fail(function(_,status){
+            if(status==='abort')return;
+            \$slot.html('<div class="aidocs-content-empty">{$js_no_content}</div>');
+        });
     }
 
     function closeModal(){
@@ -1817,8 +1829,18 @@ jQuery(function($){
     function addDocChatTurn(role,text){
         var \$turn=\$('<div class="cd-bot-turn '+role+'"></div>');
         \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
-        \$dcMsgs.append(\$turn);\$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
+        \$dcMsgs.addClass('open').append(\$turn);
+        \$dcCollapse.show();
+        \$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
     }
+
+    \$dcCollapse.on('click',function(){
+        \$dcMsgs.removeClass('open');
+        \$(this).hide();
+    });
+    \$dcInput.on('focus',function(){
+        if(\$dcMsgs.children().length)\$dcMsgs.addClass('open'),\$dcCollapse.show();
+    });
 
     function sendDocChat(){
         var msg=\$dcInput.val().trim();if(!msg||!_dcDocId)return;
@@ -1826,7 +1848,7 @@ jQuery(function($){
         _dcHistory.push({role:'user',text:msg});
         var \$th=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></div>').appendTo(\$dcMsgs);
         \$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
-        \$.post(ajaxUrl,{action:'cirlot_docs_ai_doc_chat',nonce:aiNonce,doc_id:_dcDocId,message:msg,history:JSON.stringify(_dcHistory.slice(-6))})
+        \$.post(ajaxUrl,{action:'aidocs_ai_doc_chat',nonce:aiNonce,doc_id:_dcDocId,message:msg,history:JSON.stringify(_dcHistory.slice(-6))})
         .done(function(res){
             \$th.remove();
             var reply=res.success?res.data.message:'{$js_sorry}';
@@ -1892,7 +1914,7 @@ jQuery(function($){
         if(!query){\$aiExplain.empty();return;}
         \$aiExplain.html('<div class="cd-fs-ai-thinking"><div class="cd-fs-ai-thinking-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><span class="cd-fs-ai-thinking-text">{$js_ai_thinking}<span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></span></div>');
         _explainXhr=\$.post(ajaxUrl,{
-            action:'cirlot_docs_ai_recommend',nonce:aiNonce,
+            action:'aidocs_ai_recommend',nonce:aiNonce,
             message:query,history:'[]'
         }).done(function(res){
             if(!res.success){\$aiExplain.empty();return;}
@@ -1928,7 +1950,7 @@ jQuery(function($){
         var typ=\$wrap.find('.cd-fs-type').val();
         \$suggestions.hide().empty();
         \$.post(ajaxUrl,{
-            action:'cirlot_docs_search',nonce:nonce,
+            action:'aidocs_search',nonce:nonce,
             keyword:kw,audience:aud,type:typ,
             page:page,per_page:perPage
         }).done(function(res){
@@ -1979,7 +2001,7 @@ jQuery(function($){
         botHistory.push({role:'user',text:msg});
         var \$thinking=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> …</div>').appendTo(\$messages);
         \$messages.scrollTop(\$messages[0].scrollHeight);
-        \$.post(ajaxUrl,{action:'cirlot_docs_ai_recommend',nonce:aiNonce,message:msg,history:JSON.stringify(botHistory.slice(-6))})
+        \$.post(ajaxUrl,{action:'aidocs_ai_recommend',nonce:aiNonce,message:msg,history:JSON.stringify(botHistory.slice(-6))})
         .done(function(res){
             \$thinking.remove();
             if(res.success){addTurn('bot',res.data.message,res.data.docs);botHistory.push({role:'model',text:res.data.message});}
@@ -2114,13 +2136,36 @@ ENDSCRIPT;
     .cd-doc-no-preview{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#9ca3af;font-size:14px;padding:40px;}
     .cd-doc-no-preview svg{color:#d1d5db;}
     /* Chat pane */
-    .cd-doc-chat-messages{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;}
-    .cd-doc-chat-input-wrap{display:flex;gap:8px;padding:12px 16px;border-top:1px solid #edf0f4;flex-shrink:0;}
-    .cd-doc-chat-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
-    .cd-doc-chat-input:focus{border-color:#2c4a7c;}
-    .cd-doc-chat-send{height:40px;padding:0 18px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
-    .cd-doc-chat-send:hover{background:#2c4a7c;}
-    .cd-doc-chat-send:disabled{opacity:.5;cursor:default;}
+    /* Ask AI — persistent bar pinned below the panes */
+    .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
+    .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
+    .cd-doc-ask-answers.open{display:flex;}
+    .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
+    .cd-doc-ask-icon{color:#2c4a7c;flex-shrink:0;}
+    .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:#1a2744;}
+    .cd-doc-ask-input:focus{border-color:#2c4a7c;}
+    .cd-doc-ask-send{height:40px;padding:0 18px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
+    .cd-doc-ask-send:hover{background:#2c4a7c;}
+    .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
+    .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
+    .cd-doc-ask-collapse:hover{color:#1a2744;}
+    .cd-doc-modal-permalink{font-size:13px;color:#2c4a7c;text-decoration:none;font-weight:600;margin-right:4px;}
+    .cd-doc-modal-permalink:hover{text-decoration:underline;color:#1a2744;}
+    /* Structured document content */
+    .aidocs-content{margin-top:4px;}
+    .aidocs-content-h2{font-size:17px;font-weight:700;color:#1a2744;margin:26px 0 10px;line-height:1.35;}
+    .aidocs-content-h2:first-child{margin-top:0;}
+    .aidocs-content-h3{font-size:14px;font-weight:700;color:#2c4a7c;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-content-h3:first-child{margin-top:0;}
+    .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
+    .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
+    .aidocs-content-list li{font-size:14px;color:#374151;line-height:1.7;margin-bottom:7px;}
+    .aidocs-content-empty{font-size:13px;color:#9ca3af;font-style:italic;padding:6px 0;}
+    .aidocs-content-loading{font-size:13px;color:#9ca3af;padding:6px 0;}
+    <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
+    .aidocs-doc-history{margin-top:22px;padding:12px 14px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:12px;color:#6b7280;line-height:1.65;}
+    .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:4px;}
+    .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:24px 0 10px;padding-top:18px;border-top:1px solid #f0f2f5;}
     .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
     .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
     .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
@@ -2221,21 +2266,17 @@ ENDSCRIPT;
                 <button class="cd-doc-modal-close" id="cd-doc-modal-close-<?php echo esc_attr( $uid ); ?>" aria-label="Close">&times;</button>
             </div>
             <div class="cd-doc-modal-tabs-bar" id="cd-doc-modal-tabs-<?php echo esc_attr( $uid ); ?>">
-                <button class="cd-doc-modal-tab active" data-pane="details">
+                <button class="cd-doc-modal-tab active" data-pane="content">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    <?php esc_html_e( 'Details' ); ?>
+                    <?php esc_html_e( 'Content' ); ?>
                 </button>
                 <button class="cd-doc-modal-tab" data-pane="preview">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
                     <?php esc_html_e( 'Preview' ); ?>
                 </button>
-                <button class="cd-doc-modal-tab" data-pane="chat">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                    <?php esc_html_e( 'Ask AI' ); ?>
-                </button>
             </div>
-            <!-- Details pane -->
-            <div class="cd-doc-modal-pane active" id="cd-doc-modal-pane-details-<?php echo esc_attr( $uid ); ?>">
+            <!-- Content pane: extracted fields, then the structured document body -->
+            <div class="cd-doc-modal-pane active" id="cd-doc-modal-pane-content-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-body" id="cd-doc-modal-body-<?php echo esc_attr( $uid ); ?>"></div>
             </div>
             <!-- Preview pane -->
@@ -2246,16 +2287,19 @@ ENDSCRIPT;
                     <span><?php esc_html_e( 'Preview only available for PDF files.' ); ?></span>
                 </div>
             </div>
-            <!-- Chat pane -->
-            <div class="cd-doc-modal-pane" id="cd-doc-modal-pane-chat-<?php echo esc_attr( $uid ); ?>">
-                <div class="cd-doc-chat-messages" id="cd-doc-chat-msgs-<?php echo esc_attr( $uid ); ?>"></div>
-                <div class="cd-doc-chat-input-wrap">
-                    <input type="text" class="cd-doc-chat-input" id="cd-doc-chat-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'Ask anything about this document…' ); ?>">
-                    <button class="cd-doc-chat-send" id="cd-doc-chat-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
+            <!-- Ask AI: fixed bar spanning the whole document, not a tab -->
+            <div class="cd-doc-ask" id="cd-doc-ask-<?php echo esc_attr( $uid ); ?>">
+                <div class="cd-doc-ask-answers" id="cd-doc-chat-msgs-<?php echo esc_attr( $uid ); ?>"></div>
+                <div class="cd-doc-ask-bar">
+                    <svg class="cd-doc-ask-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <input type="text" class="cd-doc-ask-input" id="cd-doc-chat-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'Ask AI anything about this document…' ); ?>">
+                    <button class="cd-doc-ask-send" id="cd-doc-chat-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
+                    <button class="cd-doc-ask-collapse" id="cd-doc-ask-collapse-<?php echo esc_attr( $uid ); ?>" type="button" aria-label="<?php esc_attr_e( 'Hide answers' ); ?>" style="display:none;">&times;</button>
                 </div>
             </div>
             <div class="cd-doc-modal-footer" id="cd-doc-modal-footer-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-footer-right">
+                    <a href="#" class="cd-doc-modal-permalink" id="cd-doc-modal-permalink-<?php echo esc_attr( $uid ); ?>" style="display:none;"><?php esc_html_e( 'Open full page' ); ?></a>
                     <button class="cd-doc-modal-cancel" id="cd-doc-modal-cancel-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Close' ); ?></button>
                 </div>
             </div>
@@ -2289,11 +2333,245 @@ ENDSCRIPT;
     return ob_get_clean();
 }
 
+// ──────────────────────────────────────────────
+// 9. Single document view
+// ──────────────────────────────────────────────
+// Documents have no post_content of their own, so the singular view is composed
+// from the same pieces the modal shows: header, extracted fields, structured
+// body, and the persistent Ask AI bar. Hooking `the_content` (rather than
+// shipping a template) keeps the active theme's header, footer and width.
+add_filter( 'the_content', 'aidocs_single_document_content' );
+function aidocs_single_document_content( $content ) {
+    if ( ! is_singular( 'aidoc' ) || ! in_the_loop() || ! is_main_query() ) {
+        return $content;
+    }
+
+    $pid       = get_the_ID();
+    $file_id   = get_post_meta( $pid, '_document_file_id', true );
+    $file_url  = $file_id ? wp_get_attachment_url( $file_id ) : '';
+    $pub_date  = get_post_meta( $pid, '_document_pub_date', true );
+    $format    = get_post_meta( $pid, '_document_file_format', true );
+    $desc      = get_post_meta( $pid, '_document_description', true );
+    $audience  = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
+    $types     = wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] );
+    $audience  = is_wp_error( $audience ) ? [] : $audience;
+    $types     = is_wp_error( $types ) ? [] : $types;
+    $blocks    = aidocs_get_content_blocks( $pid );
+
+    $fmt   = $format ?: 'generic';
+    $label = [ 'pdf' => 'PDF', 'word' => 'DOC', 'excel' => 'XLS' ][ $fmt ] ?? 'FILE';
+
+    ob_start();
+    aidocs_single_view_styles();
+    ?>
+    <article class="aidocs-single fmt-<?php echo esc_attr( $fmt ); ?>">
+
+        <header class="aidocs-single-header">
+            <div class="aidocs-single-icon <?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></div>
+            <div class="aidocs-single-heading">
+                <h1 class="aidocs-single-title"><?php echo esc_html( get_the_title( $pid ) ); ?></h1>
+                <div class="aidocs-single-tags">
+                    <span class="cd-fs-doc-tag format-<?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></span>
+                    <?php foreach ( $audience as $a ) : ?>
+                        <span class="cd-fs-doc-tag audience"><?php echo esc_html( $a ); ?></span>
+                    <?php endforeach; ?>
+                    <?php foreach ( $types as $t ) : ?>
+                        <span class="cd-fs-doc-tag type"><?php echo esc_html( $t ); ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php if ( $file_url ) : ?>
+            <a href="<?php echo esc_url( $file_url ); ?>" class="aidocs-single-dl" download target="_blank" rel="noopener">
+                &darr; <?php esc_html_e( 'Download' ); ?>
+            </a>
+            <?php endif; ?>
+        </header>
+
+        <?php if ( $desc ) : ?>
+        <div class="aidocs-single-desc"><?php echo esc_html( $desc ); ?></div>
+        <?php endif; ?>
+
+        <?php if ( $audience || $types || $pub_date || $format ) : ?>
+        <div class="aidocs-single-grid">
+            <?php if ( $audience ) : ?>
+            <div><div class="aidocs-single-label"><?php esc_html_e( 'Audience' ); ?></div>
+                 <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $audience ) ); ?></div></div>
+            <?php endif; ?>
+            <?php if ( $types ) : ?>
+            <div><div class="aidocs-single-label"><?php esc_html_e( 'Document Type' ); ?></div>
+                 <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $types ) ); ?></div></div>
+            <?php endif; ?>
+            <?php if ( $pub_date ) : ?>
+            <div><div class="aidocs-single-label"><?php esc_html_e( 'Publication Date' ); ?></div>
+                 <div class="aidocs-single-value"><?php echo esc_html( mysql2date( get_option( 'date_format' ), $pub_date ) ); ?></div></div>
+            <?php endif; ?>
+            <?php if ( $format ) : ?>
+            <div><div class="aidocs-single-label"><?php esc_html_e( 'Format' ); ?></div>
+                 <div class="aidocs-single-value"><?php echo esc_html( strtoupper( $format ) ); ?></div></div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <div class="aidocs-section-label"><?php esc_html_e( 'Document content' ); ?></div>
+        <?php if ( $blocks ) : ?>
+            <?php echo aidocs_render_content_blocks( $blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
+        <?php else : ?>
+            <p class="aidocs-content-empty"><?php esc_html_e( 'No structured content has been extracted for this document yet.' ); ?></p>
+        <?php endif; ?>
+        <?php echo aidocs_render_document_history( $pid ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
+
+        <?php if ( $fmt === 'pdf' && $file_url ) : ?>
+        <details class="aidocs-single-preview">
+            <summary><?php esc_html_e( 'Preview original PDF' ); ?></summary>
+            <iframe src="<?php echo esc_url( $file_url ); ?>" title="<?php echo esc_attr( get_the_title( $pid ) ); ?>"></iframe>
+        </details>
+        <?php endif; ?>
+
+        <?php if ( get_option( 'aidocs_gemini_api_key', '' ) ) : ?>
+        <div class="aidocs-single-ask" id="aidocs-single-ask">
+            <div class="aidocs-single-ask-answers" id="aidocs-single-ask-answers"></div>
+            <div class="aidocs-single-ask-bar">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="aidocs-single-ask-icon"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <input type="text" id="aidocs-single-ask-input" placeholder="<?php esc_attr_e( 'Ask AI anything about this document…' ); ?>">
+                <button type="button" id="aidocs-single-ask-send"><?php esc_html_e( 'Send' ); ?></button>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var docId=<?php echo (int) $pid; ?>;
+            var ajaxUrl=<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+            var nonce=<?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai_search' ) ); ?>;
+            var strings=<?php echo wp_json_encode( [
+                'send'  => __( 'Send' ),
+                'error' => __( 'Sorry, I encountered an error. Please try again.' ),
+                'conn'  => __( 'Connection error. Please try again.' ),
+            ] ); ?>;
+            var answers=document.getElementById('aidocs-single-ask-answers');
+            var input=document.getElementById('aidocs-single-ask-input');
+            var send=document.getElementById('aidocs-single-ask-send');
+            var history=[];
+
+            function addTurn(role,text){
+                var turn=document.createElement('div');
+                turn.className='aidocs-ask-turn '+role;
+                var msg=document.createElement('div');
+                msg.className='aidocs-ask-msg';
+                msg.textContent=text;
+                turn.appendChild(msg);
+                answers.appendChild(turn);
+                answers.classList.add('open');
+                answers.scrollTop=answers.scrollHeight;
+                return turn;
+            }
+
+            function ask(){
+                var msg=input.value.trim();
+                if(!msg)return;
+                addTurn('user',msg);
+                input.value='';
+                send.disabled=true;send.textContent='…';
+                history.push({role:'user',text:msg});
+                var thinking=addTurn('bot','…');
+                var body=new URLSearchParams({
+                    action:'aidocs_ai_doc_chat',nonce:nonce,doc_id:docId,
+                    message:msg,history:JSON.stringify(history.slice(-6))
+                });
+                fetch(ajaxUrl,{method:'POST',body:body,credentials:'same-origin'})
+                    .then(function(r){return r.json();})
+                    .then(function(res){
+                        thinking.remove();
+                        var reply=(res&&res.success)?res.data.message:strings.error;
+                        addTurn('bot',reply);
+                        if(res&&res.success)history.push({role:'model',text:reply});
+                    })
+                    .catch(function(){thinking.remove();addTurn('bot',strings.conn);})
+                    .finally(function(){send.disabled=false;send.textContent=strings.send;});
+            }
+
+            send.addEventListener('click',ask);
+            input.addEventListener('keydown',function(e){if(e.key==='Enter')ask();});
+        })();
+        </script>
+        <?php endif; ?>
+    </article>
+    <?php
+    return ob_get_clean();
+}
+
+/**
+ * Styles for the singular document view. Printed inline once per request.
+ */
+function aidocs_single_view_styles() {
+    static $printed = false;
+    if ( $printed ) return;
+    $printed = true;
+    ?>
+    <style>
+    .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
+    .aidocs-single-header{display:flex;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
+    .aidocs-single-icon{flex-shrink:0;width:50px;height:62px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;letter-spacing:.5px;}
+    .aidocs-single-icon.pdf{background:linear-gradient(145deg,#e74c3c,#c0392b);}
+    .aidocs-single-icon.word{background:linear-gradient(145deg,#2b5797,#1a3d7a);}
+    .aidocs-single-icon.excel{background:linear-gradient(145deg,#1e7145,#145232);}
+    .aidocs-single-icon.generic{background:linear-gradient(145deg,#7f8c8d,#636e72);}
+    .aidocs-single-heading{flex:1;min-width:0;}
+    .aidocs-single-title{font-size:22px;font-weight:700;color:#1a2744;margin:0 0 10px;line-height:1.35;}
+    .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
+    .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
+    .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
+    .cd-fs-doc-tag.format-word{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
+    .cd-fs-doc-tag.format-excel{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
+    .cd-fs-doc-tag.format-generic{background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;}
+    .cd-fs-doc-tag.type{background:#e8f0fb;color:#2c4a7c;}
+    .cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}
+    .aidocs-single-dl{flex-shrink:0;display:inline-flex;align-items:center;gap:8px;background:#1e3a5f;color:#fff;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;text-decoration:none;}
+    .aidocs-single-dl:hover{background:#2c4a7c;color:#fff;}
+    .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
+    .aidocs-single-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-bottom:4px;}
+    .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-single-value{font-size:14px;color:#1a2744;font-weight:500;line-height:1.5;}
+    .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:26px 0 12px;padding-top:18px;border-top:1px solid #f0f2f5;}
+    .aidocs-content-h2{font-size:18px;font-weight:700;color:#1a2744;margin:28px 0 10px;line-height:1.35;}
+    .aidocs-content-h2:first-child{margin-top:0;}
+    .aidocs-content-h3{font-size:14px;font-weight:700;color:#2c4a7c;margin:22px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-content-h3:first-child{margin-top:0;}
+    .aidocs-content-p{font-size:15px;color:#374151;line-height:1.8;margin:0 0 14px;}
+    .aidocs-content-list{margin:0 0 16px;padding-left:24px;}
+    .aidocs-content-list li{font-size:15px;color:#374151;line-height:1.75;margin-bottom:8px;}
+    .aidocs-content-empty{font-size:14px;color:#9ca3af;font-style:italic;}
+    <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
+    .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
+    .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-single-preview{margin-top:28px;border:1px solid #e5e9ef;border-radius:10px;padding:14px 18px;}
+    .aidocs-single-preview summary{cursor:pointer;font-size:13px;font-weight:600;color:#2c4a7c;}
+    .aidocs-single-preview iframe{width:100%;min-height:560px;border:none;margin-top:14px;}
+    /* Ask AI — pinned to the bottom of the viewport while reading */
+    .aidocs-single-ask{position:sticky;bottom:0;z-index:50;margin-top:32px;background:#fbfcfd;border:1px solid #e5e9ef;border-radius:12px;box-shadow:0 -2px 16px rgba(0,0,0,.06);overflow:hidden;}
+    .aidocs-single-ask-answers{display:none;max-height:260px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid #edf0f4;}
+    .aidocs-single-ask-answers.open{display:flex;}
+    .aidocs-ask-turn{display:flex;flex-direction:column;max-width:92%;}
+    .aidocs-ask-turn.user{align-self:flex-end;align-items:flex-end;}
+    .aidocs-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .aidocs-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.6;}
+    .aidocs-ask-turn.bot .aidocs-ask-msg{background:#f0f6ff;color:#1a2744;border-bottom-left-radius:3px;}
+    .aidocs-ask-turn.user .aidocs-ask-msg{background:#1e3a5f;color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-single-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;}
+    .aidocs-single-ask-icon{color:#2c4a7c;flex-shrink:0;}
+    #aidocs-single-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:#1a2744;}
+    #aidocs-single-ask-input:focus{border-color:#2c4a7c;}
+    #aidocs-single-ask-send{height:40px;padding:0 18px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
+    #aidocs-single-ask-send:hover{background:#2c4a7c;}
+    #aidocs-single-ask-send:disabled{opacity:.5;cursor:default;}
+    @media(max-width:600px){.aidocs-single-grid{grid-template-columns:1fr;}.aidocs-single-header{flex-wrap:wrap;}.aidocs-single-dl{width:100%;justify-content:center;}}
+    </style>
+    <?php
+}
+
 // ── AJAX: Search documents ────────────────────
-add_action( 'wp_ajax_cirlot_docs_search',        'cirlot_docs_search_ajax' );
-add_action( 'wp_ajax_nopriv_cirlot_docs_search', 'cirlot_docs_search_ajax' );
-function cirlot_docs_search_ajax() {
-    check_ajax_referer( 'cirlot_docs_search', 'nonce' );
+add_action( 'wp_ajax_aidocs_search',        'aidocs_search_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_search', 'aidocs_search_ajax' );
+function aidocs_search_ajax() {
+    check_ajax_referer( 'aidocs_search', 'nonce' );
 
     $keyword  = sanitize_text_field( $_POST['keyword']  ?? '' );
     $audience = sanitize_text_field( $_POST['audience'] ?? '' );
@@ -2302,7 +2580,7 @@ function cirlot_docs_search_ajax() {
     $per_page = max( 1, min( 50, absint( $_POST['per_page'] ?? 10 ) ) );
 
     $args = [
-        'post_type'      => 'cirlot_document',
+        'post_type'      => 'aidoc',
         'post_status'    => 'publish',
         'posts_per_page' => $per_page,
         'paged'          => $page,
@@ -2334,24 +2612,15 @@ function cirlot_docs_search_ajax() {
         $file_id  = get_post_meta( $pid, '_document_file_id', true );
         $file_url = $file_id ? wp_get_attachment_url( $file_id ) : '';
 
-        $cf_values = [];
-        foreach ( cirlot_docs_get_global_fields() as $gf ) {
-            $fid = $gf['id'];
-            $cf_values[ $fid ] = $fid === 'description'
-                ? get_post_meta( $pid, '_document_description', true )
-                : get_post_meta( $pid, '_document_cf_' . $fid, true );
-        }
-
         $results[] = [
-            'id'            => $pid,
-            'title'         => get_the_title(),
-            'description'   => get_post_meta( $pid, '_document_description', true ),
-            'file_url'      => $file_url,
-            'pub_date'      => get_post_meta( $pid, '_document_pub_date', true ),
-            'format'        => get_post_meta( $pid, '_document_file_format', true ),
-            'audience'      => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
-            'type'          => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
-            'custom_fields' => $cf_values,
+            'id'          => $pid,
+            'title'       => get_the_title(),
+            'description' => get_post_meta( $pid, '_document_description', true ),
+            'file_url'    => $file_url,
+            'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
+            'format'      => get_post_meta( $pid, '_document_file_format', true ),
+            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
+            'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
         ];
     }
     wp_reset_postdata();
@@ -2365,10 +2634,10 @@ function cirlot_docs_search_ajax() {
 }
 
 // ── AJAX: AI Explain search results ──────────
-add_action( 'wp_ajax_cirlot_docs_ai_explain',        'cirlot_docs_ai_explain_ajax' );
-add_action( 'wp_ajax_nopriv_cirlot_docs_ai_explain', 'cirlot_docs_ai_explain_ajax' );
-function cirlot_docs_ai_explain_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+add_action( 'wp_ajax_aidocs_ai_explain',        'aidocs_ai_explain_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_ai_explain', 'aidocs_ai_explain_ajax' );
+function aidocs_ai_explain_ajax() {
+    check_ajax_referer( 'aidocs_ai_search', 'nonce' );
 
     $keyword  = sanitize_text_field( $_POST['keyword']  ?? '' );
     $audience = sanitize_text_field( $_POST['audience'] ?? '' );
@@ -2379,8 +2648,8 @@ function cirlot_docs_ai_explain_ajax() {
 
     if ( ! $titles ) wp_send_json_error( 'No results.' );
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $query_parts = [];
@@ -2420,25 +2689,25 @@ function cirlot_docs_ai_explain_ajax() {
 }
 
 // ── AJAX: AI Document Recommendation ─────────
-add_action( 'wp_ajax_cirlot_docs_ai_recommend',        'cirlot_docs_ai_recommend_ajax' );
-add_action( 'wp_ajax_nopriv_cirlot_docs_ai_recommend', 'cirlot_docs_ai_recommend_ajax' );
-function cirlot_docs_ai_recommend_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+add_action( 'wp_ajax_aidocs_ai_recommend',        'aidocs_ai_recommend_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_ai_recommend', 'aidocs_ai_recommend_ajax' );
+function aidocs_ai_recommend_ajax() {
+    check_ajax_referer( 'aidocs_ai_search', 'nonce' );
 
     $message = sanitize_textarea_field( $_POST['message'] ?? '' );
     $history = json_decode( stripslashes( $_POST['history'] ?? '[]' ), true );
 
     if ( ! $message ) wp_send_json_error( 'Empty message.' );
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     // Semantic search: embed query → cosine similarity → top candidates
-    $query_embedding = cirlot_docs_gemini_embed( $message, $api_key );
+    $query_embedding = aidocs_gemini_embed( $message, $api_key );
 
     $all_ids = get_posts( [
-        'post_type'      => 'cirlot_document',
+        'post_type'      => 'aidoc',
         'post_status'    => 'publish',
         'posts_per_page' => -1,
         'fields'         => 'ids',
@@ -2457,7 +2726,7 @@ function cirlot_docs_ai_recommend_ajax() {
                 if ( is_array( $doc_emb ) ) {
                     $scored[] = [
                         'pid'   => (int) $pid,
-                        'score' => cirlot_docs_cosine_similarity( $query_embedding, $doc_emb ),
+                        'score' => aidocs_cosine_similarity( $query_embedding, $doc_emb ),
                     ];
                 } else {
                     $unindexed_ids[] = (int) $pid;
@@ -2473,65 +2742,56 @@ function cirlot_docs_ai_recommend_ajax() {
 
         $candidate_ids = array_column( array_slice( $scored, 0, 12 ), 'pid' );
 
-        // Supplement with keyword-matched unindexed docs if few semantic results
+        // Supplement with unindexed docs: first try keyword match, then pad with all unindexed
         if ( count( $candidate_ids ) < 6 && ! empty( $unindexed_ids ) ) {
             $kw_q = new WP_Query( [
-                'post_type'      => 'cirlot_document',
+                'post_type'      => 'aidoc',
                 'post_status'    => 'publish',
-                'posts_per_page' => 8,
+                'posts_per_page' => 10,
                 'post__in'       => $unindexed_ids,
                 's'              => $message,
                 'fields'         => 'ids',
             ] );
             $candidate_ids = array_unique( array_merge( $candidate_ids, array_map( 'intval', $kw_q->posts ) ) );
-            $candidate_ids = array_slice( $candidate_ids, 0, 15 );
+
+            // Still few results? pad with all unindexed (Gemini will pick the best)
+            if ( count( $candidate_ids ) < 6 ) {
+                $remaining     = array_diff( $unindexed_ids, $candidate_ids );
+                $candidate_ids = array_merge( $candidate_ids, array_slice( $remaining, 0, 40 ) );
+            }
+            $candidate_ids = array_slice( $candidate_ids, 0, 40 );
         }
     } else {
-        // Embedding unavailable — keyword fallback
+        // Embedding unavailable — keyword search then fall back to ALL docs
         $kw_q = new WP_Query( [
-            'post_type'      => 'cirlot_document',
+            'post_type'      => 'aidoc',
             'post_status'    => 'publish',
-            'posts_per_page' => 25,
+            'posts_per_page' => 40,
             's'              => $message,
             'fields'         => 'ids',
         ] );
         $candidate_ids = array_map( 'intval', $kw_q->posts );
 
+        // Keyword found nothing → send all docs so Gemini can reason semantically
         if ( empty( $candidate_ids ) ) {
-            $fb_q = new WP_Query( [
-                'post_type'      => 'cirlot_document',
-                'post_status'    => 'publish',
-                'posts_per_page' => 20,
-                'orderby'        => 'date',
-                'order'          => 'DESC',
-                'fields'         => 'ids',
-            ] );
-            $candidate_ids = array_map( 'intval', $fb_q->posts );
+            $candidate_ids = array_slice( array_map( 'intval', $all_ids ), 0, 40 );
         }
     }
 
     // Build candidate data array
     $candidates = [];
     foreach ( $candidate_ids as $pid ) {
-        $pid     = (int) $pid;
-        $file_id = get_post_meta( $pid, '_document_file_id', true );
-        $cf      = [];
-        foreach ( cirlot_docs_get_global_fields() as $gf ) {
-            $fid        = $gf['id'];
-            $cf[ $fid ] = $fid === 'description'
-                ? get_post_meta( $pid, '_document_description', true )
-                : get_post_meta( $pid, '_document_cf_' . $fid, true );
-        }
+        $pid          = (int) $pid;
+        $file_id      = get_post_meta( $pid, '_document_file_id', true );
         $candidates[] = [
-            'id'            => $pid,
-            'title'         => get_the_title( $pid ),
-            'description'   => get_post_meta( $pid, '_document_description', true ),
-            'audience'      => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
-            'type'          => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
-            'format'        => get_post_meta( $pid, '_document_file_format', true ),
-            'pub_date'      => get_post_meta( $pid, '_document_pub_date', true ),
-            'file_url'      => $file_id ? wp_get_attachment_url( $file_id ) : '',
-            'custom_fields' => $cf,
+            'id'          => $pid,
+            'title'       => get_the_title( $pid ),
+            'description' => get_post_meta( $pid, '_document_description', true ),
+            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
+            'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
+            'format'      => get_post_meta( $pid, '_document_file_format', true ),
+            'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
+            'file_url'    => $file_id ? wp_get_attachment_url( $file_id ) : '',
         ];
     }
 
@@ -2603,10 +2863,10 @@ function cirlot_docs_ai_recommend_ajax() {
 }
 
 // ── AJAX: AI Document Chat ────────────────────
-add_action( 'wp_ajax_cirlot_docs_ai_doc_chat',        'cirlot_docs_ai_doc_chat_ajax' );
-add_action( 'wp_ajax_nopriv_cirlot_docs_ai_doc_chat', 'cirlot_docs_ai_doc_chat_ajax' );
-function cirlot_docs_ai_doc_chat_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+add_action( 'wp_ajax_aidocs_ai_doc_chat',        'aidocs_ai_doc_chat_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_ai_doc_chat', 'aidocs_ai_doc_chat_ajax' );
+function aidocs_ai_doc_chat_ajax() {
+    check_ajax_referer( 'aidocs_ai_search', 'nonce' );
 
     $doc_id  = absint( $_POST['doc_id']  ?? 0 );
     $message = sanitize_textarea_field( $_POST['message'] ?? '' );
@@ -2614,12 +2874,12 @@ function cirlot_docs_ai_doc_chat_ajax() {
 
     if ( ! $doc_id || ! $message ) wp_send_json_error( 'Invalid request.' );
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $post = get_post( $doc_id );
-    if ( ! $post || $post->post_status !== 'publish' || $post->post_type !== 'cirlot_document' ) {
+    if ( ! $post || $post->post_status !== 'publish' || $post->post_type !== 'aidoc' ) {
         wp_send_json_error( 'Document not found.' );
     }
 
@@ -2633,12 +2893,6 @@ function cirlot_docs_ai_doc_chat_ajax() {
 
     $types = wp_get_post_terms( $doc_id, 'document_type', [ 'fields' => 'names' ] );
     if ( $types && ! is_wp_error( $types ) ) $ctx .= 'Type: ' . implode( ', ', $types ) . "\n";
-
-    foreach ( cirlot_docs_get_global_fields() as $gf ) {
-        if ( $gf['id'] === 'description' ) continue;
-        $val = get_post_meta( $doc_id, '_document_cf_' . $gf['id'], true );
-        if ( $val ) $ctx .= $gf['label'] . ': ' . $val . "\n";
-    }
 
     $pub = get_post_meta( $doc_id, '_document_pub_date', true );
     if ( $pub ) $ctx .= "Publication date: {$pub}\n";
@@ -2678,22 +2932,22 @@ function cirlot_docs_ai_doc_chat_ajax() {
 }
 
 // ── AJAX: AI Search Assistant ─────────────────
-add_action( 'wp_ajax_cirlot_docs_ai_search',        'cirlot_docs_ai_search_ajax' );
-add_action( 'wp_ajax_nopriv_cirlot_docs_ai_search', 'cirlot_docs_ai_search_ajax' );
-function cirlot_docs_ai_search_ajax() {
-    check_ajax_referer( 'cirlot_docs_ai_search', 'nonce' );
+add_action( 'wp_ajax_aidocs_ai_search',        'aidocs_ai_search_ajax' );
+add_action( 'wp_ajax_nopriv_aidocs_ai_search', 'aidocs_ai_search_ajax' );
+function aidocs_ai_search_ajax() {
+    check_ajax_referer( 'aidocs_ai_search', 'nonce' );
 
     $message = sanitize_textarea_field( $_POST['message'] ?? '' );
     $history = json_decode( stripslashes( $_POST['history'] ?? '[]' ), true );
 
     if ( ! $message ) wp_send_json_error( 'Empty message.' );
 
-    $api_key = get_option( 'cirlot_docs_gemini_api_key', '' );
-    $model   = get_option( 'cirlot_docs_gemini_model', 'gemini-2.5-flash' );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
-    $types     = cirlot_docs_get_types();
-    $audiences = cirlot_docs_get_audiences();
+    $types     = aidocs_get_types();
+    $audiences = aidocs_get_audiences();
     $site      = get_bloginfo( 'name' );
 
     $system  = "You are a helpful document search assistant for {$site}. ";

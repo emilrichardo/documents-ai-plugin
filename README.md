@@ -1,4 +1,4 @@
-# Cirlot Documents
+# AI Documents
 
 Plugin de WordPress para gestionar, publicar y buscar documentos institucionales con búsqueda inteligente impulsada por IA (Google Gemini).
 
@@ -13,8 +13,7 @@ Plugin de WordPress para gestionar, publicar y buscar documentos institucionales
 5. [Gestión de documentos](#gestión-de-documentos)
 6. [Shortcode de búsqueda](#shortcode-de-búsqueda)
 7. [Funcionalidades de IA](#funcionalidades-de-ia)
-8. [Campos personalizados](#campos-personalizados)
-9. [Referencia de parámetros del shortcode](#referencia-de-parámetros-del-shortcode)
+8. [Referencia de parámetros del shortcode](#referencia-de-parámetros-del-shortcode)
 
 ---
 
@@ -28,7 +27,7 @@ Plugin de WordPress para gestionar, publicar y buscar documentos institucionales
 
 ## Instalación
 
-1. Sube la carpeta `cirlot-documents` a `/wp-content/plugins/`.
+1. Sube la carpeta `ai-documents` a `/wp-content/plugins/`.
 2. Activa el plugin desde **WordPress Admin → Plugins → Plugins instalados**.
 3. Ve a **Documents → Settings** en el menú lateral del administrador.
 4. Configura tu API key de Gemini (ver sección siguiente).
@@ -64,29 +63,20 @@ Las funciones de IA del plugin utilizan la API de **Google Gemini**. Para obtene
 
 ## Ajustes del plugin (Settings)
 
-El panel de ajustes está organizado en cinco pestañas:
-
-### General
-- **Archive Slug** — Slug de la URL del archivo de documentos (predeterminado: `documents`).
+El panel de ajustes (**Documents → Settings**) es una sola vista con tres secciones:
 
 ### AI
 - **Gemini API Key** — Clave de la API de Google Gemini.
 - **Gemini Model** — Modelo de IA a utilizar.
-- **Test Connection** — Verifica que la API key y el modelo sean válidos.
 
 ### Taxonomy
 - **Audiences** — Lista de audiencias disponibles (una por línea). Predeterminado: `Institution`, `Evaluator`, `Public`.
 - **Document Types** — Lista de tipos de documento disponibles (una por línea). Predeterminado: `Policies`, `Guidelines`, `Good Practices`, entre otros.
 
-### Custom Fields
-Define los campos personalizados globales que aparecen en todos los documentos:
-- El campo **Document Description** está incluido por defecto.
-- Puedes agregar nuevos campos con nombre, tipo (`text`, `textarea`, `list`) e identificador.
-- Los campos se pueden reordenar arrastrando y eliminar con el botón `×`.
-- Estos campos aparecen en el formulario de edición de cada documento y en el modal de detalle de la búsqueda pública.
-
 ### Shortcodes
 Referencia de todos los shortcodes disponibles con ejemplos listos para copiar.
+
+> El nombre del menú (Documents), su ícono, el slug del archivo (`documents`) y los formatos de archivo permitidos (PDF, Word, Excel) ya no son configurables — están fijos.
 
 ---
 
@@ -104,7 +94,7 @@ Referencia de todos los shortcodes disponibles con ejemplos listos para copiar.
 | **Publication Date** | Fecha de publicación del documento |
 | **Audience** | Selecciona una o varias audiencias (checkboxes) |
 | **Document Type** | Selecciona uno o varios tipos (checkboxes) |
-| **Custom Fields** | Campos personalizados definidos en Settings → Custom Fields |
+| **Description** | Descripción del documento (texto libre) |
 
 3. Haz clic en **"Publish"**.
 
@@ -113,12 +103,43 @@ Referencia de todos los shortcodes disponibles con ejemplos listos para copiar.
 En el formulario de edición, el bloque **"Process with AI"** permite autocompletar los metadatos del documento:
 
 1. Sube el archivo PDF primero — el plugin extrae el texto automáticamente.
-2. Selecciona los campos que deseas completar con los checkboxes (ej. `Document Description`, `Audience`, `Document Type`).
+2. Selecciona los campos que deseas completar con los checkboxes (`Title`, `Description`, `Audience`, `Document Type`).
 3. Haz clic en **"Process with AI"**.
 4. La IA analiza el contenido del PDF y sugiere valores para cada campo seleccionado.
 5. Revisa y ajusta los valores antes de guardar.
 
 > **Nota:** Esta función requiere que la API key de Gemini esté configurada correctamente.
+
+### Extraer el contenido estructurado (sin IA)
+
+El botón **"Extract Content"** parsea el texto del PDF con regex — sin llamar a la IA — y guarda el cuerpo del documento como una secuencia de bloques (títulos de 3 niveles, párrafos, notas, listas anidadas y tablas) que el frontend renderiza como HTML.
+
+1. Sube el PDF y esperá a que termine la extracción de texto (aparecen las etiquetas de página).
+2. Haz clic en **"Extract Content"**.
+3. La etiqueta al lado del botón muestra cuántos bloques se guardaron, y el estado detalla cuántos títulos, párrafos, notas, listas y tablas se detectaron.
+
+El PDF se lee en dos pasos: `assets/js/aidocs-pdf-structure.js` convierte la maquetación del PDF (negrita, cuerpo, margen izquierdo, interlínea) en un **texto canónico** con marcas, y `includes/aidocs-doc-parser.php` lo convierte en bloques con expresiones regulares. El formato completo, las variantes de nota reconocidas y los límites conocidos están en [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
+
+Esto es independiente de "Process with AI": ese completa los *campos* (descripción, audiencia, tipo), mientras "Extract Content" reconstruye el *cuerpo* del documento.
+
+#### Esquema de etiquetas
+
+Si el documento fue redactado con el esquema de etiquetas de SACSCOC, la extracción es **determinística** (no heurística) y completa varios campos de una sola vez:
+
+```
+<Título del documento>
+Teaser: <resumen de un párrafo>      → Description
+Body:                                → Contenido estructurado
+<párrafos y requisitos con viñetas>
+Last Updated: <Mes AAAA> (<órgano>)  → Publication Date
+Document History: <procedencia>      → historial, se muestra al pie del contenido
+```
+
+Cada marcador se acepta como `Label:`, `[Label]`, `[Label] contenido` o una línea que contenga sólo la etiqueta. Validado contra los 50 documentos del compilado maestro: 50/50 con título y cuerpo, 48/50 con teaser y fecha (los otros dos son fragmentos de un documento mayor y no traen esas líneas).
+
+La descripción y la fecha **no se sobreescriben** si ya tienen valor — una corrección manual del editor gana sobre el parser.
+
+> Los parsers viven en `includes/aidocs-doc-parser.php`: `aidocs_parse_labeled_document()` (esquema de etiquetas) y `aidocs_parse_structured_content()` (cuerpo → bloques, con fallback heurístico para texto pegado a mano). Son las únicas funciones a ajustar si aparece otra familia de documentos: el resto del plugin depende sólo del formato de bloques. Para verificar un cambio contra un corpus sin pasar por WordPress: `php tools/parse-check.php ruta/*.txt`.
 
 ---
 
@@ -127,7 +148,7 @@ En el formulario de edición, el bloque **"Process with AI"** permite autocomple
 Inserta el buscador de documentos en cualquier página o entrada usando el shortcode:
 
 ```
-[cirlot_document_search]
+[aidocs_search]
 ```
 
 ### Funcionalidad del buscador
@@ -143,11 +164,18 @@ El buscador incluye:
 
 ### Modal de detalle
 
-Al hacer clic en cualquier tarjeta de documento se abre un modal con:
-- Nombre del documento y etiquetas de formato, audiencia y tipo.
-- Todos los campos personalizados definidos en Settings.
-- Fecha de publicación.
-- Botón de **Download** para descargar el archivo directamente.
+Al hacer clic en cualquier tarjeta de documento se abre un modal con dos pestañas:
+
+- **Content** — primero los campos extraídos (descripción, audiencia, tipo, fecha, formato) y debajo el **contenido estructurado** del documento (títulos, párrafos y listas extraídos del PDF por regex). Se carga on-demand para que el listado de resultados siga liviano.
+- **Preview** — el PDF embebido en el navegador.
+
+**Ask AI** ya no es una pestaña: es una **barra fija** al pie del modal, disponible mientras se lee cualquier sección. Las respuestas aparecen en un panel colapsable sobre la barra.
+
+El pie del modal tiene **Download**, **Open full page** (link a la vista individual) y **Close**.
+
+### Vista individual del documento
+
+Cada documento tiene su propia URL (`/documents/{slug}/`) que muestra lo mismo que el modal abierto, integrado con el header y footer del tema: encabezado con formato/audiencia/tipo, descripción, grilla de metadatos, contenido estructurado, preview del PDF en un bloque desplegable, y la barra Ask AI fija al pie mientras se hace scroll.
 
 ### Burbuja de chat AI (Ask AI)
 
@@ -176,37 +204,10 @@ Todas las funciones de IA utilizan el modelo Gemini configurado en **Settings �
 
 ---
 
-## Campos personalizados
-
-Los campos personalizados son **globales** — se definen una sola vez en **Settings → Custom Fields** y aparecen en todos los documentos.
-
-### Tipos de campo disponibles
-
-| Tipo | Descripción |
-|---|---|
-| `textarea` | Área de texto multilínea (ideal para descripciones) |
-| `text` | Campo de texto de una sola línea |
-| `list` | Área de texto para listas (mayor altura) |
-
-### Campo predeterminado
-
-El campo **Document Description** (`id: description`) está incluido por defecto. Si se elimina y se vuelve a crear con el mismo `id`, los valores guardados se recuperan automáticamente.
-
-### Cómo agregar un campo
-
-1. Ve a **Documents → Settings → Custom Fields**.
-2. Completa **Field Label** (nombre visible), **Field ID** (identificador único, solo letras/números/guión bajo) y **Type**.
-3. Haz clic en **"Add Field"**.
-4. Guarda con **"Save Settings"**.
-
-El nuevo campo aparecerá inmediatamente en el formulario de edición de todos los documentos y en el modal de detalle del buscador.
-
----
-
 ## Referencia de parámetros del shortcode
 
 ```
-[cirlot_document_search
+[aidocs_search
   type="..."
   audience="..."
   per_page="20"
@@ -226,13 +227,13 @@ El nuevo campo aparecerá inmediatamente en el formulario de edición de todos l
 ### Ejemplos
 
 ```
-[cirlot_document_search]
+[aidocs_search]
 
-[cirlot_document_search type="Policies" audience="Institution"]
+[aidocs_search type="Policies" audience="Institution"]
 
-[cirlot_document_search per_page="10"]
+[aidocs_search per_page="10"]
 
-[cirlot_document_search show_chat="false"]
+[aidocs_search show_chat="false"]
 
-[cirlot_document_search show_ai="false" show_chat="false"]
+[aidocs_search show_ai="false" show_chat="false"]
 ```
