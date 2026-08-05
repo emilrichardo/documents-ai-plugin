@@ -1053,8 +1053,20 @@ function aidocs_render_sections( array $blocks ) {
         }
 
         $heading = $section['heading'];
-        $id      = ! empty( $heading['id'] ) ? ' id="' . esc_attr( $heading['id'] ) . '"' : '';
-        $level   = max( 2, min( 3, (int) ( $heading['level'] ?? 3 ) ) );
+
+        // A heading directly followed by another section heading — nothing of
+        // its own in between — has no content to hide. It is a label
+        // introducing the sections that follow it ("Procedures" ahead of
+        // "Eligibility Process", "Determination", …), not a section in its
+        // own right, so it renders as plain text rather than a collapsible
+        // item whose panel would always be empty.
+        if ( ! $section['blocks'] ) {
+            $html .= aidocs_render_heading( $heading );
+            continue;
+        }
+
+        $id    = ! empty( $heading['id'] ) ? ' id="' . esc_attr( $heading['id'] ) . '"' : '';
+        $level = max( 2, min( 3, (int) ( $heading['level'] ?? 3 ) ) );
 
         $html .= '<details class="aidocs-accordion-item" open' . $id . '>'
                . '<summary class="aidocs-accordion-summary aidocs-content-h' . $level . '">'

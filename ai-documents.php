@@ -2700,9 +2700,25 @@ function aidocs_single_document_content( $content ) {
         $archive_link = get_post_type_archive_link( 'aidoc' );
         if ( $archive_link ) :
         ?>
-        <a href="<?php echo esc_url( $archive_link ); ?>" class="aidocs-single-back">
+        <a href="<?php echo esc_url( $archive_link ); ?>" class="aidocs-single-back" id="aidocs-single-back">
             &larr; <?php esc_html_e( 'Back to documents' ); ?>
         </a>
+        <script>
+        (function(){
+            // The listing a visitor actually came from — the search shortcode
+            // can sit on any page, not just the aidoc archive this link falls
+            // back to — is the browser's own history, so returning to it is
+            // preferred whenever that history exists and is this site's own.
+            var back = document.getElementById('aidocs-single-back');
+            var ref  = document.referrer;
+            if ( back && ref && ref !== location.href && ref.indexOf( location.origin + '/' ) === 0 && window.history.length > 1 ) {
+                back.addEventListener( 'click', function( e ) {
+                    e.preventDefault();
+                    history.back();
+                } );
+            }
+        })();
+        </script>
         <?php endif; ?>
 
         <!-- The theme's own template already renders the post title above
