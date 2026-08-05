@@ -427,8 +427,45 @@ function aidocs_meta_box_html( $post ) {
         .cd-ai-label { font-weight:normal; font-size:12px; display:inline-flex; align-items:center; gap:5px; color:#555; cursor:pointer; }
         .cd-custom-field { margin-bottom:10px; padding:10px 12px; border:1px solid #e5e5e5; border-radius:4px; background:#fafafa; }
         .cd-custom-field .cd-field-value { width:100%; box-sizing:border-box; margin-top:4px; }
-        #cd-ai-process-wrap { margin-top:20px; padding:15px 18px; background:linear-gradient(135deg,#f0f6ff 0%,#e8f3ff 100%); border:1.5px solid #b8d4f5; border-radius:8px; }
+        #cd-ai-process-wrap { padding:15px 18px; background:linear-gradient(135deg,#f0f6ff 0%,#e8f3ff 100%); border:1.5px solid #b8d4f5; border-top:none; border-radius:0 0 8px 8px; }
         #cd-ai-process-btn { font-size:13px !important; padding:6px 20px !important; height:auto !important; }
+        /* Step 1: extraction (no AI) */
+        #cd-extract-wrap { margin-top:20px; padding:15px 18px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; }
+        .cd-step-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .cd-step-head strong { font-size:13px; }
+        .cd-step-hint { margin:6px 0 10px; font-size:12px; color:#646970; line-height:1.6; }
+        .cd-step-status { font-size:12px; color:#555; }
+        .cd-step-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .cd-badge { font-size:11px; padding:2px 8px; border-radius:3px; }
+        .cd-badge.is-ok { background:#d4edda; color:#155724; }
+        .cd-badge.is-off { background:#f8d7da; color:#721c24; }
+        .cd-preview { margin-top:12px; }
+        .cd-preview summary { cursor:pointer; font-size:12px; color:#2271b1; }
+        .cd-preview-body { max-height:340px; overflow-y:auto; margin-top:10px; padding:12px 14px; background:#fff; border:1px solid #e0e0e0; border-radius:4px; }
+        .cd-preview-body .aidocs-content-h2 { font-size:15px; margin:14px 0 6px; }
+        .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:#2c4a7c; }
+        .cd-preview-body .aidocs-content-p, .cd-preview-body li { font-size:12.5px; line-height:1.7; color:#3c434a; }
+        /* Step 2: AI (opt-in) */
+        #cd-ai-panel { margin-top:14px; }
+        #cd-ai-panel > summary { cursor:pointer; font-size:13px; font-weight:600; padding:10px 14px; background:#f0f6ff; border:1.5px solid #b8d4f5; border-radius:8px; }
+        #cd-ai-panel[open] > summary { border-radius:8px 8px 0 0; }
+        .cd-ai-config { margin-bottom:14px; padding:10px 12px; background:#fff; border:1px solid #cfe0f5; border-radius:6px; }
+        .cd-ai-config-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+        .cd-ai-config-row:last-child { margin-bottom:0; }
+        .cd-ai-config-row label { font-size:12px; white-space:nowrap; }
+        #cd-ai-key { flex:1; min-width:220px; }
+        #cd-ai-review { margin-top:14px; padding-top:12px; border-top:1px dashed #b8d4f5; }
+        .cd-ai-card { margin-top:10px; padding:10px 12px; background:#fff; border:1px solid #cfe0f5; border-radius:6px; }
+        .cd-ai-card-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+        .cd-ai-card-head strong { font-size:12px; }
+        .cd-ai-card-current { font-size:11px; color:#646970; }
+        .cd-ai-card textarea, .cd-ai-card input[type="text"] { width:100%; box-sizing:border-box; font-size:12.5px; }
+        .cd-ai-card textarea { height:auto; min-height:60px; }
+        .cd-ai-card-actions { display:flex; gap:8px; margin-top:8px; }
+        .cd-ai-card.is-applied { border-color:#a7d8b4; background:#f6fdf8; }
+        /* The preview shows the same blocks the frontend renders, so it shares
+           their stylesheet — notes, nested lists and tables included. */
+        <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
         #cd-add-field-form { margin-top:8px; padding:10px 12px; border:1px solid #e0e0e0; border-radius:4px; background:#f9f9f9; }
         .cd-ai-field-option { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:13px; cursor:pointer; font-weight:normal; margin:0; }
         #cd-ai-fields-list { margin-top:4px; padding-left:20px; }
@@ -536,48 +573,20 @@ function aidocs_meta_box_html( $post ) {
             <textarea id="cd-description" name="document_description" rows="3"><?php echo esc_textarea( $description ); ?></textarea>
         </div>
 
-        <!-- Process with AI -->
-        <div id="cd-ai-process-wrap">
-            <div style="margin-bottom:12px;">
-                <strong style="font-size:13px;display:block;margin-bottom:6px;"><?php esc_html_e( 'Fields to complete:' ); ?></strong>
-                <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-weight:600;font-size:13px;cursor:pointer;margin:0;">
-                    <input type="checkbox" id="cd-ai-select-all">
-                    <?php esc_html_e( 'Select All' ); ?>
-                </label>
-                <div id="cd-ai-fields-list">
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-ai-field-check" data-field-id="title">
-                        <?php esc_html_e( 'Title' ); ?>
-                    </label>
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-ai-field-check" data-field-id="description" checked>
-                        <?php esc_html_e( 'Description' ); ?>
-                    </label>
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-ai-field-check" data-field-id="audience">
-                        <?php esc_html_e( 'Audience' ); ?>
-                    </label>
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-ai-field-check" data-field-id="document_type">
-                        <?php esc_html_e( 'Document Type' ); ?>
-                    </label>
-                </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <button type="button" id="cd-ai-process-btn" class="button button-primary">
-                    &#9889; <?php esc_html_e( 'Process with AI' ); ?>
-                </button>
-                <button type="button" id="cd-extract-content-btn" class="button">
-                    &#128196; <?php esc_html_e( 'Extract Content' ); ?>
-                </button>
-                <button type="button" id="cd-gen-embedding-btn" class="button">
-                    &#128200; <?php esc_html_e( 'Index for Search' ); ?>
-                </button>
-                <?php
-                $content_blocks = aidocs_get_content_blocks( $post->ID );
-                $has_content    = (bool) $content_blocks;
-                ?>
-                <span id="cd-content-badge" style="font-size:11px;padding:2px 8px;border-radius:3px;background:<?php echo $has_content ? '#d4edda' : '#f8d7da'; ?>;color:<?php echo $has_content ? '#155724' : '#721c24'; ?>;">
+        <?php
+        $content_blocks = aidocs_get_content_blocks( $post->ID );
+        $has_content    = (bool) $content_blocks;
+        $has_emb        = (bool) get_post_meta( $post->ID, '_document_embedding', true );
+        $ai_key_set     = (bool) get_option( 'aidocs_gemini_api_key', '' );
+        $ai_model       = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+        $can_setup_ai   = current_user_can( 'manage_options' );
+        ?>
+
+        <!-- Step 1 — extraction, no AI. This is what runs by default. -->
+        <div id="cd-extract-wrap">
+            <div class="cd-step-head">
+                <strong><?php esc_html_e( 'Document content' ); ?></strong>
+                <span id="cd-content-badge" class="cd-badge <?php echo $has_content ? 'is-ok' : 'is-off'; ?>">
                     <?php
                     echo $has_content
                         /* translators: %d: number of extracted content blocks. */
@@ -585,13 +594,121 @@ function aidocs_meta_box_html( $post ) {
                         : esc_html__( 'No content' );
                     ?>
                 </span>
-                <?php $has_emb = (bool) get_post_meta( $post->ID, '_document_embedding', true ); ?>
-                <span id="cd-embedding-badge" style="font-size:11px;padding:2px 8px;border-radius:3px;background:<?php echo $has_emb ? '#d4edda' : '#f8d7da'; ?>;color:<?php echo $has_emb ? '#155724' : '#721c24'; ?>;">
+                <span id="cd-embedding-badge" class="cd-badge <?php echo $has_emb ? 'is-ok' : 'is-off'; ?>">
                     <?php echo $has_emb ? '&#10003; ' . esc_html__( 'Indexed' ) : esc_html__( 'Not indexed' ); ?>
                 </span>
-                <span id="cd-ai-status" style="font-size:12px;color:#555;"></span>
+                <span id="cd-ai-status" class="cd-step-status"></span>
             </div>
+            <p class="cd-step-hint">
+                <?php esc_html_e( 'Title, teaser, date, headings, notes, lists and tables are read straight from the PDF with regular expressions — no AI, no API key. This runs on its own when a PDF is loaded.' ); ?>
+            </p>
+            <div class="cd-step-actions">
+                <button type="button" id="cd-extract-content-btn" class="button">
+                    &#128196; <?php esc_html_e( 'Extract content again' ); ?>
+                </button>
+                <button type="button" id="cd-gen-embedding-btn" class="button">
+                    &#128200; <?php esc_html_e( 'Index for Search' ); ?>
+                </button>
+            </div>
+            <details id="cd-content-preview" class="cd-preview" <?php echo $has_content ? '' : 'hidden'; ?>>
+                <summary><?php esc_html_e( 'Review extracted content' ); ?></summary>
+                <div id="cd-content-preview-body" class="cd-preview-body">
+                    <?php echo aidocs_render_content_blocks( $content_blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
+                </div>
+            </details>
         </div>
+
+        <!-- Step 2 — AI, opt-in, and only ever proposes values. -->
+        <details id="cd-ai-panel">
+            <summary>&#9889; <?php esc_html_e( 'Complete fields with AI (optional)' ); ?></summary>
+            <div id="cd-ai-process-wrap">
+                <p class="cd-step-hint">
+                    <?php esc_html_e( 'The AI reads the extracted text and proposes values for the fields you tick. Nothing is written into the form until you apply it.' ); ?>
+                </p>
+
+                <div id="cd-ai-config" class="cd-ai-config" data-configured="<?php echo $ai_key_set ? '1' : '0'; ?>">
+                    <?php if ( $can_setup_ai ) : ?>
+                    <div id="cd-ai-config-state" class="cd-ai-config-row" <?php echo $ai_key_set ? '' : 'hidden'; ?>>
+                        <span class="cd-badge is-ok">&#10003; <?php esc_html_e( 'API key saved' ); ?></span>
+                        <span class="cd-step-hint" style="margin:0;">
+                            <?php esc_html_e( 'Model:' ); ?> <code id="cd-ai-model-label"><?php echo esc_html( $ai_model ); ?></code>
+                        </span>
+                        <button type="button" id="cd-ai-config-toggle" class="button-link"><?php esc_html_e( 'Change' ); ?></button>
+                    </div>
+                    <div id="cd-ai-config-form" class="cd-ai-config-form" <?php echo $ai_key_set ? 'hidden' : ''; ?>>
+                        <div class="cd-ai-config-row">
+                            <label for="cd-ai-key" style="margin:0;"><?php esc_html_e( 'Gemini API key' ); ?></label>
+                            <input type="password" id="cd-ai-key" autocomplete="off" spellcheck="false"
+                                placeholder="<?php echo $ai_key_set ? esc_attr__( 'Saved — leave blank to keep it' ) : 'AIza…'; ?>">
+                            <button type="button" id="cd-ai-config-load" class="button"><?php esc_html_e( 'Check key & list models' ); ?></button>
+                        </div>
+                        <div class="cd-ai-config-row">
+                            <label for="cd-ai-model" style="margin:0;"><?php esc_html_e( 'Model' ); ?></label>
+                            <select id="cd-ai-model">
+                                <option value="<?php echo esc_attr( $ai_model ); ?>"><?php echo esc_html( $ai_model ); ?></option>
+                            </select>
+                            <button type="button" id="cd-ai-config-save" class="button button-secondary"><?php esc_html_e( 'Save' ); ?></button>
+                            <span id="cd-ai-config-status" class="cd-step-status"></span>
+                        </div>
+                        <p class="cd-step-hint">
+                            <?php esc_html_e( 'Stored in Documents → Settings, and used by semantic search and the assistant as well.' ); ?>
+                        </p>
+                    </div>
+                    <?php elseif ( $ai_key_set ) : ?>
+                    <p class="cd-step-hint cd-ai-config-row">
+                        <span class="cd-badge is-ok">&#10003; <?php esc_html_e( 'API key saved' ); ?></span>
+                        <?php esc_html_e( 'Model:' ); ?> <code><?php echo esc_html( $ai_model ); ?></code>
+                    </p>
+                    <?php else : ?>
+                    <p class="cd-step-hint cd-ai-config-row">
+                        <span class="cd-badge is-off"><?php esc_html_e( 'AI not configured' ); ?></span>
+                        <?php esc_html_e( 'Ask an administrator to add a Gemini API key in Documents → Settings. Extraction above works without it.' ); ?>
+                    </p>
+                    <?php endif; ?>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <strong style="font-size:13px;display:block;margin-bottom:6px;"><?php esc_html_e( 'Fields to propose:' ); ?></strong>
+                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-weight:600;font-size:13px;cursor:pointer;margin:0;">
+                        <input type="checkbox" id="cd-ai-select-all">
+                        <?php esc_html_e( 'Select All' ); ?>
+                    </label>
+                    <div id="cd-ai-fields-list">
+                        <label class="cd-ai-field-option">
+                            <input type="checkbox" class="cd-ai-field-check" data-field-id="title">
+                            <?php esc_html_e( 'Title' ); ?>
+                        </label>
+                        <label class="cd-ai-field-option">
+                            <input type="checkbox" class="cd-ai-field-check" data-field-id="description" checked>
+                            <?php esc_html_e( 'Description' ); ?>
+                        </label>
+                        <label class="cd-ai-field-option">
+                            <input type="checkbox" class="cd-ai-field-check" data-field-id="audience">
+                            <?php esc_html_e( 'Audience' ); ?>
+                        </label>
+                        <label class="cd-ai-field-option">
+                            <input type="checkbox" class="cd-ai-field-check" data-field-id="document_type">
+                            <?php esc_html_e( 'Document Type' ); ?>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="cd-step-actions">
+                    <button type="button" id="cd-ai-process-btn" class="button button-primary">
+                        &#9889; <?php esc_html_e( 'Propose with AI' ); ?>
+                    </button>
+                </div>
+
+                <div id="cd-ai-review" hidden>
+                    <div class="cd-step-head">
+                        <strong><?php esc_html_e( 'Proposed values' ); ?></strong>
+                        <button type="button" id="cd-ai-apply-all" class="button button-small"><?php esc_html_e( 'Apply all' ); ?></button>
+                        <button type="button" id="cd-ai-discard-all" class="button button-small"><?php esc_html_e( 'Discard all' ); ?></button>
+                    </div>
+                    <div id="cd-ai-review-list"></div>
+                </div>
+            </div>
+        </details>
 
     </div><!-- .aidocs-wrap -->
 
@@ -663,6 +780,9 @@ function aidocs_meta_box_html( $post ) {
                 $('#cd-file-preview').show();
                 // swap standalone upload button for the card's Replace button
                 $('#cd-upload-btn').not('#cd-file-preview #cd-upload-btn').hide();
+                // A different file means the stored content no longer describes
+                // this document, so extraction runs again for the new one.
+                cdHasContent = false;
                 if (ext === 'pdf') cdExtractPdf(a.url);
                 else $('#cd-page-badges-wrap').hide();
             });
@@ -804,6 +924,9 @@ function aidocs_meta_box_html( $post ) {
 
         // ── PDF Text Extraction ───────────────────────
         var cdPageTexts = {};
+        // Whether this document already has parsed content stored, which is what
+        // decides if extraction runs on its own after the text comes in.
+        var cdHasContent = <?php echo $has_content ? 'true' : 'false'; ?>;
 
         async function cdExtractPdf(pdfUrl) {
             pdfUrl = pdfUrl || $('#cd-file-url').val();
@@ -846,6 +969,12 @@ function aidocs_meta_box_html( $post ) {
                 });
 
                 $status.text(pdf.numPages + ' page' + (pdf.numPages !== 1 ? 's' : ''));
+
+                // Parsing the text into blocks is the default path and needs no
+                // AI, so it runs as soon as the text is in — but only when the
+                // document has nothing stored yet, so re-opening the editor
+                // never quietly rewrites content an editor has already checked.
+                if (!cdHasContent) cdExtractContent(true);
             } catch (err) {
                 $status.text('Error: ' + err.message);
             }
@@ -877,7 +1006,68 @@ function aidocs_meta_box_html( $post ) {
         $(document).on('change', '.cd-ai-field-check', cdUpdateSelectAll);
         cdUpdateSelectAll();
 
-        // ── Process with AI ───────────────────────────
+        // ── AI setup: API key and model, asked for only when missing ──
+        function cdAiConfigured() {
+            return $('#cd-ai-config').attr('data-configured') === '1';
+        }
+
+        $('#cd-ai-config-toggle').on('click', function() {
+            $('#cd-ai-config-form').prop('hidden', false);
+            $('#cd-ai-key').trigger('focus');
+        });
+
+        // Listing the models doubles as the check that the key works, and it is
+        // done before saving anything so a wrong key never gets stored.
+        $('#cd-ai-config-load').on('click', function() {
+            var $btn = $(this), $status = $('#cd-ai-config-status');
+            $btn.prop('disabled', true);
+            $status.text('<?php echo esc_js( __( 'Checking…' ) ); ?>');
+
+            $.post(cdAjaxUrl, {
+                action:  'aidocs_ai_credentials',
+                nonce:   cdAjaxNonce,
+                mode:    'probe',
+                api_key: $('#cd-ai-key').val()
+            })
+            .done(function(res) {
+                if (!res.success) { $status.text('Error: ' + res.data); return; }
+                var $select = $('#cd-ai-model').empty();
+                (res.data.models || []).forEach(function(model) {
+                    $select.append($('<option>').val(model).text(model));
+                });
+                if (res.data.current) $select.val(res.data.current);
+                $status.text(res.data.models.length + ' <?php echo esc_js( __( 'models available' ) ); ?>');
+            })
+            .fail(function(xhr) { $status.text('Error: ' + (xhr.responseJSON && xhr.responseJSON.data || xhr.statusText)); })
+            .always(function() { $btn.prop('disabled', false); });
+        });
+
+        $('#cd-ai-config-save').on('click', function() {
+            var $btn = $(this), $status = $('#cd-ai-config-status');
+            $btn.prop('disabled', true);
+            $status.text('<?php echo esc_js( __( 'Saving…' ) ); ?>');
+
+            $.post(cdAjaxUrl, {
+                action:  'aidocs_ai_credentials',
+                nonce:   cdAjaxNonce,
+                mode:    'save',
+                api_key: $('#cd-ai-key').val(),
+                model:   $('#cd-ai-model').val()
+            })
+            .done(function(res) {
+                if (!res.success) { $status.text('Error: ' + res.data); return; }
+                $('#cd-ai-config').attr('data-configured', res.data.configured ? '1' : '0');
+                $('#cd-ai-model-label').text(res.data.model);
+                $('#cd-ai-key').val('').attr('placeholder', '<?php echo esc_js( __( 'Saved — leave blank to keep it' ) ); ?>');
+                $('#cd-ai-config-state').prop('hidden', !res.data.configured);
+                $('#cd-ai-config-form').prop('hidden', res.data.configured);
+                $status.text('');
+            })
+            .fail(function(xhr) { $status.text('Error: ' + (xhr.responseJSON && xhr.responseJSON.data || xhr.statusText)); })
+            .always(function() { $btn.prop('disabled', false); });
+        });
+
+        // ── Propose field values with AI ──────────────
         $('#cd-ai-process-btn').on('click', function() {
             var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
                 return '--- Page ' + p + ' ---\n' + cdPageTexts[p];
@@ -885,6 +1075,13 @@ function aidocs_meta_box_html( $post ) {
 
             if (!rawText) {
                 $('#cd-ai-status').text('<?php esc_html_e( 'No PDF text — load a PDF and wait for extraction.' ); ?>');
+                return;
+            }
+
+            if (!cdAiConfigured()) {
+                $('#cd-ai-config-form').prop('hidden', false);
+                $('#cd-ai-config-status').text('<?php echo esc_js( __( 'Add a Gemini API key to use the AI.' ) ); ?>');
+                $('#cd-ai-key').trigger('focus');
                 return;
             }
 
@@ -923,35 +1120,109 @@ function aidocs_meta_box_html( $post ) {
                     return;
                 }
                 var data = res.data;
-                if (data.title !== undefined) {
-                    $('#title').val(data.title).trigger('keyup').trigger('focus').trigger('blur');
-                }
-                if (data.audience !== undefined) {
-                    var audiences = Array.isArray(data.audience) ? data.audience : String(data.audience).split(',');
-                    cdAudienceSelect.clearTags();
-                    audiences.forEach(function(a) { var t = a.trim(); if (t) cdAudienceSelect.addTag(t); });
-                }
-                if (data.document_type !== undefined) {
-                    var types = Array.isArray(data.document_type) ? data.document_type : String(data.document_type).split(',');
-                    cdTypeSelect.clearTags();
-                    types.forEach(function(t) { var s = t.trim(); if (s) cdTypeSelect.addTag(s); });
-                }
-                if (data.description !== undefined) {
-                    $('#cd-description').val(data.description);
-                }
-                if (data._embedding_saved) {
-                    cdSetEmbeddingBadge(true);
-                }
-                $('#cd-ai-status').text('<?php esc_html_e( 'Done.' ); ?>');
-                setTimeout(function() { $('#cd-ai-status').text(''); }, 3000);
+                if (data._embedding_saved) cdSetEmbeddingBadge(true);
+                // The values are proposals: they go into the review list, not
+                // into the form. Applying them is a separate, explicit click.
+                cdRenderAiReview(fieldsToFill, data);
             })
             .fail(function(xhr) {
                 var msg = xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data : xhr.statusText;
                 $('#cd-ai-status').text('Error: ' + msg);
             })
             .always(function() {
-                $btn.prop('disabled', false).html('&#9889; <?php esc_html_e( 'Process with AI' ); ?>');
+                $btn.prop('disabled', false).html('&#9889; <?php echo esc_js( __( 'Propose with AI' ) ); ?>');
             });
+        });
+
+        // ── Review: one card per proposed field, editable, applied on demand ──
+        var cdFieldLabels = {
+            title:         '<?php echo esc_js( __( 'Title' ) ); ?>',
+            description:   '<?php echo esc_js( __( 'Description' ) ); ?>',
+            audience:      '<?php echo esc_js( __( 'Audience' ) ); ?>',
+            document_type: '<?php echo esc_js( __( 'Document Type' ) ); ?>'
+        };
+
+        function cdCurrentValue(fieldId) {
+            if (fieldId === 'title')         return $('#title').val() || '';
+            if (fieldId === 'description')   return $('#cd-description').val() || '';
+            if (fieldId === 'audience')      return $('#cd-audience-value').val() || '';
+            if (fieldId === 'document_type') return $('#cd-type-value').val() || '';
+            return '';
+        }
+
+        function cdApplyValue(fieldId, value) {
+            if (fieldId === 'title') {
+                $('#title').val(value).trigger('keyup').trigger('focus').trigger('blur');
+            } else if (fieldId === 'description') {
+                $('#cd-description').val(value);
+            } else if (fieldId === 'audience' || fieldId === 'document_type') {
+                var select = fieldId === 'audience' ? cdAudienceSelect : cdTypeSelect;
+                select.clearTags();
+                String(value).split(',').forEach(function(term) {
+                    var t = term.trim();
+                    if (t) select.addTag(t);
+                });
+            }
+        }
+
+        function cdRenderAiReview(fields, data) {
+            var $list = $('#cd-ai-review-list').empty();
+            var shown = 0;
+
+            fields.forEach(function(field) {
+                var id = field.id;
+                if (data[id] === undefined || data[id] === null) return;
+                var value = Array.isArray(data[id]) ? data[id].join(', ') : String(data[id]);
+                if (!value.trim()) return;
+                shown++;
+
+                var current  = cdCurrentValue(id);
+                var $card    = $('<div class="cd-ai-card">').attr('data-field-id', id);
+                var $head    = $('<div class="cd-ai-card-head">')
+                    .append($('<strong>').text(cdFieldLabels[id] || id))
+                    .append($('<span class="cd-ai-card-current">').text(
+                        current
+                            ? '<?php echo esc_js( __( 'replaces:' ) ); ?> ' + (current.length > 60 ? current.slice(0, 60) + '…' : current)
+                            : '<?php echo esc_js( __( 'field is empty' ) ); ?>'
+                    ));
+                var $input = id === 'description'
+                    ? $('<textarea rows="3">').val(value)
+                    : $('<input type="text">').val(value);
+                var $actions = $('<div class="cd-ai-card-actions">')
+                    .append($('<button type="button" class="button button-small button-primary cd-ai-apply">').text('<?php echo esc_js( __( 'Apply' ) ); ?>'))
+                    .append($('<button type="button" class="button button-small cd-ai-discard">').text('<?php echo esc_js( __( 'Discard' ) ); ?>'));
+
+                $card.append($head, $input, $actions);
+                $list.append($card);
+            });
+
+            $('#cd-ai-review').prop('hidden', shown === 0);
+            $('#cd-ai-status').text(shown
+                ? shown + ' <?php echo esc_js( __( 'values proposed — review and apply' ) ); ?>'
+                : '<?php echo esc_js( __( 'The AI returned nothing for the selected fields.' ) ); ?>');
+        }
+
+        $(document).on('click', '.cd-ai-apply', function() {
+            var $card = $(this).closest('.cd-ai-card');
+            cdApplyValue($card.data('field-id'), $card.find('textarea, input[type="text"]').val());
+            $card.addClass('is-applied').find('.cd-ai-card-actions').html(
+                '<span class="cd-badge is-ok">&#10003; <?php echo esc_js( __( 'Applied — remember to update the post' ) ); ?></span>'
+            );
+        });
+
+        $(document).on('click', '.cd-ai-discard', function() {
+            $(this).closest('.cd-ai-card').remove();
+            if (!$('#cd-ai-review-list').children().length) $('#cd-ai-review').prop('hidden', true);
+        });
+
+        $('#cd-ai-apply-all').on('click', function() {
+            $('#cd-ai-review-list .cd-ai-card:not(.is-applied) .cd-ai-apply').trigger('click');
+        });
+
+        $('#cd-ai-discard-all').on('click', function() {
+            $('#cd-ai-review-list').empty();
+            $('#cd-ai-review').prop('hidden', true);
+            $('#cd-ai-status').text('');
         });
 
         function cdSetEmbeddingBadge(indexed) {
@@ -964,17 +1235,20 @@ function aidocs_meta_box_html( $post ) {
         }
 
         // ── Extract structured content (regex, no AI) ──
-        $('#cd-extract-content-btn').on('click', function() {
+        // Runs by itself once a PDF's text is in, and again on demand.
+        $('#cd-extract-content-btn').on('click', function() { cdExtractContent(false); });
+
+        function cdExtractContent(automatic) {
             var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
                 return cdPageTexts[p];
             }).join('\n');
 
             if (!rawText.trim()) {
-                $('#cd-ai-status').text('<?php echo esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) ); ?>');
+                if (!automatic) $('#cd-ai-status').text('<?php echo esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) ); ?>');
                 return;
             }
 
-            var $btn = $(this);
+            var $btn = $('#cd-extract-content-btn');
             $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Extracting…' ) ); ?>');
             $('#cd-ai-status').text('');
 
@@ -990,11 +1264,12 @@ function aidocs_meta_box_html( $post ) {
                     return;
                 }
                 var d = res.data;
-                $('#cd-content-badge')
-                    .css({ 'background': '#d4edda', 'color': '#155724' })
-                    .html('✓ ' + d.total + ' blocks');
+                cdHasContent = true;
+                $('#cd-content-badge').removeClass('is-off').addClass('is-ok').html('✓ ' + d.total + ' blocks');
 
-                // Reflect anything the labelled schema filled in for us.
+                // The labelled schema carries its own description and date, so
+                // those come from the document itself, never from the AI. Only
+                // empty fields are filled — an editor's correction wins.
                 if (d.filled && d.filled.description) {
                     $('#cd-description').val(d.filled.description);
                 }
@@ -1004,6 +1279,9 @@ function aidocs_meta_box_html( $post ) {
                 if (d.title && !$('#title').val()) {
                     $('#title').val(d.title).trigger('keyup').trigger('focus').trigger('blur');
                 }
+
+                $('#cd-content-preview').prop('hidden', false);
+                $('#cd-content-preview-body').html(d.html || '');
 
                 var msg = d.headings + ' headings, ' + d.paragraphs + ' paragraphs, ' + d.lists + ' lists';
                 if (d.notes)  msg += ', ' + d.notes + ' notes';
@@ -1020,9 +1298,9 @@ function aidocs_meta_box_html( $post ) {
                 $('#cd-ai-status').text('Error: ' + msg);
             })
             .always(function() {
-                $btn.prop('disabled', false).html('&#128196; <?php echo esc_js( __( 'Extract Content' ) ); ?>');
+                $btn.prop('disabled', false).html('&#128196; <?php echo esc_js( __( 'Extract content again' ) ); ?>');
             });
-        });
+        }
 
         $('#cd-gen-embedding-btn').on('click', function() {
             var $btn = $(this);
@@ -1270,6 +1548,67 @@ function aidocs_generate_embedding_ajax() {
 
     update_post_meta( $post_id, '_document_embedding', wp_slash( wp_json_encode( $embedding ) ) );
     wp_send_json_success( [ 'indexed' => true ] );
+}
+
+/**
+ * AJAX: check and store the Gemini credentials from the document editor.
+ *
+ * The AI is optional, so the key is asked for at the moment it is first needed
+ * rather than being a precondition for opening a document. "probe" validates a
+ * key and lists the models it can generate with — always before saving, so a
+ * mistyped key never replaces a working one. "save" stores the pair.
+ */
+add_action( 'wp_ajax_aidocs_ai_credentials', 'aidocs_ai_credentials_ajax' );
+function aidocs_ai_credentials_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( __( 'Only an administrator can change the API key.' ) );
+    }
+
+    $mode    = sanitize_key( $_POST['mode'] ?? 'probe' );
+    $posted  = sanitize_text_field( stripslashes( $_POST['api_key'] ?? '' ) );
+    $api_key = $posted !== '' ? $posted : get_option( 'aidocs_gemini_api_key', '' );
+
+    if ( ! $api_key ) {
+        wp_send_json_error( __( 'Enter a Gemini API key.' ) );
+    }
+
+    if ( $mode === 'save' ) {
+        $model = sanitize_text_field( $_POST['model'] ?? '' );
+        if ( $posted !== '' ) update_option( 'aidocs_gemini_api_key', $posted );
+        if ( $model !== '' )  update_option( 'aidocs_gemini_model', $model );
+        wp_send_json_success( [
+            'configured' => (bool) get_option( 'aidocs_gemini_api_key', '' ),
+            'model'      => get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' ),
+        ] );
+    }
+
+    $response = wp_remote_get(
+        'https://generativelanguage.googleapis.com/v1beta/models?key=' . urlencode( $api_key ),
+        [ 'timeout' => 15 ]
+    );
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+        wp_send_json_error( $body['error']['message'] ?? __( 'The API rejected this key.' ) );
+    }
+
+    // Only the models that can answer a prompt are useful here; the embedding
+    // models are picked separately by aidocs_get_embed_model().
+    $models = array_values( array_filter( (array) ( $body['models'] ?? [] ), function ( $model ) {
+        return in_array( 'generateContent', $model['supportedGenerationMethods'] ?? [], true );
+    } ) );
+    $names = array_map( function ( $name ) {
+        return preg_replace( '#^models/#', '', (string) $name );
+    }, array_column( $models, 'name' ) );
+
+    if ( ! $names ) wp_send_json_error( __( 'This key has no models that can generate content.' ) );
+
+    wp_send_json_success( [
+        'models'  => $names,
+        'current' => get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' ),
+    ] );
 }
 
 // ── AJAX: Extract structured content from PDF text (admin) ─

@@ -988,6 +988,8 @@ function aidocs_blocks_plain_text( array $blocks, $depth = 0 ) {
                 break;
             case 'list':
                 foreach ( (array) ( $block['items'] ?? [] ) as $item ) {
+                    // Content stored before nested items existed holds plain strings.
+                    $item = is_array( $item ) ? $item : [ 'text' => (string) $item ];
                     if ( ! empty( $item['text'] ) ) $out[] = $prefix . '- ' . $item['text'];
                     if ( ! empty( $item['blocks'] ) ) {
                         $nested = aidocs_blocks_plain_text( $item['blocks'], $depth + 1 );
@@ -1079,6 +1081,8 @@ function aidocs_render_list( array $block ) {
 
     $html = '<' . $tag . $start . ' class="' . esc_attr( $class ) . '">';
     foreach ( (array) ( $block['items'] ?? [] ) as $item ) {
+        // Content stored before nested items existed holds plain strings.
+        $item  = is_array( $item ) ? $item : [ 'text' => (string) $item ];
         $html .= '<li>' . aidocs_render_runs( $item );
         if ( ! empty( $item['blocks'] ) ) {
             $html .= aidocs_render_blocks( (array) $item['blocks'] );

@@ -98,29 +98,15 @@ Referencia de todos los shortcodes disponibles con ejemplos listos para copiar.
 
 3. Haz clic en **"Publish"**.
 
-### Completar campos con IA
+### Extraer el contenido estructurado (por defecto, sin IA)
 
-En el formulario de edición, el bloque **"Process with AI"** permite autocompletar los metadatos del documento:
+Al subir un PDF, el plugin extrae su texto y **automáticamente** parsea el cuerpo del documento con regex — sin llamar a la IA, sin necesidad de API key — y lo guarda como una secuencia de bloques (títulos de 3 niveles, párrafos, notas, listas anidadas y tablas) que el frontend renderiza como HTML. Título, teaser, fecha y esas notas se completan de una vez si el documento usa el esquema de etiquetas (ver abajo).
 
-1. Sube el archivo PDF primero — el plugin extrae el texto automáticamente.
-2. Selecciona los campos que deseas completar con los checkboxes (`Title`, `Description`, `Audience`, `Document Type`).
-3. Haz clic en **"Process with AI"**.
-4. La IA analiza el contenido del PDF y sugiere valores para cada campo seleccionado.
-5. Revisa y ajusta los valores antes de guardar.
-
-> **Nota:** Esta función requiere que la API key de Gemini esté configurada correctamente.
-
-### Extraer el contenido estructurado (sin IA)
-
-El botón **"Extract Content"** parsea el texto del PDF con regex — sin llamar a la IA — y guarda el cuerpo del documento como una secuencia de bloques (títulos de 3 niveles, párrafos, notas, listas anidadas y tablas) que el frontend renderiza como HTML.
-
-1. Sube el PDF y esperá a que termine la extracción de texto (aparecen las etiquetas de página).
-2. Haz clic en **"Extract Content"**.
-3. La etiqueta al lado del botón muestra cuántos bloques se guardaron, y el estado detalla cuántos títulos, párrafos, notas, listas y tablas se detectaron.
+1. Sube el PDF — la extracción de texto y el parseo del contenido corren solos.
+2. Debajo del archivo aparece **"Document content"**, con la cantidad de bloques guardados y un desplegable **"Review extracted content"** para revisar el resultado antes de publicar.
+3. Si necesitás volver a correr el parser (por ejemplo tras editar el PDF), usá **"Extract content again"**.
 
 El PDF se lee en dos pasos: `assets/js/aidocs-pdf-structure.js` convierte la maquetación del PDF (negrita, cuerpo, margen izquierdo, interlínea) en un **texto canónico** con marcas, y `includes/aidocs-doc-parser.php` lo convierte en bloques con expresiones regulares. El formato completo, las variantes de nota reconocidas y los límites conocidos están en [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
-
-Esto es independiente de "Process with AI": ese completa los *campos* (descripción, audiencia, tipo), mientras "Extract Content" reconstruye el *cuerpo* del documento.
 
 #### Esquema de etiquetas
 
@@ -140,6 +126,17 @@ Cada marcador se acepta como `Label:`, `[Label]`, `[Label] contenido` o una lín
 La descripción y la fecha **no se sobreescriben** si ya tienen valor — una corrección manual del editor gana sobre el parser.
 
 > Los parsers viven en `includes/aidocs-doc-parser.php`: `aidocs_parse_labeled_document()` (esquema de etiquetas) y `aidocs_parse_structured_content()` (cuerpo → bloques, con fallback heurístico para texto pegado a mano). Son las únicas funciones a ajustar si aparece otra familia de documentos: el resto del plugin depende sólo del formato de bloques. Para verificar un cambio contra un corpus sin pasar por WordPress: `php tools/parse-check.php ruta/*.txt`.
+
+### Completar campos con IA (opcional)
+
+Debajo de la extracción, el panel colapsable **"Complete fields with AI (optional)"** propone valores para los campos que no vienen del esquema de etiquetas — típicamente `Audience` y `Document Type` — o para revisarlos con otro criterio:
+
+1. Marcá los campos a proponer (`Title`, `Description`, `Audience`, `Document Type`).
+2. Hacé clic en **"Propose with AI"**.
+3. Si todavía no hay una API key de Gemini configurada, el panel la pide ahí mismo: pegá la clave, **"Check key & list models"** la valida y lista los modelos disponibles, elegí uno y **"Save"**. Sólo un administrador ve este formulario; se guarda en Documents → Settings y la usan también la búsqueda semántica y el asistente.
+4. Cada campo propuesto aparece como una tarjeta con el valor actual al lado, editable antes de aplicar. **Nada se escribe en el formulario hasta que hacés clic en "Apply"** (o "Apply all") — "Discard" descarta la propuesta sin tocar nada.
+
+Esto es independiente de la extracción: la extracción reconstruye el *cuerpo* del documento y completa los campos que el propio documento declara (teaser, fecha); la IA sólo entra si elegís pedirle una propuesta para los campos restantes, y siempre bajo revisión.
 
 ---
 
