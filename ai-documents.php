@@ -2510,7 +2510,9 @@ function aidocs_settings_page() { // phpcs:ignore
                 <th><label for="cd-gemini-key"><?php esc_html_e( 'Gemini API Key' ); ?></label></th>
                 <td>
                     <input type="password" id="cd-gemini-key" name="aidocs_gemini_api_key" value="<?php echo esc_attr( $gemini_api_key ); ?>" class="regular-text" autocomplete="new-password">
-                    <p class="description"><?php esc_html_e( 'Leave blank to keep the current key.' ); ?></p>
+                    <button type="button" id="cd-gemini-key-test" class="button"><?php esc_html_e( 'Test Connection' ); ?></button>
+                    <span id="cd-gemini-key-test-status" style="font-size:12px;margin-left:6px;"></span>
+                    <p class="description"><?php esc_html_e( 'Leave blank to keep the current key. "Test Connection" checks the key above against the Gemini API before you save — it does not need to be saved first.' ); ?></p>
                 </td>
             </tr>
         </table>
@@ -2676,6 +2678,49 @@ function aidocs_settings_page() { // phpcs:ignore
                 })
                 .catch(function(err) { status.textContent = 'Error: ' + err.message; })
                 .finally(function() { refresh.disabled = false; });
+            });
+        }
+
+        // Validate the key currently typed in the field (saved or not) against
+        // the live Gemini API and report a clear pass/fail, distinct from the
+        // model-list refresh above.
+        var testBtn    = document.getElementById('cd-gemini-key-test');
+        var keyField   = document.getElementById('cd-gemini-key');
+        var testStatus = document.getElementById('cd-gemini-key-test-status');
+        if (testBtn && keyField) {
+            testBtn.addEventListener('click', function() {
+                testBtn.disabled = true;
+                testStatus.style.color = '#646970';
+                testStatus.textContent = '<?php echo esc_js( __( 'Testing…' ) ); ?>';
+                var body = new URLSearchParams({
+                    action:  'aidocs_ai_credentials',
+                    nonce:   <?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai' ) ); ?>,
+                    mode:    'probe',
+                    api_key: keyField.value.trim()
+                });
+                fetch(<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>, {
+                    method: 'POST', credentials: 'same-origin', body: body
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (!res.success) {
+                        testStatus.style.color = '#d63638';
+                        testStatus.textContent = '✕ ' + res.data;
+                        return;
+                    }
+                    var count = (res.data.models || []).length;
+                    testStatus.style.color = '#46b450';
+                    testStatus.textContent = '✓ ' + (
+                        count === 1
+                            ? <?php echo wp_json_encode( __( 'Key works — 1 model available.' ) ); ?>
+                            : <?php echo wp_json_encode( __( 'Key works — %d models available.' ) ); ?>.replace('%d', count)
+                    );
+                })
+                .catch(function(err) {
+                    testStatus.style.color = '#d63638';
+                    testStatus.textContent = '✕ Error: ' + err.message;
+                })
+                .finally(function() { testBtn.disabled = false; });
             });
         }
     })();
