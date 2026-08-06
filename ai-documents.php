@@ -470,28 +470,82 @@ function aidocs_register_post_type() {
 
 /** The URL segment documents live under — /{slug}/ for the archive, /{slug}/{name}/ for one. */
 function aidocs_get_archive_slug() {
-    $slug = sanitize_title( get_option( 'aidocs_archive_slug', 'documents' ) );
-    return $slug !== '' ? $slug : 'documents';
+    return 'documents';
 }
 
 /**
- * Serve the plugin's own archive template for the document listing.
+ * Serve the plugin's own templates for the document listing and single
+ * document view, in place of whatever the active theme would resolve.
  *
- * Only when Documents → Settings → Listing Template is set to "Document
- * search" (the default) — "Theme default" means not touching this filter at
- * all, so the theme's own archive resolution runs exactly as it would if
- * this plugin didn't exist. template_include is the right hook even on a
- * block theme: it is the final filter WordPress applies before deciding
- * which file governs the request, ahead of the block-template resolution
- * that would otherwise fall back to the theme's generic archive template
- * (a bare title-and-excerpt list, not this plugin's search UI).
+ * template_include is the right hook even on a block theme: it is the final
+ * filter WordPress applies before deciding which file governs the request,
+ * ahead of the block-template resolution that would otherwise fall back to
+ * the theme's generic archive/single templates — a bare title-and-excerpt
+ * list, or a single-post layout dragging in sidebars, related posts or
+ * comments that don't make sense for a document.
  */
-add_filter( 'template_include', 'aidocs_archive_template_include' );
-function aidocs_archive_template_include( $template ) {
-    if ( is_post_type_archive( 'aidoc' ) && get_option( 'aidocs_archive_template', 'search' ) === 'search' ) {
+add_filter( 'template_include', 'aidocs_document_template_include' );
+function aidocs_document_template_include( $template ) {
+    if ( is_post_type_archive( 'aidoc' ) ) {
         return AIDOCS_DIR . 'templates/archive-aidoc.php';
     }
+    if ( is_singular( 'aidoc' ) ) {
+        return AIDOCS_DIR . 'templates/single-aidoc.php';
+    }
     return $template;
+}
+
+/** Render a theme template part by slug, or nothing if the theme has none by that name. Used by both plugin templates. */
+function aidocs_render_template_part( $slug, $tag ) {
+    echo render_block( [
+        'blockName' => 'core/template-part',
+        'attrs'     => [ 'slug' => $slug, 'tagName' => $tag, 'theme' => get_stylesheet() ],
+        'innerHTML' => '',
+    ] );
+}
+
+/**
+ * Opens the document (doctype/head/body) and prints the theme's header.
+ *
+ * A block theme ships no header.php, so get_header() can't find one in the
+ * theme and falls through to WordPress's own wp-includes/theme-compat/header.php
+ * — a deprecated, unstyled Kubrick-era stub (bare site title + <hr>) that has
+ * nothing to do with the active theme's real design. This prints the correct
+ * document wrapper ourselves, the same way core's own template-canvas.php
+ * does for a block template, and pulls in the theme's actual header via its
+ * "header" template part instead. A classic theme's own header.php already
+ * gets this right, so it's left alone.
+ */
+function aidocs_document_header() {
+    if ( ! wp_is_block_theme() ) {
+        get_header();
+        return;
+    }
+    ?>
+    <!DOCTYPE html>
+    <html <?php language_attributes(); ?>>
+    <head>
+    <meta charset="<?php bloginfo( 'charset' ); ?>">
+    <?php wp_head(); ?>
+    </head>
+    <body <?php body_class(); ?>>
+    <?php wp_body_open(); ?>
+    <?php
+    aidocs_render_template_part( 'header', 'header' );
+}
+
+/** Prints the theme's footer and closes the document opened by aidocs_document_header(). */
+function aidocs_document_footer() {
+    if ( ! wp_is_block_theme() ) {
+        get_footer();
+        return;
+    }
+    aidocs_render_template_part( 'footer', 'footer' );
+    ?>
+    <?php wp_footer(); ?>
+    </body>
+    </html>
+    <?php
 }
 
 // ──────────────────────────────────────────────
@@ -2485,28 +2539,6 @@ function aidocs_settings_page() { // phpcs:ignore
             if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
         }
 
-        $old_slug = aidocs_get_archive_slug();
-        $new_slug = sanitize_title( wp_unslash( $_POST['aidocs_archive_slug'] ?? 'documents' ) );
-        update_option( 'aidocs_archive_slug', $new_slug !== '' ? $new_slug : 'documents' );
-
-        $archive_template = in_array( $_POST['aidocs_archive_template'] ?? '', [ 'search', 'theme' ], true )
-            ? $_POST['aidocs_archive_template'] : 'search';
-        update_option( 'aidocs_archive_template', $archive_template );
-
-        $single_template = in_array( $_POST['aidocs_single_template'] ?? '', [ 'structured', 'theme' ], true )
-            ? $_POST['aidocs_single_template'] : 'structured';
-        update_option( 'aidocs_single_template', $single_template );
-
-        // The rewrite rules baked in the slug used for both /{slug}/ and
-        // /{slug}/{document}/ only take effect once WordPress regenerates
-        // them — otherwise a changed slug 404s until someone happens to visit
-        // Settings → Permalinks, which is not somewhere this setting would
-        // send anyone looking for why their new URL doesn't work.
-        if ( $old_slug !== aidocs_get_archive_slug() ) {
-            aidocs_register_post_type();
-            flush_rewrite_rules();
-        }
-
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.' ) . '</p></div>';
     }
 
@@ -2515,9 +2547,6 @@ function aidocs_settings_page() { // phpcs:ignore
     $gemini_api_key    = get_option( 'aidocs_gemini_api_key', '' );
     $audiences_list    = get_option( 'aidocs_audiences_list', implode( "\n", AIDOCS_AUDIENCES ) );
     $types_list        = get_option( 'aidocs_types_list',     implode( "\n", AIDOCS_TYPES ) );
-    $archive_slug      = aidocs_get_archive_slug();
-    $archive_template  = get_option( 'aidocs_archive_template', 'search' );
-    $single_template   = get_option( 'aidocs_single_template', 'structured' );
 
     $types_arr     = array_filter( array_map( 'trim', explode( "\n", $types_list ) ) );
     $audiences_arr = array_filter( array_map( 'trim', explode( "\n", $audiences_list ) ) );
@@ -2578,48 +2607,6 @@ function aidocs_settings_page() { // phpcs:ignore
                     <button type="button" id="cd-gemini-key-test" class="button"><?php esc_html_e( 'Test Connection' ); ?></button>
                     <span id="cd-gemini-key-test-status" style="font-size:12px;margin-left:6px;"></span>
                     <p class="description"><?php esc_html_e( 'Leave blank to keep the current key. "Test Connection" checks the key above against the Gemini API before you save — it does not need to be saved first.' ); ?></p>
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <div class="cd-settings-section">
-        <h2><?php esc_html_e( 'Display' ); ?></h2>
-        <table class="form-table" role="presentation">
-            <tr>
-                <th><label for="cd-archive-slug"><?php esc_html_e( 'URL Slug' ); ?></label></th>
-                <td>
-                    <code>/</code><input type="text" id="cd-archive-slug" name="aidocs_archive_slug" value="<?php echo esc_attr( $archive_slug ); ?>" class="regular-text" style="width:220px;"><code>/</code>
-                    <p class="description">
-                        <?php
-                        printf(
-                            /* translators: %1$s: archive URL, %2$s: example single-document URL. */
-                            esc_html__( 'The listing lives at %1$s and each document at %2$s. Changing this updates both.' ),
-                            '<code>' . esc_html( home_url( '/' . $archive_slug . '/' ) ) . '</code>',
-                            '<code>' . esc_html( home_url( '/' . $archive_slug . '/example-document/' ) ) . '</code>'
-                        );
-                        ?>
-                    </p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="cd-archive-template"><?php esc_html_e( 'Listing Template' ); ?></label></th>
-                <td>
-                    <select id="cd-archive-template" name="aidocs_archive_template">
-                        <option value="search" <?php selected( $archive_template, 'search' ); ?>><?php esc_html_e( 'Document search (this plugin)' ); ?></option>
-                        <option value="theme" <?php selected( $archive_template, 'theme' ); ?>><?php esc_html_e( "Theme default (this plugin doesn't touch it)" ); ?></option>
-                    </select>
-                    <p class="description"><?php esc_html_e( 'What shows at the URL slug above. The plugin option renders the [aidocs_search] shortcode inside your theme\'s header and footer.' ); ?></p>
-                </td>
-            </tr>
-            <tr>
-                <th><label for="cd-single-template"><?php esc_html_e( 'Document Page Template' ); ?></label></th>
-                <td>
-                    <select id="cd-single-template" name="aidocs_single_template">
-                        <option value="structured" <?php selected( $single_template, 'structured' ); ?>><?php esc_html_e( 'Structured view (this plugin)' ); ?></option>
-                        <option value="theme" <?php selected( $single_template, 'theme' ); ?>><?php esc_html_e( "Theme default (this plugin doesn't touch it)" ); ?></option>
-                    </select>
-                    <p class="description"><?php esc_html_e( 'What shows on an individual document\'s own page: the extracted content, download button and Ask AI bar, or whatever your theme\'s own single-post template renders.' ); ?></p>
                 </td>
             </tr>
         </table>
@@ -3612,20 +3599,12 @@ ENDSCRIPT;
 // ──────────────────────────────────────────────
 // Documents have no post_content of their own, so the singular view is composed
 // from the same pieces the modal shows: header, extracted fields, structured
-// body, and the persistent Ask AI bar. Hooking `the_content` (rather than
-// shipping a template) keeps the active theme's header, footer and width.
-add_filter( 'the_content', 'aidocs_single_document_content' );
-function aidocs_single_document_content( $content ) {
-    if ( ! is_singular( 'aidoc' ) || ! in_the_loop() || ! is_main_query() ) {
-        return $content;
-    }
-    // "Theme default" means exactly that: whatever is actually in the post,
-    // unmodified, for the theme's own single template to render however it does.
-    if ( get_option( 'aidocs_single_template', 'structured' ) !== 'structured' ) {
-        return $content;
-    }
-
-    $pid       = get_the_ID();
+// body, and the persistent Ask AI bar. Rendered by templates/single-aidoc.php
+// (served via template_include, see aidocs_document_template_include()) rather
+// than through the theme's own singular template, so the page stays a simple
+// header/content/footer shell instead of whatever sidebar, related-posts or
+// comments markup the active theme's single-post layout happens to add.
+function aidocs_render_single_document( $pid ) {
     $file_id   = get_post_meta( $pid, '_document_file_id', true );
     $file_url  = $file_id ? wp_get_attachment_url( $file_id ) : '';
     $pub_date  = get_post_meta( $pid, '_document_pub_date', true );
@@ -3649,10 +3628,6 @@ function aidocs_single_document_content( $content ) {
             &larr; <?php esc_html_e( 'Back to documents' ); ?>
         </a>
 
-        <!-- The theme's own template already renders the post title above
-             the_content(), so this header carries only what it adds: the
-             format icon, the audience/type/format tags and the download
-             action — repeating the title here would just duplicate it. -->
         <header class="aidocs-single-header">
             <div class="aidocs-single-icon <?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></div>
             <div class="aidocs-single-heading">
@@ -3793,6 +3768,8 @@ function aidocs_single_view_styles() {
     $printed = true;
     ?>
     <style>
+    .aidocs-single-page{max-width:820px;margin:0 auto;padding:40px 20px;}
+    .aidocs-single-title{font-size:28px;font-weight:700;margin:0 0 20px;}
     .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
     .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;margin-bottom:18px;}
     .aidocs-single-back:hover{text-decoration:underline;}
@@ -3878,7 +3855,7 @@ function aidocs_search_ajax() {
     if ( $keyword ) {
         // WP_Query's native 's' only matches post_title/post_excerpt/post_content,
         // but a document's extracted body text lives in postmeta (_document_content),
-        // not post_content (see aidocs_single_document_content above). Without this,
+        // not post_content (see aidocs_render_single_document above). Without this,
         // a phrase copied straight out of a document's body never matches here —
         // only the AI/semantic search sees it, since that indexes the same meta.
         // So: match on title OR that extracted text, exact-substring, no AI needed.
