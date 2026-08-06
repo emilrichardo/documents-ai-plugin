@@ -342,6 +342,49 @@ function aidocs_content_plain_text( $pid ) {
 }
 
 /**
+ * Build a highlighted excerpt around the first place a keyword matches a
+ * document's extracted body text (falling back to description/summary), so
+ * a keyword search result can show *where* the exact match was found instead
+ * of just the title — same idea as a search engine's snippet.
+ *
+ * @return string Escaped HTML with the match wrapped in <mark>, or '' if the
+ *                keyword isn't found in any of those sources.
+ */
+function aidocs_search_snippet( $pid, $keyword ) {
+    if ( ! $keyword ) return '';
+
+    $sources = [
+        aidocs_content_plain_text( $pid ),
+        get_post_meta( $pid, '_document_description', true ),
+        get_post_meta( $pid, '_document_summary', true ),
+    ];
+
+    foreach ( $sources as $text ) {
+        if ( ! $text ) continue;
+        $pos = mb_stripos( $text, $keyword );
+        if ( $pos === false ) continue;
+
+        $context = 90;
+        $start   = max( 0, $pos - $context );
+        $len     = mb_strlen( $keyword ) + $context * 2;
+        $excerpt = mb_substr( $text, $start, $len );
+        $prefix  = $start > 0 ? '…' : '';
+        $suffix  = ( $start + $len ) < mb_strlen( $text ) ? '…' : '';
+
+        // Escape first, then highlight — so the pattern matches (and wraps)
+        // the already-escaped keyword rather than risking a mismatch against
+        // characters esc_html() may have changed (&, <, >, etc).
+        $escaped = esc_html( $excerpt );
+        $pattern = '/' . preg_quote( esc_html( $keyword ), '/' ) . '/i';
+        $escaped = preg_replace( $pattern, '<mark>$0</mark>', $escaped );
+
+        return $prefix . $escaped . $suffix;
+    }
+
+    return '';
+}
+
+/**
  * Render a document's provenance line, if it has one.
  *
  * Shown at the end of the body, which is where the source documents carry it.
@@ -3083,11 +3126,13 @@ jQuery(function($){
             var docSvg='<svg width="22" height="26" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2h10l6 6v18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><polyline points="14 2 14 8 20 8"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/><line x1="7" y1="21" x2="12" y2="21"/></svg>';
             // The card itself already navigates straight to the document, so a
             // "View document"/"Download" pair here would just duplicate that.
+            var snippetHtml=doc.snippet?'<p class="cd-fs-doc-snippet">'+doc.snippet+'</p>':'';
             var \$card=\$(
                 '<div class="cd-fs-doc-card">'+
                 '<div class="cd-fs-doc-icon '+fmt+'">'+docSvg+'</div>'+
                 '<div class="cd-fs-doc-body">'+
                 '<p class="cd-fs-doc-title">'+\$('<span>').text(doc.title).html()+'</p>'+
+                snippetHtml+
                 '<div class="cd-fs-doc-meta">'+tags+'</div></div>'
             );
             \$card.on('click',function(){if(doc.permalink)location.href=doc.permalink;});
@@ -3256,6 +3301,8 @@ ENDSCRIPT;
     .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 6px;}
     .cd-fs-doc-title a{color:inherit;text-decoration:none;}.cd-fs-doc-title a:hover{color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:underline;}
     .cd-fs-doc-desc{font-size:13px;color:#6b7280;margin:0 0 10px;line-height:1.55;}
+    .cd-fs-doc-snippet{font-size:13px;color:#4b5563;margin:0 0 10px;line-height:1.55;background:#f9fafb;border-left:2.5px solid #bfdbfe;padding:6px 10px;border-radius:0 6px 6px 0;}
+    .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
     .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
     .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
@@ -3571,6 +3618,10 @@ function aidocs_single_document_content( $content ) {
     ?>
     <article class="aidocs-single fmt-<?php echo esc_attr( $fmt ); ?>">
 
+        <a href="<?php echo esc_url( home_url( '/' . aidocs_get_archive_slug() . '/' ) ); ?>" class="aidocs-single-back">
+            &larr; <?php esc_html_e( 'Back to documents' ); ?>
+        </a>
+
         <!-- The theme's own template already renders the post title above
              the_content(), so this header carries only what it adds: the
              format icon, the audience/type/format tags and the download
@@ -3716,6 +3767,8 @@ function aidocs_single_view_styles() {
     ?>
     <style>
     .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
+    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;margin-bottom:18px;}
+    .aidocs-single-back:hover{text-decoration:underline;}
     .aidocs-single-header{display:flex;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
     .aidocs-single-icon{flex-shrink:0;width:50px;height:62px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;letter-spacing:.5px;}
     .aidocs-single-icon.pdf{background:linear-gradient(145deg,#e74c3c,#c0392b);}
@@ -3796,7 +3849,35 @@ function aidocs_search_ajax() {
     ];
 
     if ( $keyword ) {
-        $args['s'] = $keyword;
+        // WP_Query's native 's' only matches post_title/post_excerpt/post_content,
+        // but a document's extracted body text lives in postmeta (_document_content),
+        // not post_content (see aidocs_single_document_content above). Without this,
+        // a phrase copied straight out of a document's body never matches here —
+        // only the AI/semantic search sees it, since that indexes the same meta.
+        // So: match on title OR that extracted text, exact-substring, no AI needed.
+        global $wpdb;
+        $title_ids = get_posts( [
+            'post_type'      => 'aidoc',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            's'              => $keyword,
+            'fields'         => 'ids',
+        ] );
+
+        $like = '%' . $wpdb->esc_like( $keyword ) . '%';
+        $content_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+             WHERE p.post_type = 'aidoc' AND p.post_status = 'publish'
+             AND pm.meta_key IN ('_document_content','_document_description','_document_summary')
+             AND pm.meta_value LIKE %s",
+            $like
+        ) );
+
+        $matched_ids = array_unique( array_map( 'intval', array_merge( $title_ids, $content_ids ) ) );
+
+        // Explicit empty match must still yield zero results, not "no filter".
+        $args['post__in'] = $matched_ids ?: [ 0 ];
     }
 
     $tax_query = [];
@@ -3829,6 +3910,7 @@ function aidocs_search_ajax() {
             'format'      => get_post_meta( $pid, '_document_file_format', true ),
             'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
+            'snippet'     => $keyword ? aidocs_search_snippet( $pid, $keyword ) : '',
         ];
     }
     wp_reset_postdata();
