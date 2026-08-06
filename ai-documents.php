@@ -4154,8 +4154,17 @@ function aidocs_ai_recommend_ajax() {
     $text   = preg_replace( '/\s*```\s*$/m', '', $text );
     $result = json_decode( trim( $text ), true );
 
+    // Gemini occasionally wraps the JSON in stray text despite the JSON
+    // response mode; re-try on just the outermost {...} before giving up,
+    // so a friendly fallback shows instead of the raw JSON as the message.
     if ( ! is_array( $result ) || ! isset( $result['message'] ) ) {
-        $result = [ 'message' => trim( $text ) ?: __( 'I couldn\'t process that. Please try again.' ), 'doc_ids' => [] ];
+        if ( preg_match( '/\{.*\}/s', $text, $m ) ) {
+            $result = json_decode( $m[0], true );
+        }
+    }
+
+    if ( ! is_array( $result ) || ! isset( $result['message'] ) ) {
+        $result = [ 'message' => __( 'I couldn\'t process that. Please try again.' ), 'doc_ids' => [] ];
     }
 
     // Map doc_ids to full document data
