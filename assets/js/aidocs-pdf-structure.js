@@ -429,11 +429,24 @@
     }
 
     function headingLevel( line, metrics ) {
-        var letters = line.text.replace( /[^A-Za-z]/g, '' );
-        var caps    = letters !== '' && letters === letters.toUpperCase();
-        if ( line.size >= metrics.bodySize + 2.5 || caps ) return 2;
+        if ( line.size >= metrics.bodySize + 2.5 || isAllCaps( line.text ) ) return 2;
         if ( line.size >= metrics.bodySize + 1 ) return 3;
         return line.x <= metrics.baseX + MARGIN_SLOP ? 3 : 4;
+    }
+
+    /** Is this text set in all capitals — the signal for a document-level title? */
+    /**
+     * "The Commission" is this corpus's one recurring exception: the org's
+     * name, substituted in a fixed mixed case wherever the source used its
+     * own, including inside otherwise-all-caps titles — "AND ACTIONS OF The
+     * Commission", "OF The Commission STAFF". Left in, that mid-case phrase
+     * makes an all-caps title line read as mixed case, which then neither
+     * takes the title's own heading level nor continues it. Excluded from
+     * the check, the rest of the line still has to be genuinely all caps.
+     */
+    function isAllCaps( text ) {
+        var letters = text.replace( /\bThe Commission\b/g, '' ).replace( /[^A-Za-z]/g, '' );
+        return letters !== '' && letters === letters.toUpperCase();
     }
 
     /**
@@ -446,7 +459,12 @@
         var text = line.text;
         if ( text === '' || text.length > 160 ) return false;
         if ( LABEL_RE.test( text ) ) return false;
-        if ( /[.;,]$/.test( text ) ) return false;
+        if ( /[.;]$/.test( text ) ) return false;
+        // A comma-ending line trails off like prose — unless it is set in all
+        // caps, where the comma is just where a wrapped title happened to
+        // break ("ACCREDITATION RECORDS RETENTION, MAINTENANCE," continuing
+        // onto the next line), not the end of a thought.
+        if ( /,$/.test( text ) && ! isAllCaps( text ) ) return false;
         // More than one sentence is prose. The full stop has to follow a word
         // for that to count, so the numbering of "I. Appealable Actions" and
         // "Note: A. Definitions" is not read as the end of a sentence.
@@ -485,6 +503,7 @@
         var pageMarks  = [];      // index in `out` where each page starts
         var openItem   = null;    // the list item currently accepting text
         var openKind   = null;    // 'title' | 'label' | 'heading' | 'paragraph' | 'item' | 'table'
+        var openCaps   = false;   // was the heading currently accumulating set in all caps?
         var seenLabel  = false;   // has a document-level label been passed yet?
         var prev       = null;
 
@@ -578,10 +597,19 @@
                     // The opening line of the document, above any label, is its
                     // title rather than a section heading.
                     var level = ( out.length === 0 && ! seenLabel ) ? 1 : headingLevel( line, metrics );
-                    if ( ( openKind === 'heading' || openKind === 'title' ) && ! spaced ) {
+                    var caps  = isAllCaps( line.text );
+                    // A line only continues the heading above it when it reads
+                    // the same way that heading does. Two consecutive all-caps
+                    // lines are one title wrapped across them; a Title Case
+                    // line right under an all-caps title — "Policy Statement"
+                    // under "GOVERNING, COORDINATING…" — is a second, real
+                    // heading that happens to sit close enough to look
+                    // unspaced, not a continuation of the first.
+                    if ( ( openKind === 'heading' || openKind === 'title' ) && ! spaced && caps === openCaps ) {
                         append( headingText( line ) );        // a heading that wrapped
                     } else {
                         emit( repeat( '#', level ) + ' ' + headingText( line ), level === 1 ? 'title' : 'heading' );
+                        openCaps = caps;
                     }
                     prev = line;
                     return;

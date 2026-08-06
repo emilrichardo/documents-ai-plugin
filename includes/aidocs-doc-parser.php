@@ -364,6 +364,19 @@ function aidocs_parse_structured_content( $raw_text, $title = '' ) {
         if ( preg_match( '/^(#{1,6})\s+(.+)$/', $bare, $m ) ) {
             $flush_para();
             $flush_list();
+
+            // A "heading" that no longer reads like one is prose the extractor
+            // over-merged: several consecutive bold PDF lines, each individually
+            // short enough to look like a heading on its own, accumulate into a
+            // block that plainly is not one once joined — a page-spanning bold
+            // "Note:" paragraph is the recurring case. Route it through the
+            // paragraph pipeline instead, so a "Note:" opening still becomes a
+            // callout rather than a fake heading.
+            if ( ! aidocs_reads_like_heading( $m[2] ) ) {
+                aidocs_append_downgraded_text( $blocks, $m[2] );
+                continue;
+            }
+
             $blocks[] = aidocs_heading_block( max( 2, min( 4, strlen( $m[1] ) ) ), $m[2] );
             continue;
         }
@@ -379,8 +392,24 @@ function aidocs_parse_structured_content( $raw_text, $title = '' ) {
         // ── List item ──
         if ( preg_match( '/^([\x{2022}\x{00B7}\x{25CF}\x{25AA}\x{25E6}\x{2043}\x{2023}\x{2023}\x{2013}\-\*]|\d{1,2}[.)]|[a-zA-Z][.)])\s+(\S.*)$/u', $bare, $m ) ) {
             $flush_para();
+            $level = $annotated ? intdiv( $indent, 2 ) + 1 : 1;
+
+            // The rest of the enumeration can be sitting inside this one
+            // captured line — "1. [Composition…] text… 2. [Duties…] text…" —
+            // because the source wrapped the whole thing without a line break
+            // between items. Recovered, those become siblings; left alone,
+            // "2.", "3." and everything after them stay buried inside item
+            // "1"'s own text.
+            $split = aidocs_split_inline_enumeration( $bare );
+            if ( $split && trim( $split['lead'] ) === '' ) {
+                foreach ( $split['items'] as $sub ) {
+                    $items[] = [ 'level' => $level, 'marker' => $m[1], 'text' => $sub['text'], 'blocks' => [] ];
+                }
+                continue;
+            }
+
             $items[] = [
-                'level'  => $annotated ? intdiv( $indent, 2 ) + 1 : 1,
+                'level'  => $level,
                 'marker' => $m[1],
                 'text'   => $m[2],
                 'blocks' => [],
@@ -434,6 +463,58 @@ function aidocs_text_is_annotated( array $lines ) {
         if ( preg_match( '/^#{1,6}\s+\S/', ltrim( $line ) ) ) return true;
     }
     return false;
+}
+
+/**
+ * Whether a `#`-marked line still reads like a heading once assembled.
+ *
+ * All-caps text is exempt from the length and sentence checks below: that is
+ * how these documents set their own titles, and a genuine one can run long.
+ * Anything else has to look like a label, not a sentence — a heading never
+ * opens mid-phrase, the way a paragraph's wrapped continuation reliably does
+ * when it is what got mis-merged into this line.
+ */
+function aidocs_reads_like_heading( $text ) {
+    $text = trim( $text );
+    if ( $text === '' ) return false;
+
+    // "The Commission" is this corpus's one recurring mixed-case exception —
+    // the org's name, substituted at a fixed case even inside otherwise
+    // all-caps titles. See isAllCaps() in aidocs-pdf-structure.js.
+    $letters = preg_replace( '/[^\p{L}]/u', '', preg_replace( '/\bThe Commission\b/u', '', $text ) );
+    if ( $letters !== '' && mb_strtoupper( $letters, 'UTF-8' ) === $letters ) return true;
+
+    if ( preg_match( '/^\p{Ll}/u', $text ) ) return false;
+    if ( mb_strlen( $text ) > 160 ) return false;
+    if ( preg_match( '/[.;,]$/u', $text ) ) return false;
+    // A heading is a label, not a clause, so it does not trail off on a
+    // function word — a sure sign of a sentence cut short where the
+    // extractor lost the rest of it, not of a heading ending.
+    if ( preg_match( '/\b(?:a|an|the|and|or|but|of|to|in|on|at|by|for|with|from|as|that|which|be|is|are|was|were|may|will|shall|should|must|more|less|than)$/iu', $text ) ) return false;
+    return preg_match( '/\p{Ll}{2}[.?]\s+\p{Lu}/u', $text ) !== 1;
+}
+
+/**
+ * Fold text that turned out not to be a heading back into ordinary content:
+ * onto the block right before it when that reads as this text's own
+ * continuation, or as a fresh paragraph — a note, if it opens like one —
+ * otherwise.
+ */
+function aidocs_append_downgraded_text( array &$blocks, $text ) {
+    $last = $blocks ? count( $blocks ) - 1 : -1;
+    $prev = $last >= 0 ? $blocks[ $last ] : null;
+
+    $continues = $prev && in_array( $prev['type'] ?? '', [ 'note', 'paragraph' ], true )
+        && ! preg_match( '/[.!?:;”"\')\]]\s*$/u', trim( (string) ( $prev['text'] ?? '' ) ) );
+
+    if ( $continues ) {
+        $joined = trim( $prev['text'] ) . ' ' . trim( aidocs_plain_text( $text ) );
+        $blocks[ $last ]['text'] = $joined;
+        $blocks[ $last ]['runs'] = aidocs_inline_runs( $joined );
+        return;
+    }
+
+    foreach ( aidocs_paragraph_blocks( $text ) as $block ) $blocks[] = $block;
 }
 
 /** A heading block, with an anchor id for in-page navigation. */
@@ -532,18 +613,31 @@ function aidocs_split_inline_enumeration( $text ) {
         'upper-alpha' => [ '/(?:(?<=^)|(?<=[\s\p{P}]))([A-Z])\.\s+(?=\p{Lu})/u', 'aidocs_alpha_index' ],
         'upper-roman' => [ '/(?:(?<=^)|(?<=[\s\p{P}]))((?:X{0,2})(?:IX|IV|V?I{0,3}))\.\s+(?=\p{Lu})/u', 'aidocs_roman_index' ],
         'decimal'     => [ '/(?:(?<=^)|(?<=[\s\p{P}]))(\d{1,2})\.\s+(?=[\[\p{Lu}])/u', 'intval' ],
+        // A capital letter has to follow here too, same as the styles above —
+        // otherwise "e.g." and "i.e." read as the openings of a lower-alpha
+        // or lower-roman enumeration.
+        'lower-alpha' => [ '/(?:(?<=^)|(?<=[\s\p{P}]))([a-z])\.\s+(?=\p{Lu})/u', 'aidocs_alpha_index' ],
+        'lower-roman' => [ '/(?:(?<=^)|(?<=[\s\p{P}]))((?:x{0,2})(?:ix|iv|v?i{0,3}))\.\s+(?=\p{Lu})/u', 'aidocs_roman_index' ],
     ];
 
     foreach ( $styles as $style => $spec ) {
         list( $pattern, $indexer ) = $spec;
         if ( ! preg_match_all( $pattern, $text, $matches, PREG_OFFSET_CAPTURE ) ) continue;
 
-        // Keep only the markers that continue the sequence from its first value.
+        // Keep only the markers that continue the sequence from its first
+        // value, and stop at the first one that doesn't: a nested list can
+        // restart its own numbering at 1 and, from there, happen to keep pace
+        // with the outer sequence's count by coincidence — "2.", "3." inside
+        // a nested "a." matching the outer item 2, 3 that comes later — so
+        // skipping past a mismatch and looking further is what would let a
+        // nested marker get mistaken for the next outer one. Stopping instead
+        // means a document too deeply nested for this loses only the later
+        // items' recovery, never gets a wrong split.
         $kept     = [];
         $expected = 1;
         foreach ( $matches[1] as $index => $match ) {
             $value = call_user_func( $indexer, $match[0] );
-            if ( $value !== $expected ) continue;
+            if ( $value !== $expected ) break;
             $kept[]   = [ 'offset' => $matches[0][ $index ][1], 'marker' => $match[0] ];
             $expected++;
         }
@@ -768,9 +862,18 @@ function aidocs_is_title_echo( $joined, $needle ) {
     return strlen( $joined ) - strlen( $needle ) <= 20;
 }
 
-/** Letters and digits only, lower-cased — for comparing a heading to a title. */
+/**
+ * Letters and digits only, lower-cased — for comparing a heading to a title.
+ *
+ * "The Commission" and bare "Commission" are normalised to the same string:
+ * the org's name is substituted inconsistently between a document's title
+ * and its own body echo of that title (one carries "The", the other doesn't),
+ * which otherwise breaks the echo match over a difference that isn't the
+ * author's — it's an artefact of the substitution, not a real title change.
+ */
 function aidocs_comparable( $text ) {
-    return preg_replace( '/[^a-z0-9]+/', '', strtolower( aidocs_plain_text( (string) $text ) ) );
+    $comparable = preg_replace( '/[^a-z0-9]+/', '', strtolower( aidocs_plain_text( (string) $text ) ) );
+    return str_replace( 'thecommission', 'commission', $comparable );
 }
 
 /**
@@ -838,8 +941,11 @@ function aidocs_detect_heading( $line ) {
     $letters = preg_replace( '/[^\p{L}]/u', '', $line );
     if ( $letters === '' ) return null;
 
-    // ALL CAPS → document-level heading.
-    if ( mb_strtoupper( $letters, 'UTF-8' ) === $letters && mb_strlen( $letters ) > 2 ) {
+    // ALL CAPS → document-level heading. "The Commission" is excluded first:
+    // it is substituted at a fixed mixed case even inside an otherwise
+    // all-caps title (see isAllCaps() in aidocs-pdf-structure.js).
+    $caps_check = preg_replace( '/[^\p{L}]/u', '', preg_replace( '/\bThe Commission\b/u', '', $line ) );
+    if ( $caps_check !== '' && mb_strtoupper( $caps_check, 'UTF-8' ) === $caps_check && mb_strlen( $letters ) > 2 ) {
         return [ 'level' => 2 ];
     }
 

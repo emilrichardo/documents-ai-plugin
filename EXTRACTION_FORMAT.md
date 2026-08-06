@@ -192,3 +192,20 @@ un documento mayor y no traen esas líneas), 30 títulos nivel 2, 296 nivel 3,
 - **Fuentes sin nombre embebido**: si `commonObjs` no expone el nombre, se cae a
   las señales de margen e interlínea, y los títulos que no estén outdentados
   pasan a párrafo.
+- **"The Commission"** es la única excepción de mayúsculas mixtas del corpus (el
+  nombre de la organización, sustituido con case fijo incluso dentro de un
+  título en mayúsculas: "AND ACTIONS OF The Commission"). Se ignora al medir
+  si una línea está en mayúsculas — `isAllCaps()` en el JS, `aidocs_comparable()`
+  y `aidocs_reads_like_heading()` en el parser. Otro reemplazo de marca con el
+  mismo patrón necesitaría la misma excepción.
+- **Enumeraciones en línea anidadas**: `aidocs_split_inline_enumeration()`
+  reconstruye "1. [Título]… 2. [Título]…" pegados en una sola línea canónica,
+  pero se detiene en el primer número que rompe la secuencia — no busca más
+  allá — para no confundir la numeración de una sub-lista anidada (que
+  reinicia en 1) con la continuación de la lista exterior. El resultado es
+  conservador: en el peor caso no reconstruye (deja el texto como un solo
+  ítem, igual que antes), nunca corta un ítem en el lugar equivocado.
+- Cuando estos fixes cambian cómo se **parsea** el texto (no cómo se
+  *renderiza* lo ya guardado), un documento ya extraído con una versión previa
+  del parser no los refleja hasta volver a extraerlo — el botón "Extract
+  content again" en el editor, o subir el PDF de nuevo.
