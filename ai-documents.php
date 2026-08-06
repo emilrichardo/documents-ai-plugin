@@ -4082,6 +4082,14 @@ function aidocs_ai_recommend_ajax() {
             'id'          => $pid,
             'title'       => get_the_title( $pid ),
             'description' => get_post_meta( $pid, '_document_description', true ),
+            // The embedding that got this doc shortlisted is built from the full
+            // extracted body text, but Gemini's final pick was only ever shown
+            // title/type/audience/description — nothing from the actual content.
+            // A short manually-written description is frequently empty, so Gemini
+            // had no real text to confirm relevance against, and rejected doc
+            // that merely used *different wording* than the query. Give it an
+            // actual body excerpt to judge from.
+            'excerpt'     => mb_substr( aidocs_content_plain_text( $pid ), 0, 400 ),
             'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
             'format'      => get_post_meta( $pid, '_document_file_format', true ),
@@ -4098,12 +4106,14 @@ function aidocs_ai_recommend_ajax() {
         if ( $doc['type'] )        $line .= ' | ' . implode( ', ', (array) $doc['type'] );
         if ( $doc['audience'] )    $line .= ' | Audience: ' . implode( ', ', (array) $doc['audience'] );
         if ( $doc['description'] ) $line .= ' | ' . mb_substr( $doc['description'], 0, 160 );
+        if ( $doc['excerpt'] )     $line .= ' | Excerpt: ' . $doc['excerpt'];
         $catalog .= $line . "\n";
     }
 
     $site   = get_bloginfo( 'name' );
     $system = "You are a document recommendation assistant for {$site}. ";
     $system .= 'Your job is to understand the user\'s need and recommend the most relevant document(s) from the catalog. ';
+    $system .= 'Each catalog entry\'s Excerpt is real text pulled from that document\'s body — judge relevance by whether it covers the same topic as the user\'s need, even if it uses different wording, synonyms, or phrasing than the query. Do not require an exact wording match. ';
     $system .= 'CRITICAL: Always respond in the EXACT SAME LANGUAGE the user used. ';
     $system .= 'Be conversational — briefly explain why the recommended document(s) answer their question. ';
     $system .= 'Return ONLY valid JSON (no markdown): {"message":"your friendly explanation","doc_ids":[array of integer IDs]}. ';
