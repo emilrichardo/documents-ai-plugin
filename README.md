@@ -1,207 +1,194 @@
 # AI Documents
 
-Plugin de WordPress para gestionar, publicar y buscar documentos institucionales con búsqueda inteligente impulsada por IA (Google Gemini).
+A WordPress plugin for publishing and searching institutional documents. PDF
+content is extracted and structured automatically with regular expressions —
+no AI required for that part — and Google Gemini is available as an
+opt-in layer for metadata suggestions, re-structuring a misread PDF, and
+semantic search.
 
 ---
 
-## Tabla de contenidos
+## Table of contents
 
-1. [Requisitos](#requisitos)
-2. [Instalación](#instalación)
-3. [Configuración de la API key de Gemini](#configuración-de-la-api-key-de-gemini)
-4. [Ajustes del plugin (Settings)](#ajustes-del-plugin-settings)
-5. [Gestión de documentos](#gestión-de-documentos)
-6. [Shortcode de búsqueda](#shortcode-de-búsqueda)
-7. [Funcionalidades de IA](#funcionalidades-de-ia)
-8. [Referencia de parámetros del shortcode](#referencia-de-parámetros-del-shortcode)
-
----
-
-## Requisitos
-
-- WordPress 6.0 o superior
-- PHP 8.0 o superior
-- Cuenta de Google con acceso a [Google AI Studio](https://aistudio.google.com/) (para la API key de Gemini)
+1. [Requirements](#requirements)
+2. [Installation](#installation)
+3. [Configuring the Gemini API key](#configuring-the-gemini-api-key)
+4. [Settings](#settings)
+5. [Managing documents](#managing-documents)
+6. [Search shortcode](#search-shortcode)
+7. [AI features](#ai-features)
+8. [Shortcode parameter reference](#shortcode-parameter-reference)
 
 ---
 
-## Instalación
+## Requirements
 
-1. Sube la carpeta `ai-documents` a `/wp-content/plugins/`.
-2. Activa el plugin desde **WordPress Admin → Plugins → Plugins instalados**.
-3. Ve a **Documents → Settings** en el menú lateral del administrador.
-4. Configura tu API key de Gemini (ver sección siguiente).
-
----
-
-## Configuración de la API key de Gemini
-
-Las funciones de IA del plugin utilizan la API de **Google Gemini**. Para obtener una API key gratuita:
-
-### Paso 1 — Crear una API key en Google AI Studio
-
-1. Abre [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) en tu navegador.
-2. Inicia sesión con tu cuenta de Google.
-3. Haz clic en **"Create API key"**.
-4. Selecciona un proyecto de Google Cloud existente o crea uno nuevo cuando se te pida.
-5. Copia la API key generada (empieza con `AIza…`).
-
-> **Nota:** La capa gratuita de Gemini incluye un límite generoso de solicitudes por minuto y por día, suficiente para uso institucional normal. Consulta [https://ai.google.dev/pricing](https://ai.google.dev/pricing) para ver los límites actualizados.
-
-### Paso 2 — Ingresar la API key en el plugin
-
-1. En WordPress, ve a **Documents → Settings → AI**.
-2. Pega tu API key en el campo **"Gemini API Key"**.
-3. Selecciona el modelo en **"Gemini Model"**:
-   - `gemini-2.5-flash` — Recomendado: rápido y muy capaz (predeterminado)
-   - `gemini-2.0-flash` — Alternativa más liviana
-   - `gemini-1.5-pro` — Mayor capacidad de razonamiento, más lento
-4. Haz clic en **"Save Settings"**.
-5. Usa el botón **"Test Connection"** para verificar que la API key funciona correctamente.
+- WordPress 6.0 or later
+- PHP 8.0 or later
+- A Google account with access to [Google AI Studio](https://aistudio.google.com/) — only needed for the AI features; extraction and basic search work without one.
 
 ---
 
-## Ajustes del plugin (Settings)
+## Installation
 
-El panel de ajustes (**Documents → Settings**) es una sola vista con tres secciones:
+1. Upload the `ai-documents` folder to `/wp-content/plugins/`.
+2. Activate the plugin from **WordPress Admin → Plugins → Installed Plugins**.
+3. Go to **Documents → Settings** in the admin sidebar.
+4. Optionally configure a Gemini API key (see the next section) to enable the AI features.
+
+---
+
+## Configuring the Gemini API key
+
+Every AI feature in this plugin — metadata suggestions, content restructuring, and semantic search — uses **Google Gemini**. To get a free API key:
+
+### Step 1 — Create a key in Google AI Studio
+
+1. Open [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account.
+3. Click **"Create API key"**.
+4. Pick an existing Google Cloud project, or create one when prompted.
+5. Copy the generated key (starts with `AIza…`).
+
+> **Note:** Gemini's free tier includes a generous per-minute and per-day request limit — enough for normal institutional use. See [https://ai.google.dev/pricing](https://ai.google.dev/pricing) for current limits.
+
+### Step 2 — Enter the key in the plugin
+
+You can do this from either place — they write to the same setting:
+
+- **Documents → Settings → AI**: paste the key, pick a model, click **"Save Settings"**.
+- **Any document's editor**, under "Complete fields with AI (optional)": paste the key, click **"Check key & list models"** to validate it and list what it can reach, choose a model, click **"Save"**. This form only shows to administrators; anyone else editing a document without a key configured sees a note asking them to get one from an admin, since extraction above it works without one either way.
+
+The model list ships with the current Gemini lineup (3.6/3.5/3.1 Flash and Pro, down to 2.5). **"Refresh from API"** / **"Check key & list models"** replaces it with exactly what your key can reach — image, text-to-speech, and other non-chat models are filtered out automatically, since Gemini's own model-listing endpoint mixes every product line together with nothing that tells them apart from the id alone.
+
+---
+
+## Settings
+
+**Documents → Settings** is one page with four sections:
+
+### Display
+- **URL Slug** — the segment documents live under: `/{slug}/` for the listing, `/{slug}/{document}/` for each one. Changing it moves both together and updates permalinks immediately.
+- **Listing Template** — "Document search" (this plugin's search UI, the default) or "Theme default" (leaves `/{slug}/` to whatever your active theme would otherwise show there — normally a bare title-and-excerpt list).
+- **Document Page Template** — "Structured view" (this plugin's extracted content, download button, and Ask AI bar, the default) or "Theme default" (the theme's own single-post template, untouched).
 
 ### AI
-- **Gemini API Key** — Clave de la API de Google Gemini.
-- **Gemini Model** — Modelo de IA a utilizar.
+- **Gemini API Key** and **Gemini Model** — see the previous section.
 
 ### Taxonomy
-- **Audiences** — Lista de audiencias disponibles (una por línea). Predeterminado: `Institution`, `Evaluator`, `Public`.
-- **Document Types** — Lista de tipos de documento disponibles (una por línea). Predeterminado: `Policies`, `Guidelines`, `Good Practices`, entre otros.
+- **Audiences** — one per line. Defaults to `Institution`, `Evaluator`, `Public`.
+- **Document Types** — one per line. Defaults to `Policies`, `Guidelines`, `Good Practices`, and others.
 
 ### Shortcodes
-Referencia de todos los shortcodes disponibles con ejemplos listos para copiar.
-
-> El nombre del menú (Documents), su ícono, el slug del archivo (`documents`) y los formatos de archivo permitidos (PDF, Word, Excel) ya no son configurables — están fijos.
+A reference of every shortcode parameter with copy-to-clipboard examples.
 
 ---
 
-## Gestión de documentos
+## Managing documents
 
-### Crear un documento
+### Creating a document
 
-1. Ve a **Documents → Add New Document** en el menú lateral.
-2. Completa el formulario:
+1. Go to **Documents → Add New Document** in the admin sidebar.
+2. Fill in the form:
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| **Title** | Nombre del documento |
-| **File** | Sube el archivo (PDF, Word, Excel, etc.) usando el selector de medios |
-| **Publication Date** | Fecha de publicación del documento |
-| **Audience** | Selecciona una o varias audiencias (checkboxes) |
-| **Document Type** | Selecciona uno o varios tipos (checkboxes) |
-| **Description** | Descripción del documento (texto libre) |
+| **Title** | Document name |
+| **File** | Upload a file (PDF, Word, Excel) through the media picker |
+| **Publication Date** | The document's publication date |
+| **Audience** | One or more audiences (checkboxes) |
+| **Document Type** | One or more types (checkboxes) |
+| **Description** | Free-text description |
 
-3. Haz clic en **"Publish"**.
+3. Click **"Publish"**.
 
-### Extraer el contenido estructurado (por defecto, sin IA)
+### Extracting structured content (default, no AI)
 
-Al subir un PDF, el plugin extrae su texto y **automáticamente** parsea el cuerpo del documento con regex — sin llamar a la IA, sin necesidad de API key — y lo guarda como una secuencia de bloques (títulos de 3 niveles, párrafos, notas, listas anidadas y tablas) que el frontend renderiza como HTML. Título, teaser, fecha y esas notas se completan de una vez si el documento usa el esquema de etiquetas (ver abajo).
+Uploading a PDF extracts its text and **automatically** parses the document body with regular expressions — no AI call, no API key required — storing it as a sequence of blocks (three heading levels, paragraphs, notes, nested lists, tables) that the frontend renders as HTML. When the document follows the labelled schema described below, the title, teaser, publication date, and revision history are filled in at the same time.
 
-1. Sube el PDF — la extracción de texto y el parseo del contenido corren solos.
-2. Debajo del archivo aparece **"Document content"**, con la cantidad de bloques guardados y un desplegable **"Review extracted content"** para revisar el resultado antes de publicar.
-3. Si necesitás volver a correr el parser (por ejemplo tras editar el PDF), usá **"Extract content again"**.
+1. Upload the PDF — text extraction and content parsing run on their own.
+2. Below the file, **"Document content"** shows how many blocks were saved and a **"Review extracted content"** panel to check the result before publishing.
+3. To re-run the parser — after editing the source PDF, for instance — use **"Extract content again"**.
 
-El PDF se lee en dos pasos: `assets/js/aidocs-pdf-structure.js` convierte la maquetación del PDF (negrita, cuerpo, margen izquierdo, interlínea) en un **texto canónico** con marcas, y `includes/aidocs-doc-parser.php` lo convierte en bloques con expresiones regulares. El formato completo, las variantes de nota reconocidas y los límites conocidos están en [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
+The PDF is read in two steps: `assets/js/aidocs-pdf-structure.js` turns the PDF's own layout (bold weight, point size, left margin, line spacing) into **canonical text** carrying that structure as markers, and `includes/aidocs-doc-parser.php` turns that text into blocks with regular expressions. The full format, recognised note variants, and known limitations are documented in [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
 
-#### Esquema de etiquetas
+#### Labelled schema
 
-Si el documento fue redactado con el esquema de etiquetas de SACSCOC, la extracción es **determinística** (no heurística) y completa varios campos de una sola vez:
+When a document is authored with the SACSCOC label schema, extraction is **deterministic**, not heuristic, and fills several fields at once:
 
 ```
-<Título del documento>
-Teaser: <resumen de un párrafo>      → Description
-Body:                                → Contenido estructurado
-<párrafos y requisitos con viñetas>
-Last Updated: <Mes AAAA> (<órgano>)  → Publication Date
-Document History: <procedencia>      → historial, se muestra al pie del contenido
+<Document title>
+Teaser: <one-paragraph summary>       → Description
+Body:                                 → Structured content
+<paragraphs and bulleted requirements>
+Last Updated: <Month YYYY> (<body>)   → Publication Date
+Document History: <provenance>        → shown at the foot of the content
 ```
 
-Cada marcador se acepta como `Label:`, `[Label]`, `[Label] contenido` o una línea que contenga sólo la etiqueta. Validado contra los 50 documentos del compilado maestro: 50/50 con título y cuerpo, 48/50 con teaser y fecha (los otros dos son fragmentos de un documento mayor y no traen esas líneas).
+Each marker is accepted as `Label:`, `[Label]`, `[Label] content`, or a line holding nothing but the label. Validated against the 50 documents of the master compilation: 50/50 recover a title and body, 48/50 a teaser and date (the other two are fragments of a larger document and carry neither).
 
-La descripción y la fecha **no se sobreescriben** si ya tienen valor — una corrección manual del editor gana sobre el parser.
+The description and date are **never overwritten** if already set — a manual correction always outranks the parser.
 
-> Los parsers viven en `includes/aidocs-doc-parser.php`: `aidocs_parse_labeled_document()` (esquema de etiquetas) y `aidocs_parse_structured_content()` (cuerpo → bloques, con fallback heurístico para texto pegado a mano). Son las únicas funciones a ajustar si aparece otra familia de documentos: el resto del plugin depende sólo del formato de bloques. Para verificar un cambio contra un corpus sin pasar por WordPress: `php tools/parse-check.php ruta/*.txt`.
+> The parsers live in `includes/aidocs-doc-parser.php`: `aidocs_parse_labeled_document()` (label schema) and `aidocs_parse_structured_content()` (body → blocks, with a heuristic fallback for hand-pasted text). These are the only two functions to adjust for a different document family — the rest of the plugin depends only on the block format. To check a change against a corpus without going through WordPress: `php tools/parse-check.php path/*.txt`.
 
-### Completar campos con IA (opcional)
+### Completing fields with AI (optional)
 
-Debajo de la extracción, el panel colapsable **"Complete fields with AI (optional)"** propone valores para los campos que no vienen del esquema de etiquetas — típicamente `Audience` y `Document Type` — o para revisarlos con otro criterio:
+Below extraction, the collapsible **"Complete fields with AI (optional)"** panel proposes values for the fields the label schema doesn't cover — typically `Audience` and `Document Type` — or offers a second opinion on the others:
 
-1. Marcá los campos a proponer (`Title`, `Description`, `Audience`, `Document Type`).
-2. Hacé clic en **"Propose with AI"**.
-3. Si todavía no hay una API key de Gemini configurada, el panel la pide ahí mismo: pegá la clave, **"Check key & list models"** la valida y lista los modelos disponibles, elegí uno y **"Save"**. Sólo un administrador ve este formulario; se guarda en Documents → Settings y la usan también la búsqueda semántica y el asistente.
-4. Cada campo propuesto aparece como una tarjeta con el valor actual al lado, editable antes de aplicar. **Nada se escribe en el formulario hasta que hacés clic en "Apply"** (o "Apply all") — "Discard" descarta la propuesta sin tocar nada.
+1. Tick the fields to propose (`Title`, `Description`, `Audience`, `Document Type`).
+2. Click **"Propose with AI"**.
+3. Each proposed field appears as its own card, alongside the current value, editable before applying. **Nothing is written into the form until you click "Apply"** (or "Apply all") — "Discard" drops a proposal without touching anything.
 
-Esto es independiente de la extracción: la extracción reconstruye el *cuerpo* del documento y completa los campos que el propio documento declara (teaser, fecha); la IA sólo entra si elegís pedirle una propuesta para los campos restantes, y siempre bajo revisión.
+### Restructuring content with AI (optional, whole document)
+
+A separate action, in its own box below the field proposals — it sends the **entire** document in one request, so it costs measurably more than the field suggestions above, and it is not the same kind of task. **"Restructure content with AI"** is for a PDF whose layout the regex extractor misread: a heading left as a paragraph, a list flattened into prose. The AI does not write anything — it re-decides which structural role each piece of the already-extracted text has, reusing that text verbatim.
+
+1. Click **"Restructure content with AI"**.
+2. The result is compared word-for-word against the current extracted content, and a fidelity report shows what — if anything — was added or dropped. A clean result reads "Text is verbatim — every word matches the extracted content."
+3. Review the restructured content in the preview, then **"Replace content with this"** to apply it, or **"Discard"** to keep the extracted version. Nothing is written to the document until you choose to apply it.
 
 ---
 
-## Shortcode de búsqueda
+## Search shortcode
 
-Inserta el buscador de documentos en cualquier página o entrada usando el shortcode:
+Add the document search to any page or post with:
 
 ```
 [aidocs_search]
 ```
 
-### Funcionalidad del buscador
+By default, `/{slug}/` (see Settings → Display) already shows this same search — the shortcode is what to use for embedding it somewhere else too, like a second page with different pre-selected filters.
 
-El buscador incluye:
+### What the search does
 
-- **Barra de búsqueda inteligente** — Escribe en cualquier idioma. Después de ~600 ms sin escribir, la IA analiza la consulta y muestra el documento más relevante con una explicación.
-- **Autocompletado** — Mientras escribes aparece un menú desplegable con documentos que coinciden con las palabras clave.
-- **Filtros** — Menú desplegable de Audience y Document Type para refinar resultados.
-- **Botón limpiar (×)** — Borra el campo y recarga todos los documentos.
-- **Botón Search** — Ejecuta la búsqueda tradicional de WordPress y muestra el listado completo de resultados.
-- **Paginación** — Resultados paginados (20 por página por defecto).
+- **Keyword field** — type in any language. After roughly 600ms of no typing, the AI reads the query and surfaces the single most relevant document with a short explanation (requires a configured API key; the field still does a plain WordPress keyword search without one).
+- **Filters** — Audience and Document Type dropdowns to narrow results.
+- **Clear button (×)** — empties the field and reloads the full catalog.
+- **Search button** — runs a plain WordPress keyword search and shows the full results list.
+- **Pagination** — 20 results per page by default.
 
-### Modal de detalle
+Clicking a result card goes straight to that document's own page.
 
-Al hacer clic en cualquier tarjeta de documento se abre un modal con dos pestañas:
+### The single document page
 
-- **Content** — primero los campos extraídos (descripción, audiencia, tipo, fecha, formato) y debajo el **contenido estructurado** del documento (títulos, párrafos y listas extraídos del PDF por regex). Se carga on-demand para que el listado de resultados siga liviano.
-- **Preview** — el PDF embebido en el navegador.
-
-**Ask AI** ya no es una pestaña: es una **barra fija** al pie del modal, disponible mientras se lee cualquier sección. Las respuestas aparecen en un panel colapsable sobre la barra.
-
-El pie del modal tiene **Download**, **Open full page** (link a la vista individual) y **Close**.
-
-### Vista individual del documento
-
-Cada documento tiene su propia URL (`/documents/{slug}/`) que muestra lo mismo que el modal abierto, integrado con el header y footer del tema: encabezado con formato/audiencia/tipo, descripción, grilla de metadatos, contenido estructurado, preview del PDF en un bloque desplegable, y la barra Ask AI fija al pie mientras se hace scroll.
-
-### Burbuja de chat AI (Ask AI)
-
-El botón flotante **"Ask AI"** en la esquina inferior derecha abre un chat conversacional:
-- Escribe tu pregunta en **cualquier idioma** (español, inglés, francés, etc.).
-- La IA busca en el catálogo de documentos y te recomienda el más relevante, explicando por qué.
-- Cada respuesta incluye una tarjeta del documento recomendado con botón de descarga y acceso al modal de detalle.
-- Soporta conversación con contexto — puedes hacer preguntas de seguimiento.
-
-**Ejemplo de uso:**
-> *"¿Cómo puedo obtener créditos reducidos para título de pregrado?"*
-> → La IA entiende la consulta y responde: *"Te recomiendo el documento 'Reglamento de Graduación' porque contiene los procedimientos para solicitar reducción de créditos en programas de pregrado."*
+Each document has its own URL (`/{slug}/{document}/`), rendered inside your theme's header and footer: a header with format/audience/type tags and a download button, the description, a PDF preview, a metadata grid, the structured content (as collapsible sections), the document's revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that specific document.
 
 ---
 
-## Funcionalidades de IA
+## AI features
 
-| Función | Dónde | Descripción |
+| Feature | Where | Description |
 |---|---|---|
-| **Autocompletado** | Barra de búsqueda | Sugerencias rápidas mientras se escribe |
-| **Recomendación AI** | Barra de búsqueda | Documento sugerido con explicación en cualquier idioma |
-| **Chat Ask AI** | Botón flotante | Chat conversacional para encontrar documentos |
-| **Process with AI** | Admin → Editar documento | Rellena metadatos analizando el PDF |
+| Inline recommendation | Search field | Most relevant document, with an explanation, in whatever language you typed |
+| Complete fields with AI | Document editor | Proposes values for Title/Description/Audience/Document Type from the extracted text, reviewed before applying |
+| Restructure content with AI | Document editor | Re-types a misread PDF's extracted text into the right block types, verified word-for-word before applying |
+| Ask AI (single document) | Document page | Answers questions about that one document |
 
-Todas las funciones de IA utilizan el modelo Gemini configurado en **Settings → AI** y responden siempre en el mismo idioma que usa el usuario.
+All of these use the Gemini model configured in **Settings → AI**, and answer in whichever language the question was asked in.
 
 ---
 
-## Referencia de parámetros del shortcode
+## Shortcode parameter reference
 
 ```
 [aidocs_search
@@ -209,19 +196,17 @@ Todas las funciones de IA utilizan el modelo Gemini configurado en **Settings �
   audience="..."
   per_page="20"
   show_ai="true"
-  show_chat="true"
 ]
 ```
 
-| Parámetro | Predeterminado | Descripción |
+| Parameter | Default | Description |
 |---|---|---|
-| `type` | *(vacío)* | Pre-selecciona un tipo de documento. También lee `?type=` de la URL. |
-| `audience` | *(vacío)* | Pre-selecciona una audiencia. También lee `?audience=` de la URL. |
-| `per_page` | `20` | Cantidad de resultados por página (máximo 50). |
-| `show_ai` | `true` | `"false"` desactiva las sugerencias AI inline en la barra de búsqueda. |
-| `show_chat` | `true` | `"false"` oculta la burbuja flotante de chat AI. |
+| `type` | *(empty)* | Pre-selects a document type. Also reads `?type=` from the URL. |
+| `audience` | *(empty)* | Pre-selects an audience. Also reads `?audience=` from the URL. |
+| `per_page` | `20` | Results per page (max 50). |
+| `show_ai` | `true` | Set `"false"` to disable the inline AI recommendation in the search field. |
 
-### Ejemplos
+### Examples
 
 ```
 [aidocs_search]
@@ -230,7 +215,5 @@ Todas las funciones de IA utilizan el modelo Gemini configurado en **Settings �
 
 [aidocs_search per_page="10"]
 
-[aidocs_search show_chat="false"]
-
-[aidocs_search show_ai="false" show_chat="false"]
+[aidocs_search show_ai="false"]
 ```
