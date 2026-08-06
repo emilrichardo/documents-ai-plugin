@@ -2705,7 +2705,6 @@ function aidocs_search_shortcode( $atts ) {
     $js_page    = esc_js( __( 'Page' ) );
     $js_of      = esc_js( __( 'of' ) );
     $js_dl      = esc_js( __( 'Download' ) );
-    $js_view    = esc_js( __( 'View document' ) );
     $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
     $js_conn       = esc_js( __( 'Connection error. Please try again.' ) );
     $js_send       = esc_js( __( 'Send' ) );
@@ -2937,18 +2936,17 @@ jQuery(function($){
             \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
             \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
             if(doc.pub_date)tags+='<span class="cd-fs-doc-tag date">'+formatDate(doc.pub_date)+'</span>';
-            var view=doc.permalink?'<a href="'+doc.permalink+'" class="cd-fs-doc-view">{$js_view}</a>':'';
-            var dl=doc.file_url?'<a href="'+doc.file_url+'" target="_blank" class="cd-fs-doc-dl" download>{$js_dl} \u2193</a>':'';
             var docSvg='<svg width="22" height="26" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2h10l6 6v18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><polyline points="14 2 14 8 20 8"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/><line x1="7" y1="21" x2="12" y2="21"/></svg>';
+            // The card itself already navigates straight to the document, so a
+            // "View document"/"Download" pair here would just duplicate that.
             var \$card=\$(
                 '<div class="cd-fs-doc-card">'+
                 '<div class="cd-fs-doc-icon '+fmt+'">'+docSvg+'</div>'+
                 '<div class="cd-fs-doc-body">'+
                 '<p class="cd-fs-doc-title">'+\$('<span>').text(doc.title).html()+'</p>'+
-                '<div class="cd-fs-doc-meta">'+tags+'</div></div>'+
-                '<div class="cd-fs-doc-actions">'+view+dl+'</div></div>'
+                '<div class="cd-fs-doc-meta">'+tags+'</div></div>'
             );
-            \$card.on('click',function(e){if(\$(e.target).closest('a').length)return;if(doc.permalink)location.href=doc.permalink;});
+            \$card.on('click',function(){if(doc.permalink)location.href=doc.permalink;});
             \$results.append(\$card);
         });
         if(data.total_pages>1){
@@ -3086,7 +3084,13 @@ ENDSCRIPT;
     .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
     .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
     .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
-    .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);background:#fff;outline:none;transition:border-color .18s;}
+    /* input[type="text"] in this theme's own global stylesheet carries an
+       attribute selector, which counts as a class for specificity — putting
+       it a notch above a single plain class like .cd-fs-keyword and letting
+       its own padding win, which left this input's text sitting under the
+       search icon rather than clear of it. The wrapper-qualified selector
+       below outweighs that regardless of style order. */
+    .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);background:#fff;outline:none;transition:border-color .18s;}
     .cd-fs-keyword:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
     .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
     .cd-fs-kw-clear:hover{color:var(--wp--preset--color--contrast,#1a2744);background:#f0f2f5;}
@@ -3115,9 +3119,6 @@ ENDSCRIPT;
     .cd-fs-doc-tag.format-excel{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
     .cd-fs-doc-tag.format-generic{background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;}
     .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}.cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
-    .cd-fs-doc-actions{flex-shrink:0;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;gap:8px;padding-top:2px;}
-    .cd-fs-doc-view{display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--wp--preset--color--primary,#1e3a5f);border:1.5px solid var(--wp--preset--color--primary,#1e3a5f);border-radius:var(--wp--custom--button-border-radius,7px);padding:8px 16px;font-size:13px;font-weight:600;text-decoration:none;transition:background .15s,color .15s;white-space:nowrap;}
-    .cd-fs-doc-view:hover{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;}
     .cd-fs-doc-dl{display:inline-flex;align-items:center;gap:6px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-radius:var(--wp--custom--button-border-radius,7px);padding:8px 16px;font-size:13px;font-weight:600;text-decoration:none;transition:background .15s;white-space:nowrap;}
     .cd-fs-doc-dl:hover{background:var(--wp--preset--color--secondary,#2c4a7c);color:#fff;}
     .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
