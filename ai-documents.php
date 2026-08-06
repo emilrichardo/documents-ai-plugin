@@ -124,6 +124,63 @@ function aidocs_get_types() {
     return AIDOCS_TYPES;
 }
 
+/**
+ * How much document text is sent to the AI in one request.
+ *
+ * Every Gemini model this plugin offers takes a 1,048,576-token context, which
+ * is far more than any policy document here needs — the longest in the corpus
+ * is ~250 KB of text. So the limit exists only to keep a pathological file
+ * from being posted whole; it is not a content decision, and the response
+ * reports when it actually clipped something so an editor is never left
+ * guessing whether the AI saw the whole document.
+ */
+const AIDOCS_AI_TEXT_LIMIT = 700000;
+
+/**
+ * Selectable Gemini models, newest family first.
+ *
+ * A starting list only: "Refresh from API" in Settings replaces it with
+ * exactly what the configured key can reach, which is the authoritative
+ * answer and the one to trust when a model here is rejected. Image, TTS and
+ * computer-use variants are deliberately absent — they accept generateContent
+ * but are not text models.
+ *
+ * @return array<string,string> Model id => label.
+ */
+function aidocs_model_catalog() {
+    return [
+        'gemini-3.6-flash'          => 'Gemini 3.6 Flash (newest, recommended)',
+        'gemini-3.5-flash'          => 'Gemini 3.5 Flash',
+        'gemini-3.5-flash-lite'     => 'Gemini 3.5 Flash Lite (cheapest)',
+        'gemini-3.1-pro-preview'    => 'Gemini 3.1 Pro Preview (most capable)',
+        'gemini-3.1-flash-lite'     => 'Gemini 3.1 Flash Lite',
+        'gemini-3-pro-preview'      => 'Gemini 3 Pro Preview',
+        'gemini-3-flash-preview'    => 'Gemini 3 Flash Preview',
+        'gemini-2.5-pro'            => 'Gemini 2.5 Pro',
+        'gemini-2.5-flash'          => 'Gemini 2.5 Flash',
+        'gemini-2.5-flash-lite'     => 'Gemini 2.5 Flash Lite',
+        'gemini-2.0-flash'          => 'Gemini 2.0 Flash (legacy)',
+        'gemini-pro-latest'         => 'Gemini Pro (alias: always newest pro)',
+        'gemini-flash-latest'       => 'Gemini Flash (alias: always newest flash)',
+        'gemini-flash-lite-latest'  => 'Gemini Flash Lite (alias: always newest lite)',
+    ];
+}
+
+/**
+ * Is this model id a Gemini text model — not an image, speech, music,
+ * robotics or research-agent one, and not a Gemma open-weights variant?
+ * The API's models.list endpoint mixes all of Google's generateContent-
+ * capable product lines into one list with no field that separates them,
+ * so the id itself, matched against the "gemini-<version>-..." shape this
+ * plugin's own catalog uses, is what has to do it.
+ */
+function aidocs_is_text_model( $id ) {
+    // "gemini-<version>-…" covers a dated model; "gemini-{pro,flash,flash-lite}-latest"
+    // covers the rolling aliases, which have no version number of their own.
+    if ( ! preg_match( '/^gemini-(?:\d|pro-latest|flash-latest|flash-lite-latest)/', $id ) ) return false;
+    return ! preg_match( '/-(?:image|tts|computer-use|embedding|robotics-er)\b/i', $id );
+}
+
 // ── Discover first available embedding model ──
 function aidocs_get_embed_model( $api_key ) {
     $cached = get_transient( 'aidocs_embed_model' );
@@ -468,6 +525,14 @@ function aidocs_meta_box_html( $post ) {
         .cd-badge { font-size:11px; padding:2px 8px; border-radius:3px; }
         .cd-badge.is-ok { background:#d4edda; color:#155724; }
         .cd-badge.is-off { background:#f8d7da; color:#721c24; }
+        .cd-badge.is-warn { background:#fff3cd; color:#7a5b00; }
+        /* Content restructuring: set apart from the metadata fields, because it
+           is a different task and a much larger request. */
+        .cd-ai-content-box { margin-top:14px; padding:12px 14px; background:#fffdf6; border:1px solid #f0e3c4; border-left:3px solid #c8a24a; border-radius:0 6px 6px 0; }
+        .cd-ai-fidelity { margin:10px 0; padding:9px 12px; border-radius:4px; font-size:12px; line-height:1.6; }
+        .cd-ai-fidelity.is-ok { background:#eefaf1; border:1px solid #b7e2c4; color:#1c6b34; }
+        .cd-ai-fidelity.is-warn { background:#fdf6e7; border:1px solid #ecd9a6; color:#7a5b00; }
+        .cd-ai-fidelity strong { display:block; margin-bottom:3px; }
         .cd-preview { margin-top:12px; }
         .cd-preview summary { cursor:pointer; font-size:12px; color:#2271b1; }
         .cd-preview-body { max-height:340px; overflow-y:auto; margin-top:10px; padding:12px 14px; background:#fff; border:1px solid #e0e0e0; border-radius:4px; }
@@ -673,7 +738,15 @@ function aidocs_meta_box_html( $post ) {
                         <div class="cd-ai-config-row">
                             <label for="cd-ai-model" style="margin:0;"><?php esc_html_e( 'Model' ); ?></label>
                             <select id="cd-ai-model">
-                                <option value="<?php echo esc_attr( $ai_model ); ?>"><?php echo esc_html( $ai_model ); ?></option>
+                                <?php
+                                $mb_models = aidocs_model_catalog();
+                                if ( $ai_model !== '' && ! isset( $mb_models[ $ai_model ] ) ) {
+                                    $mb_models = [ $ai_model => $ai_model . ' (saved)' ] + $mb_models;
+                                }
+                                foreach ( $mb_models as $mid => $mname ) :
+                                ?>
+                                <option value="<?php echo esc_attr( $mid ); ?>" <?php selected( $ai_model, $mid ); ?>><?php echo esc_html( $mname ); ?></option>
+                                <?php endforeach; ?>
                             </select>
                             <button type="button" id="cd-ai-config-save" class="button button-secondary"><?php esc_html_e( 'Save' ); ?></button>
                             <span id="cd-ai-config-status" class="cd-step-status"></span>
@@ -734,6 +807,36 @@ function aidocs_meta_box_html( $post ) {
                         <button type="button" id="cd-ai-discard-all" class="button button-small"><?php esc_html_e( 'Discard all' ); ?></button>
                     </div>
                     <div id="cd-ai-review-list"></div>
+                </div>
+
+                <!-- Content restructuring: its own request, its own cost, and a
+                     different kind of task from the metadata fields above — so
+                     it is deliberately not one more checkbox in that list. -->
+                <div id="cd-ai-restructure" class="cd-ai-content-box">
+                    <div class="cd-step-head">
+                        <strong><?php esc_html_e( 'Document content structure' ); ?></strong>
+                        <span class="cd-badge is-warn"><?php esc_html_e( 'Whole document · higher cost' ); ?></span>
+                    </div>
+                    <p class="cd-step-hint">
+                        <?php esc_html_e( 'Only for a PDF whose layout the extractor above misread — a heading left as a paragraph, a list flattened into prose. The AI does not write anything: it re-decides which block each piece of the already-extracted text belongs to, reusing that text verbatim. The whole document is sent in one request, so this costs considerably more than the fields above.' ); ?>
+                    </p>
+                    <div class="cd-step-actions">
+                        <button type="button" id="cd-ai-restructure-btn" class="button">
+                            &#129518; <?php esc_html_e( 'Restructure content with AI' ); ?>
+                        </button>
+                        <span id="cd-ai-restructure-status" class="cd-step-status"></span>
+                    </div>
+                    <div id="cd-ai-restructure-review" hidden>
+                        <div id="cd-ai-restructure-report" class="cd-ai-fidelity"></div>
+                        <details class="cd-preview">
+                            <summary><?php esc_html_e( 'Review the restructured content' ); ?></summary>
+                            <div id="cd-ai-restructure-preview" class="cd-preview-body"></div>
+                        </details>
+                        <div class="cd-step-actions" style="margin-top:10px;">
+                            <button type="button" id="cd-ai-restructure-apply" class="button button-primary"><?php esc_html_e( 'Replace content with this' ); ?></button>
+                            <button type="button" id="cd-ai-restructure-discard" class="button"><?php esc_html_e( 'Discard' ); ?></button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </details>
@@ -1060,7 +1163,7 @@ function aidocs_meta_box_html( $post ) {
                 if (!res.success) { $status.text('Error: ' + res.data); return; }
                 var $select = $('#cd-ai-model').empty();
                 (res.data.models || []).forEach(function(model) {
-                    $select.append($('<option>').val(model).text(model));
+                    $select.append($('<option>').val(model.id).text(model.label || model.id));
                 });
                 if (res.data.current) $select.val(res.data.current);
                 $status.text(res.data.models.length + ' <?php echo esc_js( __( 'models available' ) ); ?>');
@@ -1251,6 +1354,116 @@ function aidocs_meta_box_html( $post ) {
             $('#cd-ai-review').prop('hidden', true);
             $('#cd-ai-status').text('');
         });
+
+        // ── Restructure the extracted content with AI ──
+        $('#cd-ai-restructure-btn').on('click', function() {
+            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
+                return cdPageTexts[p];
+            }).join('\n');
+
+            var $status = $('#cd-ai-restructure-status');
+
+            if (!rawText.trim()) {
+                $status.text('<?php echo esc_js( __( 'No document text — load a PDF and wait for extraction.' ) ); ?>');
+                return;
+            }
+            if (!cdAiConfigured()) {
+                $('#cd-ai-config-form').prop('hidden', false);
+                $('#cd-ai-config-status').text('<?php echo esc_js( __( 'Add a Gemini API key to use the AI.' ) ); ?>');
+                $('#cd-ai-key').trigger('focus');
+                return;
+            }
+
+            var $btn = $(this);
+            $btn.prop('disabled', true);
+            $status.text('<?php echo esc_js( __( 'Sending the whole document — this can take a minute…' ) ); ?>');
+            $('#cd-ai-restructure-review').prop('hidden', true);
+
+            $.post(cdAjaxUrl, {
+                action:   'aidocs_ai_restructure',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                raw_text: rawText
+            })
+            .done(function(res) {
+                if (!res.success) { $status.text('Error: ' + res.data); return; }
+                var d = res.data;
+
+                var summary = d.total + ' blocks (' + d.headings + ' headings, ' + d.paragraphs + ' paragraphs, '
+                    + d.lists + ' lists' + (d.notes ? ', ' + d.notes + ' notes' : '')
+                    + (d.tables ? ', ' + d.tables + ' tables' : '') + ')';
+                if (d.before) summary += ' — currently ' + d.before + ' blocks';
+                $status.text(summary);
+
+                // The fidelity numbers are the point of the review: they say
+                // whether the AI only moved text around or started writing.
+                var f = d.fidelity || {};
+                var verbatim = (f.added === 0 && f.removed === 0);
+                var $report = $('#cd-ai-restructure-report')
+                    .removeClass('is-ok is-warn')
+                    .addClass(verbatim ? 'is-ok' : 'is-warn');
+                var lines = [];
+                lines.push($('<strong>').text(verbatim
+                    ? '<?php echo esc_js( __( 'Text is verbatim — every word matches the extracted content.' ) ); ?>'
+                    : '<?php echo esc_js( __( 'The wording changed — review before applying.' ) ); ?>'));
+                var detail = f.source_words + ' <?php echo esc_js( __( 'words in the source' ) ); ?>'
+                    + ' · ' + f.added + ' <?php echo esc_js( __( 'added' ) ); ?>'
+                    + ' · ' + f.removed + ' <?php echo esc_js( __( 'dropped' ) ); ?>';
+                lines.push($('<div>').text(detail));
+                if ((f.added_sample || []).length) {
+                    lines.push($('<div>').text('<?php echo esc_js( __( 'Added:' ) ); ?> ' + f.added_sample.join(', ')));
+                }
+                if ((f.removed_sample || []).length) {
+                    lines.push($('<div>').text('<?php echo esc_js( __( 'Dropped:' ) ); ?> ' + f.removed_sample.join(', ')));
+                }
+                if (d.truncated) {
+                    lines.push($('<div>').text('<?php echo esc_js( __( 'Note: the document was too long to send in full.' ) ); ?>'));
+                }
+                $report.empty().append(lines);
+
+                $('#cd-ai-restructure-preview').html(d.html || '');
+                $('#cd-ai-restructure-review').prop('hidden', false);
+            })
+            .fail(function(xhr) {
+                $status.text('Error: ' + (xhr.responseJSON && xhr.responseJSON.data || xhr.statusText));
+            })
+            .always(function() { $btn.prop('disabled', false); });
+        });
+
+        function cdRestructureDecision(decision) {
+            var $status = $('#cd-ai-restructure-status');
+            $('#cd-ai-restructure-apply, #cd-ai-restructure-discard').prop('disabled', true);
+
+            $.post(cdAjaxUrl, {
+                action:   'aidocs_ai_restructure_apply',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                decision: decision
+            })
+            .done(function(res) {
+                if (!res.success) { $status.text('Error: ' + res.data); return; }
+                $('#cd-ai-restructure-review').prop('hidden', true);
+                if (!res.data.applied) { $status.text('<?php echo esc_js( __( 'Discarded.' ) ); ?>'); return; }
+
+                // The document's stored content is now the AI's version, so the
+                // extraction section above has to show that, not its own count.
+                cdHasContent = true;
+                $('#cd-content-badge').removeClass('is-off').addClass('is-ok').html('✓ ' + res.data.total + ' blocks');
+                $('#cd-content-preview').prop('hidden', false);
+                $('#cd-content-preview-body').html(res.data.html || '');
+                if (res.data.indexed !== undefined) cdSetEmbeddingBadge(res.data.indexed);
+                $status.text('<?php echo esc_js( __( 'Applied — content replaced.' ) ); ?>');
+            })
+            .fail(function(xhr) {
+                $status.text('Error: ' + (xhr.responseJSON && xhr.responseJSON.data || xhr.statusText));
+            })
+            .always(function() {
+                $('#cd-ai-restructure-apply, #cd-ai-restructure-discard').prop('disabled', false);
+            });
+        }
+
+        $('#cd-ai-restructure-apply').on('click',   function() { cdRestructureDecision('apply'); });
+        $('#cd-ai-restructure-discard').on('click', function() { cdRestructureDecision('discard'); });
 
         // Indexing for the AI's semantic search has no button of its own — it
         // runs automatically after extraction and again on every save — so
@@ -1455,8 +1668,14 @@ function aidocs_ai_process() {
         }
     }
 
+    // The whole document goes in: every offered model takes a 1M-token context,
+    // and a field like Document Type is often only decidable from a section
+    // buried past whatever an arbitrary 30,000-character cut would have kept.
+    $sent      = mb_substr( $raw_text, 0, AIDOCS_AI_TEXT_LIMIT );
+    $truncated = mb_strlen( $raw_text ) > mb_strlen( $sent );
+
     $prompt  = "You are a professional document analyst. Read the document text and fill in each field.\n\n";
-    $prompt .= "DOCUMENT TEXT:\n" . mb_substr( $raw_text, 0, 30000 ) . "\n\n";
+    $prompt .= "DOCUMENT TEXT:\n" . $sent . "\n\n";
     $prompt .= "FIELDS TO COMPLETE:\n" . $fields_desc . "\n";
     $prompt .= "Return ONLY a valid JSON object. Keys are field ids, values are strings or arrays as specified.\n";
     $prompt .= "For 'list' type, separate items with newline characters.\n";
@@ -1512,6 +1731,7 @@ function aidocs_ai_process() {
     }
 
     $result['_embedding_saved'] = $embedding_saved;
+    $result['_truncated']       = $truncated;
     wp_send_json_success( $result );
 }
 
@@ -1577,18 +1797,32 @@ function aidocs_ai_credentials_ajax() {
     }
 
     // Only the models that can answer a prompt are useful here; the embedding
-    // models are picked separately by aidocs_get_embed_model().
-    $models = array_values( array_filter( (array) ( $body['models'] ?? [] ), function ( $model ) {
-        return in_array( 'generateContent', $model['supportedGenerationMethods'] ?? [], true );
-    } ) );
-    $names = array_map( function ( $name ) {
-        return preg_replace( '#^models/#', '', (string) $name );
-    }, array_column( $models, 'name' ) );
+    // models are picked separately by aidocs_get_embed_model(). Image, speech
+    // and computer-use variants advertise generateContent as well, so they are
+    // filtered by id — the capability list alone cannot tell them apart.
+    $models = [];
+    foreach ( (array) ( $body['models'] ?? [] ) as $model ) {
+        if ( ! in_array( 'generateContent', $model['supportedGenerationMethods'] ?? [], true ) ) continue;
 
-    if ( ! $names ) wp_send_json_error( __( 'This key has no models that can generate content.' ) );
+        $id = preg_replace( '#^models/#', '', (string) ( $model['name'] ?? '' ) );
+        if ( $id === '' || ! aidocs_is_text_model( $id ) ) continue;
+
+        $label   = $model['displayName'] ?? $id;
+        $context = (int) ( $model['inputTokenLimit'] ?? 0 );
+        if ( $context >= 1000 ) {
+            /* translators: %s: context window size, e.g. "1M". */
+            $label .= sprintf( ' — %s context', $context >= 1000000
+                ? round( $context / 1000000 ) . 'M'
+                : round( $context / 1000 ) . 'K' );
+        }
+
+        $models[] = [ 'id' => $id, 'label' => $label ];
+    }
+
+    if ( ! $models ) wp_send_json_error( __( 'This key has no text models available.' ) );
 
     wp_send_json_success( [
-        'models'  => $names,
+        'models'  => $models,
         'current' => get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' ),
     ] );
 }
@@ -1658,6 +1892,444 @@ function aidocs_extract_content_ajax() {
         'html'       => aidocs_render_content_blocks( $blocks ),
         'indexed'    => $indexed,
     ] );
+}
+
+/**
+ * AJAX: have the AI re-structure the already-extracted content.
+ *
+ * This is not text generation. The regex extractor gets the structure right on
+ * the documents it was built for, but a PDF whose layout it misreads produces
+ * mis-typed blocks — a heading left as a paragraph, a list flattened into
+ * prose. The AI's whole job here is to re-decide which block each piece of
+ * text belongs to, reusing that text verbatim.
+ *
+ * Three things keep it to that job rather than letting it rewrite the policy:
+ *
+ *  - The prompt states the constraint, and asks for the source's own wording.
+ *  - The reply is a flat list of typed pieces that this function turns into
+ *    blocks itself. The AI never supplies markup, ids, note variants or
+ *    emphasis runs — those still come from aidocs_heading_block() and friends,
+ *    so a hallucinated shape cannot reach storage.
+ *  - Every word of the result is compared against the extracted text
+ *    (aidocs_text_fidelity) and the drift is reported to the editor, who
+ *    approves or discards. Nothing is written to _document_content here.
+ */
+add_action( 'wp_ajax_aidocs_ai_restructure', 'aidocs_ai_restructure_ajax' );
+function aidocs_ai_restructure_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    // The whole document goes into one request, and re-typing every piece of
+    // a large one measurably took over 180 seconds in testing. PHP's own
+    // script timeout would otherwise cut this request off first, regardless
+    // of how generous wp_remote_post's own timeout below is set to.
+    if ( function_exists( 'set_time_limit' ) ) set_time_limit( 300 );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+
+    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
+    if ( ! trim( $raw_text ) ) {
+        wp_send_json_error( __( 'No document text. Load a PDF and wait for extraction.' ) );
+    }
+
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured.' ) );
+
+    // Only the body is restructured. The title, teaser, "Last Updated" and
+    // document history are their own fields, parsed deterministically from
+    // their labels — handing them to the AI would invite it to fold the teaser
+    // into the content as one more paragraph, duplicating the description.
+    $parsed    = aidocs_parse_labeled_document( $raw_text );
+    $body_text = trim( $parsed['body_text'] ) !== '' ? $parsed['body_text'] : $raw_text;
+
+    // Plain text, not this plugin's own markdown-flavoured canonical format:
+    // the source's "**bold**" and its "\*" escape for a literal asterisk are
+    // an internal convention the AI has no reason to know about, and asking
+    // it to reuse text "verbatim" means it copies that convention's own
+    // punctuation into its reply — including, once, a literal `\*` landing
+    // inside a JSON string as an escape sequence JSON does not define, which
+    // broke decoding the entire reply. Structural cues ('#', list markers,
+    // '|') are untouched, since those are exactly what the prompt asks the
+    // model to read; only the inline emphasis markup is stripped.
+    $sent      = aidocs_plain_text( mb_substr( $body_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
+    $truncated = mb_strlen( $body_text ) > AIDOCS_AI_TEXT_LIMIT;
+
+    $prompt  = "You are re-structuring text that has ALREADY been extracted from a policy document.\n";
+    $prompt .= "Your only task is to decide, for each piece of that text, which structural role it has.\n\n";
+    $prompt .= "ABSOLUTE RULES:\n";
+    $prompt .= "1. Reuse the source text VERBATIM. Do not rewrite, summarise, translate, shorten, correct or explain anything.\n";
+    $prompt .= "2. Do not invent text. Every word you output must appear in the source.\n";
+    $prompt .= "3. Do not drop content. Every sentence of the source must appear in exactly one piece.\n";
+    $prompt .= "4. Keep the source's order.\n";
+    $prompt .= "5. Join lines the extractor wrapped mid-sentence back into one piece.\n\n";
+    $prompt .= "The source uses these markers, which you should treat as hints and correct where they are plainly wrong:\n";
+    $prompt .= "'## '/'### '/'#### ' = heading, two spaces of indent per list level, '| a | b |' = table row.\n\n";
+    $prompt .= "PIECE TYPES:\n";
+    $prompt .= "- heading: a section title. level 2 for a document-level/all-caps title, 3 for a section, 4 for a sub-section.\n";
+    $prompt .= "- paragraph: ordinary prose.\n";
+    $prompt .= "- note: a callout the document labels, e.g. 'Note:', 'Note to International Institutions', 'Reminder:', 'Exception:'. Put the label in \"label\" and the rest of the sentence in \"text\".\n";
+    $prompt .= "- list_item: one item of a list. \"marker\" is its authored marker ('1.', 'a.', 'iv.', '-'), \"level\" is 1 for a top-level item, 2 for one nested inside it, and so on.\n";
+    $prompt .= "- table_row: a row of a table, with \"cells\" as an array of cell strings.\n\n";
+    $prompt .= "Return ONLY a JSON object: {\"blocks\":[{\"type\":…,\"level\":…,\"marker\":…,\"label\":…,\"text\":…,\"cells\":[…]}]}\n";
+    $prompt .= "Include only the keys each type needs. No markdown fences, no commentary.\n\n";
+    $prompt .= "SOURCE TEXT:\n" . $sent;
+
+    $response = wp_remote_post(
+        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
+        [
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => wp_json_encode( [
+                'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+                // Temperature 0: this is a classification task with one right
+                // answer, not a writing task where variety helps. responseSchema
+                // constrains token generation to the shape below, which is what
+                // stops the model from ever emitting a raw, un-escaped quote or
+                // backslash inside a string — a source that quotes an
+                // abbreviation ("C&R") or uses "\*" for a literal asterisk was
+                // copied verbatim into a string value without the JSON escaping
+                // that needs, breaking the whole reply's decode on a reply that
+                // was otherwise complete and correct. responseMimeType alone
+                // asks for JSON but does not enforce it at this level.
+                'generationConfig' => [
+                    'temperature'      => 0,
+                    'responseMimeType' => 'application/json',
+                    'responseSchema'   => aidocs_restructure_response_schema(),
+                ],
+            ] ),
+            'timeout' => 280,
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( $code !== 200 ) {
+        wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    }
+
+    $reply = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $reply = preg_replace( '/^```(?:json)?\s*/m', '', trim( $reply ) );
+    $reply = preg_replace( '/\s*```\s*$/m', '', $reply );
+    $parsed_reply = json_decode( trim( $reply ), true );
+
+    // A model can still slip in a backslash sequence JSON does not define —
+    // most often \* from a source that used it for a literal asterisk, copied
+    // into the reply despite the plain text this prompt sends now — which
+    // breaks decoding of the entire reply, however long and otherwise correct
+    // it is. Repairing just the invalid escapes and re-trying costs nothing
+    // when the first decode already succeeded.
+    if ( ! is_array( $parsed_reply ) ) {
+        $parsed_reply = json_decode( trim( aidocs_repair_json_escapes( $reply ) ), true );
+    }
+
+    if ( ! is_array( $parsed_reply ) || empty( $parsed_reply['blocks'] ) || ! is_array( $parsed_reply['blocks'] ) ) {
+        $finish = $body['candidates'][0]['finishReason'] ?? '';
+        wp_send_json_error( $finish === 'MAX_TOKENS'
+            ? __( 'The document is too long for this model to restructure in one reply. Try a model with a larger output limit.' )
+            : __( 'Could not read the AI reply as structured content. Try again.' ) );
+    }
+
+    $blocks = aidocs_blocks_from_ai( $parsed_reply['blocks'] );
+    // The body's echo of the document title is dropped here for the same reason
+    // it is dropped from extracted content: the page already shows the title.
+    // Doing it on both paths also keeps the fidelity figures below comparable.
+    $blocks = aidocs_drop_title_echo( $blocks, $parsed['title'] );
+    if ( ! $blocks ) wp_send_json_error( __( 'The AI returned no usable content.' ) );
+
+    // The proposal is parked in its own meta key. Approving it is a separate,
+    // explicit request; until then the live content is untouched.
+    update_post_meta( $post_id, '_document_content_ai', wp_slash( wp_json_encode( $blocks ) ) );
+
+    // Both sides of this comparison are the body and only the body: the blocks
+    // the regex extractor produced for it, against the blocks the AI produced
+    // from the same text. Anything the AI adds or loses shows up here.
+    $current  = aidocs_get_content_blocks( $post_id );
+    $baseline = $current ? aidocs_blocks_plain_text( $current )
+                         : aidocs_blocks_plain_text( $parsed['blocks'] );
+    $fidelity = aidocs_text_fidelity( $baseline, aidocs_blocks_plain_text( $blocks ) );
+
+    $counts = array_count_values( wp_list_pluck( $blocks, 'type' ) );
+    wp_send_json_success( [
+        'total'      => count( $blocks ),
+        'headings'   => (int) ( $counts['heading'] ?? 0 ),
+        'paragraphs' => (int) ( $counts['paragraph'] ?? 0 ),
+        'lists'      => (int) ( $counts['list'] ?? 0 ),
+        'notes'      => (int) ( $counts['note'] ?? 0 ),
+        'tables'     => (int) ( $counts['table'] ?? 0 ),
+        'before'     => count( $current ),
+        'fidelity'   => $fidelity,
+        'truncated'  => $truncated,
+        'model'      => $model,
+        'html'       => aidocs_render_content_blocks( $blocks ),
+    ] );
+}
+
+/**
+ * AJAX: approve or discard the AI's re-structured content.
+ */
+add_action( 'wp_ajax_aidocs_ai_restructure_apply', 'aidocs_ai_restructure_apply_ajax' );
+function aidocs_ai_restructure_apply_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+
+    $decision = sanitize_key( $_POST['decision'] ?? '' );
+
+    if ( $decision === 'discard' ) {
+        delete_post_meta( $post_id, '_document_content_ai' );
+        wp_send_json_success( [ 'applied' => false ] );
+    }
+
+    $proposal = get_post_meta( $post_id, '_document_content_ai', true );
+    $blocks   = $proposal ? json_decode( $proposal, true ) : null;
+    if ( ! is_array( $blocks ) || ! $blocks ) {
+        wp_send_json_error( __( 'That proposal is no longer available. Run the restructure again.' ) );
+    }
+
+    update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
+    delete_post_meta( $post_id, '_document_content_ai' );
+
+    $indexed = aidocs_maybe_reindex( $post_id );
+
+    wp_send_json_success( [
+        'applied' => true,
+        'total'   => count( $blocks ),
+        'indexed' => $indexed,
+        'html'    => aidocs_render_content_blocks( $blocks ),
+    ] );
+}
+
+/**
+ * The JSON Schema constraining the restructure request's reply.
+ *
+ * Gemini's structured output enforces this at the grammar level — not just a
+ * shape hint the model tries to follow, but a constraint on what tokens it
+ * can emit next — which is what guarantees syntactically valid JSON even for
+ * a source that contains a quoted phrase or an escaped character of its own.
+ * The schema itself intentionally says nothing about content, order or
+ * length: it fixes the shape of a piece, not what should be in one, since
+ * that is the prompt's job and this is not the place to duplicate it.
+ */
+function aidocs_restructure_response_schema() {
+    return [
+        'type'       => 'OBJECT',
+        'properties' => [
+            'blocks' => [
+                'type'  => 'ARRAY',
+                'items' => [
+                    'type'       => 'OBJECT',
+                    'properties' => [
+                        'type'   => [ 'type' => 'STRING', 'enum' => [ 'heading', 'paragraph', 'note', 'list_item', 'table_row' ] ],
+                        'level'  => [ 'type' => 'INTEGER' ],
+                        'marker' => [ 'type' => 'STRING' ],
+                        'label'  => [ 'type' => 'STRING' ],
+                        'text'   => [ 'type' => 'STRING' ],
+                        'cells'  => [ 'type' => 'ARRAY', 'items' => [ 'type' => 'STRING' ] ],
+                    ],
+                    'required' => [ 'type' ],
+                ],
+            ],
+        ],
+        'required' => [ 'blocks' ],
+    ];
+}
+
+/**
+ * Turn the AI's flat list of typed pieces into content blocks.
+ *
+ * The AI only says what each piece is; the block itself — its emphasis runs,
+ * anchor id, note variant, list nesting — is built here by the same functions
+ * the regex parser uses, so AI-restructured content is indistinguishable in
+ * shape from extracted content and nothing unvalidated reaches the database.
+ *
+ * @param array $pieces Raw "blocks" array from the model.
+ * @return array Content blocks.
+ */
+function aidocs_blocks_from_ai( array $pieces ) {
+    $blocks = [];
+    $items  = [];   // consecutive list_item pieces, flushed as one list
+
+    $flush_items = function () use ( &$blocks, &$items ) {
+        if ( ! $items ) return;
+        $index    = 0;
+        $blocks[] = aidocs_list_from_flat( $items, $index );
+        $items    = [];
+    };
+
+    foreach ( $pieces as $piece ) {
+        if ( ! is_array( $piece ) ) continue;
+
+        $type = sanitize_key( $piece['type'] ?? '' );
+        $text = is_string( $piece['text'] ?? null ) ? trim( $piece['text'] ) : '';
+
+        // These documents wrap a run-in sub-title in square brackets —
+        // "[Governing Law] The arbitration shall be governed by…". The brackets
+        // are the source's markup for that convention, not part of the title,
+        // and the extractor strips them the same way when it recovers one.
+        if ( $type === 'heading' ) {
+            $text = preg_replace( '/^\[\s*([^\]]{2,120})\s*\]$/u', '$1', $text );
+        }
+
+        if ( $type === 'list_item' ) {
+            if ( $text === '' ) continue;
+            $items[] = [
+                'level'  => max( 1, min( 6, (int) ( $piece['level'] ?? 1 ) ) ),
+                'marker' => is_string( $piece['marker'] ?? null ) ? trim( $piece['marker'] ) : '-',
+                'text'   => $text,
+                'blocks' => [],
+            ];
+            continue;
+        }
+
+        $flush_items();
+
+        switch ( $type ) {
+            case 'heading':
+                if ( $text === '' ) break;
+                $blocks[] = aidocs_heading_block( max( 2, min( 4, (int) ( $piece['level'] ?? 3 ) ) ), $text );
+                break;
+
+            case 'note':
+                if ( $text === '' ) break;
+                $label = is_string( $piece['label'] ?? null ) ? trim( $piece['label'] ) : '';
+                // Re-derive the variant from the label rather than trusting a
+                // free-text one, and fall back to the paragraph pipeline when
+                // the label is not one this plugin styles.
+                $variant = aidocs_note_variant( $label !== '' ? $label . ':' : $text );
+                if ( $variant === '' ) {
+                    foreach ( aidocs_paragraph_blocks( $text ) as $block ) $blocks[] = $block;
+                    break;
+                }
+                $blocks[] = [
+                    'type'    => 'note',
+                    'variant' => $variant,
+                    'label'   => aidocs_plain_text( $label ),
+                    'text'    => aidocs_plain_text( $text ),
+                    'runs'    => aidocs_runs_unbold( aidocs_inline_runs( $text ) ),
+                ];
+                break;
+
+            case 'table_row':
+                $cells = array_values( array_filter( array_map(
+                    function ( $cell ) { return is_scalar( $cell ) ? trim( (string) $cell ) : ''; },
+                    (array) ( $piece['cells'] ?? [] )
+                ), 'strlen' ) );
+                if ( count( $cells ) < 2 ) break;
+                aidocs_append_table_row( $blocks, $cells );
+                break;
+
+            case 'paragraph':
+            default:
+                if ( $text === '' ) break;
+                foreach ( aidocs_paragraph_blocks( $text ) as $block ) $blocks[] = $block;
+                break;
+        }
+    }
+
+    $flush_items();
+    return $blocks;
+}
+
+/**
+ * Drop the backslash from any escape sequence JSON does not define.
+ *
+ * json_decode() rejects the whole document over one `\*` — the model copying
+ * a source's own escaping convention into a string literal without knowing
+ * JSON does not define that escape — so the fix is the same regardless of
+ * how that stray backslash got there: a literal `X` was clearly meant, and a
+ * backslash JSON has no rule for is never valid on purpose. Runs only after
+ * a first plain json_decode() has already failed.
+ *
+ * @return string
+ */
+function aidocs_repair_json_escapes( $text ) {
+    $length = strlen( $text );
+    $out    = '';
+    $in_string = false;
+
+    for ( $i = 0; $i < $length; $i++ ) {
+        $char = $text[ $i ];
+
+        if ( $char === '\\' && $in_string && $i + 1 < $length ) {
+            $next = $text[ $i + 1 ];
+            if ( strpos( '"\\/bfnrtu', $next ) === false ) {
+                $out .= $next;   // drop the backslash, keep the character it "escaped"
+                $i++;
+                continue;
+            }
+            $out .= $char . $next;
+            $i++;
+            continue;
+        }
+
+        if ( $char === '"' ) $in_string = ! $in_string;
+        $out .= $char;
+    }
+
+    return $out;
+}
+
+/**
+ * Compare two bodies of text word by word, ignoring order.
+ *
+ * The point is to answer one question about an AI restructure: did it only
+ * move text around, or did it start writing? Words present in the result but
+ * not the source are invented; words in the source but not the result were
+ * dropped. Both are reported as counts and as samples, so an editor sees the
+ * evidence rather than a verdict.
+ *
+ * @return array{added:int,removed:int,kept:int,ratio:float,added_sample:array,removed_sample:array}
+ */
+function aidocs_text_fidelity( $before, $after ) {
+    $words = function ( $text ) {
+        $text = mb_strtolower( wp_strip_all_tags( (string) $text ) );
+        // Curly quotes and dashes differ between the two paths for the same
+        // word, and would otherwise read as invented text.
+        $text = str_replace( [ '’', '‘', '“', '”', '–', '—' ], [ "'", "'", '"', '"', '-', '-' ], $text );
+        preg_match_all( '/[\p{L}\p{N}][\p{L}\p{N}\'\-]*/u', $text, $m );
+        return $m[0] ?? [];
+    };
+
+    $before_counts = array_count_values( $words( $before ) );
+    $after_counts  = array_count_values( $words( $after ) );
+
+    $added = $removed = $kept = 0;
+    $added_sample = $removed_sample = [];
+
+    foreach ( $after_counts as $word => $count ) {
+        $have = $before_counts[ $word ] ?? 0;
+        $kept += min( $count, $have );
+        if ( $count > $have ) {
+            $added += $count - $have;
+            if ( count( $added_sample ) < 12 ) $added_sample[] = (string) $word;
+        }
+    }
+    foreach ( $before_counts as $word => $count ) {
+        $have = $after_counts[ $word ] ?? 0;
+        if ( $count > $have ) {
+            $removed += $count - $have;
+            if ( count( $removed_sample ) < 12 ) $removed_sample[] = (string) $word;
+        }
+    }
+
+    $total = array_sum( $before_counts );
+
+    return [
+        'added'          => $added,
+        'removed'        => $removed,
+        'kept'           => $kept,
+        'source_words'   => $total,
+        'ratio'          => $total > 0 ? round( $kept / $total, 4 ) : 0.0,
+        'added_sample'   => $added_sample,
+        'removed_sample' => $removed_sample,
+    ];
 }
 
 // ── AJAX: Fetch a document's rendered content (frontend, lazy-loaded by the modal) ─
@@ -1757,11 +2429,24 @@ function aidocs_settings_page() { // phpcs:ignore
             <tr>
                 <th><label for="cd-gemini-model"><?php esc_html_e( 'Gemini Model' ); ?></label></th>
                 <td>
+                    <?php
+                    // A model saved before this list existed, or picked up from
+                    // the live API, still has to appear as the current choice.
+                    $model_options = aidocs_model_catalog();
+                    if ( $gemini_model !== '' && ! isset( $model_options[ $gemini_model ] ) ) {
+                        $model_options = [ $gemini_model => $gemini_model . ' (saved)' ] + $model_options;
+                    }
+                    ?>
                     <select id="cd-gemini-model" name="aidocs_gemini_model">
-                        <?php foreach ( [ 'gemini-2.5-flash' => 'Gemini 2.5 Flash', 'gemini-2.5-pro' => 'Gemini 2.5 Pro', 'gemini-1.5-flash' => 'Gemini 1.5 Flash', 'gemini-1.5-pro' => 'Gemini 1.5 Pro' ] as $mid => $mname ) : ?>
+                        <?php foreach ( $model_options as $mid => $mname ) : ?>
                         <option value="<?php echo esc_attr( $mid ); ?>" <?php selected( $gemini_model, $mid ); ?>><?php echo esc_html( $mname ); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <button type="button" id="cd-gemini-model-refresh" class="button"><?php esc_html_e( 'Refresh from API' ); ?></button>
+                    <span id="cd-gemini-model-status" style="font-size:12px;color:#646970;"></span>
+                    <p class="description">
+                        <?php esc_html_e( 'The list above is a starting point. "Refresh from API" replaces it with exactly the text models the saved key can reach — use it if a model here is rejected. Every model listed takes a 1M-token context, so a whole policy document fits in one request.' ); ?>
+                    </p>
                 </td>
             </tr>
             <tr>
@@ -1818,9 +2503,9 @@ function aidocs_settings_page() { // phpcs:ignore
             <div class="cd-sc-code"><code id="cd-sc-5">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-5"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Without AI chat bubble' ); ?></h3>
-            <p class="cd-sc-desc"><?php esc_html_e( 'Hides the floating AI chat button (bottom-right corner).' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-6">[aidocs_search show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <h3><?php esc_html_e( 'With the AI chat bubble' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'The floating chat button (bottom-right corner) is off by default; this brings it back.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-6">[aidocs_search show_chat="true"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Custom results per page' ); ?></h3>
@@ -1829,8 +2514,8 @@ function aidocs_settings_page() { // phpcs:ignore
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Search only (no AI)' ); ?></h3>
-            <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-8">[aidocs_search show_ai="false" show_chat="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features. The chat bubble is already off by default.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-8">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <table class="cd-sc-params" style="margin-top:18px;">
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
@@ -1838,7 +2523,7 @@ function aidocs_settings_page() { // phpcs:ignore
                 <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from URL.' ); ?></td></tr>
                 <tr><td><code>audience</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select an audience. Also reads ?audience= from URL.' ); ?></td></tr>
                 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to disable inline AI suggestions in the search bar.' ); ?></td></tr>
-                <tr><td><code>show_chat</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to hide the floating AI chat bubble.' ); ?></td></tr>
+                <tr><td><code>show_chat</code></td><td><code>false</code></td><td><?php esc_html_e( 'Set "true" to show the floating AI chat bubble.' ); ?></td></tr>
                 <tr><td><code>per_page</code></td><td><code>20</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
             </tbody>
         </table>
@@ -1857,6 +2542,43 @@ function aidocs_settings_page() { // phpcs:ignore
                 });
             });
         });
+
+        // Replace the starting model list with what the saved key can actually
+        // reach, keeping the current selection if it is still among them.
+        var refresh = document.getElementById('cd-gemini-model-refresh');
+        var select  = document.getElementById('cd-gemini-model');
+        var status  = document.getElementById('cd-gemini-model-status');
+        if (refresh && select) {
+            refresh.addEventListener('click', function() {
+                refresh.disabled = true;
+                status.textContent = '<?php echo esc_js( __( 'Checking…' ) ); ?>';
+                var body = new URLSearchParams({
+                    action: 'aidocs_ai_credentials',
+                    nonce:  <?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai' ) ); ?>,
+                    mode:   'probe'
+                });
+                fetch(<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>, {
+                    method: 'POST', credentials: 'same-origin', body: body
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (!res.success) { status.textContent = 'Error: ' + res.data; return; }
+                    var current = select.value;
+                    select.innerHTML = '';
+                    (res.data.models || []).forEach(function(m) {
+                        var opt = document.createElement('option');
+                        opt.value = m.id || m;
+                        opt.textContent = (m.label || m.id || m);
+                        select.appendChild(opt);
+                    });
+                    select.value = current;
+                    if (select.value !== current && select.options.length) select.selectedIndex = 0;
+                    status.textContent = select.options.length + ' <?php echo esc_js( __( 'models available' ) ); ?>';
+                })
+                .catch(function(err) { status.textContent = 'Error: ' + err.message; })
+                .finally(function() { refresh.disabled = false; });
+            });
+        }
     })();
     </script>
     </div>
@@ -1934,7 +2656,10 @@ function aidocs_search_shortcode( $atts ) {
         'audience'  => '',
         'per_page'  => 20,
         'show_ai'   => 'true',
-        'show_chat' => 'true',
+        // Off by default: every document card already links straight to its
+        // own page, so a floating assistant duplicates that with a second,
+        // separate way to get there. Pass show_chat="true" to bring it back.
+        'show_chat' => 'false',
     ], $atts );
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );
@@ -2223,7 +2948,7 @@ jQuery(function($){
                 '<div class="cd-fs-doc-meta">'+tags+'</div></div>'+
                 '<div class="cd-fs-doc-actions">'+view+dl+'</div></div>'
             );
-            \$card.on('click',function(e){if(\$(e.target).closest('a').length)return;openModal(doc);});
+            \$card.on('click',function(e){if(\$(e.target).closest('a').length)return;if(doc.permalink)location.href=doc.permalink;});
             \$results.append(\$card);
         });
         if(data.total_pages>1){
@@ -2260,7 +2985,7 @@ jQuery(function($){
                 var \$info=\$('<div class="cd-fs-ai-suggest-doc-info"></div>');
                 \$('<div class="cd-fs-ai-suggest-doc-title"></div>').text(doc.title).appendTo(\$info);
                 var \$actions=\$('<div class="cd-fs-ai-suggest-doc-actions"></div>');
-                \$('<button class="cd-fs-ai-suggest-view" type="button">{$js_ai_view}</button>').on('click',function(){openModal(doc);}).appendTo(\$actions);
+                \$('<button class="cd-fs-ai-suggest-view" type="button">{$js_ai_view}</button>').on('click',function(){if(doc.permalink)location.href=doc.permalink;}).appendTo(\$actions);
                 if(doc.file_url)\$('<a class="cd-fs-doc-dl" target="_blank" download>{$js_dl} \u2193</a>').attr('href',doc.file_url).appendTo(\$actions);
                 \$info.append(\$actions);
                 \$card.append(\$info);
@@ -2316,7 +3041,7 @@ jQuery(function($){
                     \$('<a class="cd-bot-doc-dl" target="_blank" download>\u2193 Download</a>').attr('href',doc.file_url).appendTo(\$info);
                 }
                 \$card.append(\$info);
-                \$card.on('click',function(e){if(!\$(e.target).closest('a').length)openModal(doc);});
+                \$card.on('click',function(e){if(!\$(e.target).closest('a').length&&doc.permalink)location.href=doc.permalink;});
                 \$turn.append(\$card);
             });
         }
@@ -2696,31 +3421,6 @@ function aidocs_single_document_content( $content ) {
     ?>
     <article class="aidocs-single fmt-<?php echo esc_attr( $fmt ); ?>">
 
-        <?php
-        $archive_link = get_post_type_archive_link( 'aidoc' );
-        if ( $archive_link ) :
-        ?>
-        <a href="<?php echo esc_url( $archive_link ); ?>" class="aidocs-single-back" id="aidocs-single-back">
-            &larr; <?php esc_html_e( 'Back to documents' ); ?>
-        </a>
-        <script>
-        (function(){
-            // The listing a visitor actually came from — the search shortcode
-            // can sit on any page, not just the aidoc archive this link falls
-            // back to — is the browser's own history, so returning to it is
-            // preferred whenever that history exists and is this site's own.
-            var back = document.getElementById('aidocs-single-back');
-            var ref  = document.referrer;
-            if ( back && ref && ref !== location.href && ref.indexOf( location.origin + '/' ) === 0 && window.history.length > 1 ) {
-                back.addEventListener( 'click', function( e ) {
-                    e.preventDefault();
-                    history.back();
-                } );
-            }
-        })();
-        </script>
-        <?php endif; ?>
-
         <!-- The theme's own template already renders the post title above
              the_content(), so this header carries only what it adds: the
              format icon, the audience/type/format tags and the download
@@ -2747,6 +3447,13 @@ function aidocs_single_document_content( $content ) {
 
         <?php if ( $desc ) : ?>
         <div class="aidocs-single-desc"><?php echo esc_html( $desc ); ?></div>
+        <?php endif; ?>
+
+        <?php if ( $fmt === 'pdf' && $file_url ) : ?>
+        <details class="aidocs-single-preview">
+            <summary><?php esc_html_e( 'Preview original PDF' ); ?></summary>
+            <iframe src="<?php echo esc_url( $file_url ); ?>" title="<?php echo esc_attr( get_the_title( $pid ) ); ?>"></iframe>
+        </details>
         <?php endif; ?>
 
         <?php if ( $audience || $types || $pub_date || $format ) : ?>
@@ -2777,13 +3484,6 @@ function aidocs_single_document_content( $content ) {
             <p class="aidocs-content-empty"><?php esc_html_e( 'No structured content has been extracted for this document yet.' ); ?></p>
         <?php endif; ?>
         <?php echo aidocs_render_document_history( $pid ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
-
-        <?php if ( $fmt === 'pdf' && $file_url ) : ?>
-        <details class="aidocs-single-preview">
-            <summary><?php esc_html_e( 'Preview original PDF' ); ?></summary>
-            <iframe src="<?php echo esc_url( $file_url ); ?>" title="<?php echo esc_attr( get_the_title( $pid ) ); ?>"></iframe>
-        </details>
-        <?php endif; ?>
 
         <?php if ( get_option( 'aidocs_gemini_api_key', '' ) ) : ?>
         <div class="aidocs-single-ask" id="aidocs-single-ask">
@@ -2873,8 +3573,6 @@ function aidocs_single_view_styles() {
     .aidocs-single-icon.excel{background:linear-gradient(145deg,#1e7145,#145232);}
     .aidocs-single-icon.generic{background:linear-gradient(145deg,#7f8c8d,#636e72);}
     .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;min-height:62px;}
-    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;margin-bottom:16px;font-size:13px;font-weight:600;color:var(--wp--preset--color--primary,#1e3a5f);text-decoration:none;}
-    .aidocs-single-back:hover{text-decoration:underline;}
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
     .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
@@ -2901,7 +3599,7 @@ function aidocs_single_view_styles() {
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
     .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
     .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
-    .aidocs-single-preview{margin-top:28px;border:1px solid #e5e9ef;border-radius:10px;padding:14px 18px;}
+    .aidocs-single-preview{margin:0 0 22px;border:1px solid #e5e9ef;border-radius:10px;padding:14px 18px;}
     .aidocs-single-preview summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);}
     .aidocs-single-preview iframe{width:100%;min-height:560px;border:none;margin-top:14px;}
     /* Ask AI — pinned to the bottom of the viewport while reading */

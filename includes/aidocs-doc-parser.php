@@ -169,13 +169,19 @@ function aidocs_parse_labeled_document( $raw_text ) {
     }
 
     $body_lines = $labeled ? ( $sections['body'] ?? [] ) : array_merge( $preamble, $sections['body'] ?? [] );
+    $body_text  = implode( "\n", $body_lines );
 
     return [
         'title'            => $title,
         'teaser'           => aidocs_join_plain( $sections['teaser'] ?? [] ),
         'last_updated'     => aidocs_join_plain( $sections['last updated'] ?? [] ),
         'document_history' => aidocs_join_history( $sections['document history'] ?? [] ),
-        'blocks'           => aidocs_parse_structured_content( implode( "\n", $body_lines ), $title ),
+        'blocks'           => aidocs_parse_structured_content( $body_text, $title ),
+        // The body on its own, still carrying the extractor's markers. The
+        // blocks above cover exactly this much of the document and nothing
+        // else, so anything re-deriving them — the AI restructure pass — has
+        // to work from the same span to be comparable.
+        'body_text'        => $body_text,
         'labeled'          => $labeled,
     ];
 }
@@ -1139,10 +1145,10 @@ function aidocs_blocks_plain_text( array $blocks, $depth = 0 ) {
  *
  * Every level-2 or level-3 heading that is not a note starts a collapsible
  * section — an accordion item whose summary is the heading and whose panel is
- * everything up to the next such heading. Sections default open, so nothing
- * that used to be visible becomes hidden by this; it only adds the ability to
- * collapse a section. A note heading never collapses: what follows it is a
- * callout the reader needs to see, not a section to tuck away.
+ * everything up to the next such heading. Sections start closed, so a reader
+ * sees the document's outline first and opens what they need. A note heading
+ * never collapses: what follows it is a callout the reader needs to see, not
+ * a section to tuck away.
  */
 function aidocs_render_content_blocks( array $blocks ) {
     if ( ! $blocks ) return '';
@@ -1174,7 +1180,7 @@ function aidocs_render_sections( array $blocks ) {
         $id    = ! empty( $heading['id'] ) ? ' id="' . esc_attr( $heading['id'] ) . '"' : '';
         $level = max( 2, min( 3, (int) ( $heading['level'] ?? 3 ) ) );
 
-        $html .= '<details class="aidocs-accordion-item" open' . $id . '>'
+        $html .= '<details class="aidocs-accordion-item"' . $id . '>'
                . '<summary class="aidocs-accordion-summary aidocs-content-h' . $level . '">'
                . aidocs_render_runs( $heading )
                . '</summary>'
@@ -1353,8 +1359,7 @@ function aidocs_content_block_css() {
 .aidocs-content em{font-style:italic;}
 .aidocs-content-h4{font-size:13px;font-weight:700;color:var(--cd-primary);margin:18px 0 6px;}
 
-/* Accordion: every level-2/3 section heading is collapsible. Sections start
-   open, so nothing that used to be visible is hidden by adding this. */
+/* Accordion: every level-2/3 section heading is collapsible, starting closed. */
 .aidocs-accordion-item{border:1px solid #e5e9ef;border-radius:var(--cd-radius);margin:0 0 10px;overflow:hidden;}
 .aidocs-accordion-item + .aidocs-accordion-item{margin-top:10px;}
 .aidocs-accordion-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:13px 16px;margin:0;background:#f7f9f8;user-select:none;}
