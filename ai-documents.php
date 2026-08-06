@@ -2292,6 +2292,38 @@ function aidocs_restructure_response_schema() {
     ];
 }
 
+/** responseSchema for aidocs_ai_recommend_ajax() — see aidocs_restructure_response_schema() for why this matters. */
+function aidocs_recommend_response_schema() {
+    return [
+        'type'       => 'OBJECT',
+        'properties' => [
+            'message' => [ 'type' => 'STRING' ],
+            'doc_ids' => [ 'type' => 'ARRAY', 'items' => [ 'type' => 'INTEGER' ] ],
+        ],
+        'required' => [ 'message', 'doc_ids' ],
+    ];
+}
+
+/** responseSchema for aidocs_ai_search_ajax() — see aidocs_restructure_response_schema() for why this matters. */
+function aidocs_search_response_schema() {
+    return [
+        'type'       => 'OBJECT',
+        'properties' => [
+            'message' => [ 'type' => 'STRING' ],
+            'filters' => [
+                'type'       => 'OBJECT',
+                'properties' => [
+                    'keyword'  => [ 'type' => 'STRING' ],
+                    'audience' => [ 'type' => 'STRING' ],
+                    'type'     => [ 'type' => 'STRING' ],
+                ],
+                'required' => [ 'keyword', 'audience', 'type' ],
+            ],
+        ],
+        'required' => [ 'message', 'filters' ],
+    ];
+}
+
 /**
  * Turn the AI's flat list of typed pieces into content blocks.
  *
@@ -4137,7 +4169,18 @@ function aidocs_ai_recommend_ajax() {
             'headers' => [ 'Content-Type' => 'application/json' ],
             'body'    => wp_json_encode( [
                 'contents'         => $contents,
-                'generationConfig' => [ 'temperature' => 0.5, 'responseMimeType' => 'application/json' ],
+                // responseSchema (not just responseMimeType) is what stops the
+                // model from ever emitting a raw, un-escaped quote inside a
+                // string — expected here since the message routinely quotes a
+                // document title or a phrase copied from its text — breaking
+                // the whole reply's decode on a reply that was otherwise
+                // complete and correct (see aidocs_restructure_response_schema
+                // for the same fix applied to document extraction).
+                'generationConfig' => [
+                    'temperature'      => 0.5,
+                    'responseMimeType' => 'application/json',
+                    'responseSchema'   => aidocs_recommend_response_schema(),
+                ],
             ] ),
             'timeout' => 30,
         ]
@@ -4291,7 +4334,11 @@ function aidocs_ai_search_ajax() {
             'headers' => [ 'Content-Type' => 'application/json' ],
             'body'    => wp_json_encode( [
                 'contents'         => $contents,
-                'generationConfig' => [ 'temperature' => 0.4, 'responseMimeType' => 'application/json' ],
+                'generationConfig' => [
+                    'temperature'      => 0.4,
+                    'responseMimeType' => 'application/json',
+                    'responseSchema'   => aidocs_search_response_schema(),
+                ],
             ] ),
             'timeout' => 30,
         ]
