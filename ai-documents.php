@@ -2912,11 +2912,12 @@ jQuery(function($){
     var \$kwWrap=\$wrap.find('.cd-fs-keyword-wrap');
     var \$kw=\$wrap.find('.cd-fs-keyword');
     var \$suggestions=\$('<div class="cd-fs-suggestions"></div>').appendTo(\$kwWrap);
-    var _suggTimer,_explainXhr,_aiTimer;
+    var _suggTimer,_explainXhr,_aiTimer,_searchTimer;
 
     \$kw.on('input',function(){
         clearTimeout(_suggTimer);
         clearTimeout(_aiTimer);
+        clearTimeout(_searchTimer);
         var val=\$(this).val().trim();
         /* autocomplete dropdown */
         if(val.length>=2){
@@ -2940,10 +2941,14 @@ jQuery(function($){
         } else {
             \$suggestions.hide().empty();
         }
+        /* Exact-text results — debounced live search, no button click needed.
+           doSearch() renders its own loading/empty states, so it's safe to
+           let it own \$results instead of clearing it here first. */
+        _searchTimer=setTimeout(function(){doSearch(1);},400);
         /* AI recommendation on typing */
         if(showAi){
-            if(val.length<2){\$aiExplain.empty();\$results.empty();return;}
-            \$aiExplain.empty();\$results.empty();
+            if(val.length<2){\$aiExplain.empty();return;}
+            \$aiExplain.empty();
             _aiTimer=setTimeout(function(){
                 var aud=\$wrap.find('.cd-fs-audience').val();
                 var typ=\$wrap.find('.cd-fs-type').val();
