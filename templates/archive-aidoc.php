@@ -2,34 +2,21 @@
 /**
  * Archive template for the aidoc post type — the document listing.
  *
- * Loaded via template_include() (see aidocs_archive_template_include() in
- * ai-documents.php) only when Documents → Settings → Listing Template is set
- * to "Document search".
+ * Loaded via template_include() (see aidocs_document_template_include() in
+ * ai-documents.php) for the document archive.
  *
- * get_header()/get_footer() do nothing here: they locate a classic header.php/
- * footer.php, which a pure block theme like this one does not ship — only
- * parts/header.html and parts/footer.html, which are template PARTS, not full
- * templates, and nothing a plain PHP file can just include. Rendering the
- * core/template-part block directly is what actually pulls the active
- * theme's own header and footer in, keeping the site's real navigation
- * around the [aidocs_search] shortcode's output either way.
+ * aidocs_document_header()/aidocs_document_footer() (also in ai-documents.php)
+ * print the theme's real header/footer — on a block theme via its "header"/
+ * "footer" template parts, wrapped in the doctype/head/body markup those
+ * themes need but ship no header.php/footer.php to provide; on a classic
+ * theme via its own get_header()/get_footer().
  *
  * @package aidocs
  */
 
 defined( 'ABSPATH' ) || exit;
 
-/** Render a theme template part by slug, or nothing if the theme has none by that name. */
-function aidocs_render_template_part( $slug, $tag ) {
-    echo render_block( [
-        'blockName' => 'core/template-part',
-        'attrs'     => [ 'slug' => $slug, 'tagName' => $tag, 'theme' => get_stylesheet() ],
-        'innerHTML' => '',
-    ] );
-}
-
-get_header(); // no-op on a pure block theme; harmless, and correct if the theme ever ships header.php.
-aidocs_render_template_part( 'header', 'header' );
+aidocs_document_header();
 ?>
 
 <main id="aidocs-archive" class="aidocs-archive">
@@ -50,5 +37,4 @@ aidocs_render_template_part( 'header', 'header' );
 </main>
 
 <?php
-aidocs_render_template_part( 'footer', 'footer' );
-get_footer();
+aidocs_document_footer();
