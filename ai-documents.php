@@ -385,6 +385,28 @@ function aidocs_search_snippet( $pid, $keyword ) {
 }
 
 /**
+ * Body-text excerpt for a candidate document, sized generously enough that
+ * Gemini has real text to judge relevance from — not just a title and a
+ * (usually empty) manual description.
+ *
+ * This deliberately does NOT try to locate "the relevant passage" for the
+ * query: a first pass tried scoring sliding windows by which query words
+ * they contained, but short/generic query words collide with unrelated text
+ * constantly (e.g. "unit" inside "United States", "level" inside "Level 4
+ * travel advisory"), silently steering the excerpt to the wrong paragraph
+ * with no way to tell from the output that it happened. A longer straight
+ * excerpt from the top of the document is far more predictable, and the
+ * candidate list here is already short (the embedding step upstream did the
+ * real relevance filtering), so the token cost of a bigger excerpt is trivial.
+ *
+ * @param int $max_len Scale this down when the candidate list is long (the
+ *                      embedding-unavailable fallback can pad it to 40 docs).
+ */
+function aidocs_candidate_excerpt( $pid, $max_len = 3000 ) {
+    return mb_substr( aidocs_content_plain_text( $pid ), 0, $max_len );
+}
+
+/**
  * Render a document's provenance line, if it has one.
  *
  * Shown at the end of the body, which is where the source documents carry it.
@@ -4074,7 +4096,11 @@ function aidocs_ai_recommend_ajax() {
     }
 
     // Build candidate data array
-    $candidates = [];
+    // Scale each excerpt down when the candidate list is long — the
+    // embedding-unavailable fallback can pad this out to 40 docs, where a
+    // 3000-char excerpt each would balloon the prompt for no real benefit.
+    $excerpt_len = count( $candidate_ids ) > 15 ? 300 : 3000;
+    $candidates  = [];
     foreach ( $candidate_ids as $pid ) {
         $pid          = (int) $pid;
         $file_id      = get_post_meta( $pid, '_document_file_id', true );
@@ -4086,10 +4112,10 @@ function aidocs_ai_recommend_ajax() {
             // extracted body text, but Gemini's final pick was only ever shown
             // title/type/audience/description — nothing from the actual content.
             // A short manually-written description is frequently empty, so Gemini
-            // had no real text to confirm relevance against, and rejected doc
+            // had no real text to confirm relevance against, and rejected docs
             // that merely used *different wording* than the query. Give it an
             // actual body excerpt to judge from.
-            'excerpt'     => mb_substr( aidocs_content_plain_text( $pid ), 0, 400 ),
+            'excerpt'     => aidocs_candidate_excerpt( $pid, $excerpt_len ),
             'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
             'format'      => get_post_meta( $pid, '_document_file_format', true ),
