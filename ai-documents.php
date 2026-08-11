@@ -1368,6 +1368,15 @@ function aidocs_meta_box_html( $post ) {
             $('.cd-mode-single-only').toggle(!multi);
             $('.cd-mode-multi-only').toggle(multi);
             cdRenderPageBadges();
+
+            // Publish/Update — WordPress core's own button (#publishing-action
+            // in #major-publishing-actions), not part of this meta box — is
+            // what writes the single-policy fields this mode hides. "Create the
+            // selected entries" is this mode's own save action, already writing
+            // straight to the database as each entry is created, so leaving
+            // Publish/Update in place would just be a second, misleading way to
+            // "save" a screen that has nothing of its own left to save.
+            $('#publishing-action').toggle(!multi);
         }
 
         $(document).on('change', 'input[name="document_source_mode"]', function() {
@@ -1896,6 +1905,26 @@ function aidocs_meta_box_html( $post ) {
         // before the editor has seen the list of what was found.
         var cdPolicies = [];
 
+        /**
+         * Tell WordPress core there is nothing left here to save.
+         *
+         * Its own "Leave site? Changes you made may not be saved" prompt
+         * (wp-includes/js/autosave.js, postChanged()) compares #title against
+         * its value at page load — the only field this post type's own save
+         * screen tracks, since it supports no content editor. The moment an
+         * import writes a policy over the entry being edited, this script sets
+         * #title to match, and that comparison starts reading it as an
+         * unsaved edit — when the title is not unsaved at all: the AJAX call
+         * that set it already wrote it to the post before this line runs.
+         * Without this, an editor who has just finished importing forty-nine
+         * entries gets warned about losing a change that is already saved, and
+         * either stays on the page out of caution or clicks through without
+         * reading it — neither is what the warning is for.
+         */
+        function cdSuppressLeaveWarning() {
+            $(window).off('beforeunload.edit-post');
+        }
+
         $('#cd-split-detect-btn').on('click', function() { cdDetectPolicies(false); });
 
         function cdDetectPolicies(automatic) {
@@ -2049,6 +2078,7 @@ function aidocs_meta_box_html( $post ) {
                         $('#title').val(doc.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
                         if (doc.fields.description) $('#cd-description').val(doc.fields.description);
                         if (doc.fields.pub_date)    $('#cd-pub-date').val(doc.fields.pub_date);
+                        cdSuppressLeaveWarning();
                     }
                 });
 
