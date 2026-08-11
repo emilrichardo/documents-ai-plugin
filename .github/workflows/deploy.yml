@@ -13,6 +13,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Strip dev-only files before deploy
+        run: rm -rf .git .github .claude .gitignore .DS_Store
+
       - name: Deploy to server via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
