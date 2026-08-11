@@ -1,10 +1,18 @@
 # AI Documents
 
-A WordPress plugin for publishing and searching institutional documents. PDF
-content is extracted and structured automatically with regular expressions —
-no AI required for that part — and Google Gemini is available as an
-opt-in layer for metadata suggestions, re-structuring a misread PDF, and
-semantic search.
+A WordPress plugin for publishing an institutional **information** repository.
+Policies are uploaded as files, but the file is only ever a source of text: it is
+read, structured with regular expressions — no AI required for that part — and
+published as content. Nothing links to it, offers it for download or previews it,
+because what the site publishes is the information, not the document it arrived
+in.
+
+A single upload can hold one policy or fifty. The editor picks which at the top of
+the screen, and a compilation is split into its individual policies, each becoming
+its own entry.
+
+Google Gemini is available as an opt-in layer for metadata suggestions,
+re-structuring a misread file, and semantic search.
 
 ---
 
@@ -65,12 +73,8 @@ The model list ships with the current Gemini lineup (3.6/3.5/3.1 Flash and Pro, 
 
 ## Settings
 
-**Documents → Settings** is one page with four sections:
-
-### Display
-- **URL Slug** — the segment documents live under: `/{slug}/` for the listing, `/{slug}/{document}/` for each one. Changing it moves both together and updates permalinks immediately.
-- **Listing Template** — "Document search" (this plugin's search UI, the default) or "Theme default" (leaves `/{slug}/` to whatever your active theme would otherwise show there — normally a bare title-and-excerpt list).
-- **Document Page Template** — "Structured view" (this plugin's extracted content, download button, and Ask AI bar, the default) or "Theme default" (the theme's own single-post template, untouched).
+**Documents → Settings** is one page with three sections. Entries live under
+`/documents/` — `/documents/{entry}/` for each one — which is not configurable.
 
 ### AI
 - **Gemini API Key** and **Gemini Model** — see the previous section.
@@ -93,12 +97,13 @@ A reference of every shortcode parameter with copy-to-clipboard examples.
 
 | Field | Description |
 |---|---|
-| **Title** | Document name |
-| **File** | Upload a file (PDF, Word, Excel) through the media picker |
-| **Publication Date** | The document's publication date |
-| **Audience** | One or more audiences (checkboxes) |
-| **Document Type** | One or more types (checkboxes) |
-| **Description** | Free-text description |
+| **What are you uploading?** | **One policy**, or **a document holding several policies**. Everything below depends on this — see [Uploading several policies at once](#uploading-several-policies-at-once). |
+| **Source file** | Upload a file (PDF, Word, Excel) through the media picker. It is read for its text only, and is never published, linked or offered for download. |
+| **Title** | Entry name |
+| **Publication Date** | Read from the document's own `Last Updated` label when it has one |
+| **Audience** | One or more audiences |
+| **Document Type** | One or more types |
+| **Description** | Read from the document's own `Teaser` label when it has one |
 
 3. Click **"Publish"**.
 
@@ -129,7 +134,46 @@ Each marker is accepted as `Label:`, `[Label]`, `[Label] content`, or a line hol
 
 The description and date are **never overwritten** if already set — a manual correction always outranks the parser.
 
-> The parsers live in `includes/aidocs-doc-parser.php`: `aidocs_parse_labeled_document()` (label schema) and `aidocs_parse_structured_content()` (body → blocks, with a heuristic fallback for hand-pasted text). These are the only two functions to adjust for a different document family — the rest of the plugin depends only on the block format. To check a change against a corpus without going through WordPress: `php tools/parse-check.php path/*.txt`.
+### Uploading several policies at once
+
+The files the Commission publishes are single documents carrying dozens of
+standalone policies one after another, and each of those has to become an entry of
+its own. Pick **"A document holding several policies"** at the top of the editor
+and the upload is read for what it holds instead of being parsed as one document.
+**PDF only** — the split reads the same extracted text as everything else, so a
+Word or Excel file cannot be split; convert it to PDF first, or switch to "One
+policy" and upload each one on its own.
+
+1. Upload the PDF — the policies are found on their own, with no AI and no API key.
+2. **"Complete fields with AI, per policy"** — tick which of Title, Description,
+   Audience or Document Type the AI should fill for each policy. Audience and
+   Document Type are ticked by default: the label schema has no section for
+   either, so there is nothing deterministic to read them from. Title and
+   Description are usually already read from the labels, so leave them unticked
+   unless a particular upload is missing them.
+3. **"Policies in this document"** lists each one with the title, date, description and block count read from it. Untick anything that should not be imported.
+4. **"Create N entries"** writes them. The first policy is written over the entry you are editing; the rest are added as new ones. The import runs a few at a time — fewer when AI fields are ticked, since each one is then an extra Gemini call alongside the embedding every entry already gets.
+5. Click **"Update"** afterwards, so the form and the entry it is open on agree.
+
+The single-policy fields — Description, Publication Date, Audience, Document Type
+— and the "Complete fields with AI (optional)" panel below extraction are all
+hidden in this mode: none of them can hold one value that fits every policy in
+the upload, which is exactly why the fields are completed per policy above
+instead. Applied without a manual review step per policy — reviewing forty-nine
+proposals one at a time is what this batch flow exists to avoid — so an AI
+field ticked here is written as soon as each entry is created, same as the
+deterministic ones.
+
+What delimits the policies is the same label schema above: a policy carries exactly
+one `Body:` label, so counting those counts the policies, and each one starts at
+the title printed above its own `Teaser:`/`Body:` pair. A file without the labels
+cannot be split — upload those policies one at a time. Anything before the first
+policy's title, such as a cover page or a table of contents, is left out.
+
+The imported entries carry no source file: the file held fifty policies and none of
+them is it.
+
+> The parsers live in `includes/aidocs-doc-parser.php`: `aidocs_split_multi_policy_text()` (compilation → one text per policy), `aidocs_parse_labeled_document()` (label schema) and `aidocs_parse_structured_content()` (body → blocks, with a heuristic fallback for hand-pasted text). These are the only three functions to adjust for a different document family — the rest of the plugin depends only on the block format. To check a change against a corpus without going through WordPress: `php tools/parse-check.php path/*.txt`.
 
 ### Completing fields with AI (optional)
 
@@ -167,11 +211,11 @@ By default, `/{slug}/` (see Settings → Display) already shows this same search
 - **Search button** — runs a plain WordPress keyword search and shows the full results list.
 - **Pagination** — 20 results per page by default.
 
-Clicking a result card goes straight to that document's own page.
+Clicking a result card goes straight to that entry's own page. Results carry no format tag and no download link — every card leads to the content itself.
 
-### The single document page
+### The single entry page
 
-Each document has its own URL (`/{slug}/{document}/`), rendered inside your theme's header and footer: a header with format/audience/type tags and a download button, the description, a PDF preview, a metadata grid, the structured content (as collapsible sections), the document's revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that specific document.
+Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: audience and type tags, the description, a metadata grid, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
 
 ---
 

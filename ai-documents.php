@@ -600,8 +600,8 @@ function aidocs_meta_box_html( $post ) {
 
     $file_id     = get_post_meta( $post->ID, '_document_file_id', true );
     $pub_date    = get_post_meta( $post->ID, '_document_pub_date', true );
-    $file_format = get_post_meta( $post->ID, '_document_file_format', true );
     $description = get_post_meta( $post->ID, '_document_description', true );
+    $source_mode = get_post_meta( $post->ID, '_document_source_mode', true ) === 'multi' ? 'multi' : 'single';
 
     // Taxonomy terms
     $audience_terms = wp_get_post_terms( $post->ID, 'document_audience', [ 'fields' => 'names' ] );
@@ -622,7 +622,7 @@ function aidocs_meta_box_html( $post ) {
         $title = get_the_title( $file_id );
     }
 
-    $formats = [ 'pdf' => 'PDF', 'word' => 'Word', 'excel' => 'Excel' ];
+    $file_ext = $file_id ? strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) : '';
     ?>
     <style>
         .aidocs-wrap { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -711,6 +711,44 @@ function aidocs_meta_box_html( $post ) {
         /* The preview shows the same blocks the frontend renders, so it shares
            their stylesheet — notes, nested lists and tables included. */
         <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
+        /* Step 0: what kind of upload this is. Everything below depends on it,
+           so it is the first thing on the screen and reads as a question. */
+        #cd-mode-wrap { margin-bottom:18px; }
+        #cd-mode-wrap > label { margin-bottom:8px; }
+        #cd-mode-wrap .cd-mode-toggle { display:flex; align-items:stretch; gap:10px; }
+        /* Specificity over ".aidocs-wrap label { display:block }" above: without
+           the #cd-mode-wrap prefix that rule wins instead (equal-weight class +
+           element selector, declared first), display:block replaces the flex
+           layout on .cd-mode-option, and the two cards go back to their own
+           content height instead of stretching to match each other. */
+        #cd-mode-wrap .cd-mode-option { flex:1; display:flex; position:relative; margin:0; cursor:pointer; }
+        #cd-mode-wrap .cd-mode-option input { position:absolute; opacity:0; width:0; height:0; }
+        #cd-mode-wrap .cd-mode-option-card { flex:1; display:flex; flex-direction:column; padding:14px 40px 14px 16px; border:1.5px solid #dcdcde; border-radius:8px; background:#fff; transition:border-color .15s, background .15s, box-shadow .15s; }
+        #cd-mode-wrap .cd-mode-option-card strong { display:block; font-size:13.5px; color:#1d2327; margin-bottom:4px; }
+        #cd-mode-wrap .cd-mode-option-card span { display:block; font-size:11.5px; color:#646970; font-weight:normal; line-height:1.5; }
+        #cd-mode-wrap .cd-mode-option:hover .cd-mode-option-card { border-color:#b8d4f5; }
+        #cd-mode-wrap .cd-mode-option input:checked + .cd-mode-option-card { border-color:#2271b1; background:#f0f6ff; box-shadow:0 0 0 1px #2271b1; }
+        #cd-mode-wrap .cd-mode-option input:checked + .cd-mode-option-card strong { color:#0a4b78; }
+        #cd-mode-wrap .cd-mode-option input:focus-visible + .cd-mode-option-card { outline:2px solid #2271b1; outline-offset:1px; }
+        /* The radio circle itself — a visible bullet, since the styled card
+           replaces the browser's own radio appearance entirely. */
+        #cd-mode-wrap .cd-mode-radio-dot { position:absolute; top:14px; right:14px; width:18px; height:18px; box-sizing:border-box; border:1.5px solid #b8bfc7; border-radius:50%; background:#fff; }
+        #cd-mode-wrap .cd-mode-option input:checked + .cd-mode-option-card .cd-mode-radio-dot { border-color:#2271b1; background:#2271b1; box-shadow:inset 0 0 0 3px #fff; }
+        @media(max-width:700px){ #cd-mode-wrap .cd-mode-toggle { flex-direction:column; } }
+        /* Several policies in one upload */
+        #cd-split-wrap { margin-top:20px; padding:15px 18px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; }
+        #cd-split-list { margin-top:10px; max-height:420px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:4px; background:#fff; }
+        .cd-split-item { display:flex; gap:10px; padding:9px 12px; border-bottom:1px solid #f0f0f1; font-size:12.5px; }
+        .cd-split-item:last-child { border-bottom:none; }
+        .cd-split-item.is-done { background:#f6fdf8; }
+        .cd-split-item-body { flex:1; min-width:0; }
+        .cd-split-item-title { font-weight:600; color:#1d2327; }
+        .cd-split-item-meta { font-size:11px; color:#646970; margin-top:2px; }
+        .cd-split-item-teaser { font-size:11.5px; color:#50575e; margin-top:3px; line-height:1.5; }
+        #cd-split-progress { height:6px; margin-top:10px; border-radius:3px; background:#e5e5e5; overflow:hidden; }
+        #cd-split-progress span { display:block; height:100%; width:0; background:#2271b1; transition:width .25s; }
+        #cd-split-result ul { margin:8px 0 0; }
+        #cd-split-result li { font-size:12.5px; margin-bottom:4px; }
         #cd-add-field-form { margin-top:8px; padding:10px 12px; border:1px solid #e0e0e0; border-radius:4px; background:#f9f9f9; }
         .cd-ai-field-option { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:13px; cursor:pointer; font-weight:normal; margin:0; }
         #cd-ai-fields-list { margin-top:4px; padding-left:20px; }
@@ -718,12 +756,39 @@ function aidocs_meta_box_html( $post ) {
 
     <div class="aidocs-wrap">
 
-        <!-- File Upload -->
+        <!-- Step 0 — one policy, or a document holding many. Everything below
+             this reads from it: what extraction does with the text, which
+             fields are the editor's to fill, and whether the AI panel applies
+             at all. -->
+        <div id="cd-mode-wrap">
+            <label><?php esc_html_e( 'What are you uploading?' ); ?></label>
+            <div class="cd-mode-toggle">
+                <label class="cd-mode-option">
+                    <input type="radio" name="document_source_mode" value="single" <?php checked( $source_mode, 'single' ); ?>>
+                    <span class="cd-mode-option-card">
+                        <span class="cd-mode-radio-dot" aria-hidden="true"></span>
+                        <strong><?php esc_html_e( 'One policy' ); ?></strong>
+                        <span><?php esc_html_e( 'This entry is the policy.' ); ?></span>
+                    </span>
+                </label>
+                <label class="cd-mode-option">
+                    <input type="radio" name="document_source_mode" value="multi" <?php checked( $source_mode, 'multi' ); ?>>
+                    <span class="cd-mode-option-card">
+                        <span class="cd-mode-radio-dot" aria-hidden="true"></span>
+                        <strong><?php esc_html_e( 'A document holding several policies' ); ?></strong>
+                        <span><?php esc_html_e( 'Each policy inside it becomes an entry of its own. PDF only — the splitter reads the same extracted text as everything else, so a Word or Excel file cannot be split; convert it to PDF first, or switch to "One policy" and upload each one on its own.' ); ?></span>
+                    </span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Source file. It is read for its text and nothing else: it is never
+             linked, offered for download or shown to a reader. -->
         <div style="margin-bottom:16px;">
-            <label><?php esc_html_e( 'Document' ); ?> <span class="required">*</span></label>
+            <label><?php esc_html_e( 'Source file' ); ?> <span class="required">*</span></label>
 
             <?php
-            $ext       = $file_id ? strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) : '';
+            $ext        = $file_ext;
             $icon_class = match( $ext ) { 'pdf' => 'pdf', 'doc', 'docx' => 'word', 'xls', 'xlsx' => 'excel', default => 'generic' };
             $icon_label = match( $ext ) { 'pdf' => 'PDF', 'doc' => 'DOC', 'docx' => 'DOCX', 'xls' => 'XLS', 'xlsx' => 'XLSX', default => strtoupper( $ext ) ?: 'FILE' };
             ?>
@@ -742,7 +807,11 @@ function aidocs_meta_box_html( $post ) {
                 </div>
             </div>
 
-            <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && $file_format === 'pdf' ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
+            <p class="cd-step-hint" style="margin:6px 0 0;">
+                <?php esc_html_e( 'Read for its text only — the file itself is never published, linked or offered for download.' ); ?>
+            </p>
+
+            <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && $file_ext === 'pdf' ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
                 <div id="cd-page-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
                 <span id="cd-extract-status" style="display:block;font-size:11px;color:#999;margin-top:5px;min-height:14px;"></span>
             </div>
@@ -750,32 +819,25 @@ function aidocs_meta_box_html( $post ) {
             <input type="hidden" name="document_file_id" id="cd-file-id" value="<?php echo esc_attr( $file_id ); ?>">
             <input type="hidden" id="cd-file-url" value="<?php echo esc_attr( $file_url ); ?>">
             <?php if ( ! $file_id ) : ?>
-            <button type="button" id="cd-upload-btn" class="button"><?php esc_html_e( 'Upload File' ); ?></button>
+            <button type="button" id="cd-upload-btn" class="button"><?php esc_html_e( 'Upload source file' ); ?></button>
             <?php endif; ?>
         </div>
 
-        <!-- Publication Date + File Format -->
-        <div class="cd-row">
+        <!-- Publication Date. Read from the document's own "Last Updated" label
+             when it carries one, so this is normally left alone. -->
+        <div class="cd-row cd-mode-single-only">
             <div class="cd-col">
                 <label for="cd-pub-date"><?php esc_html_e( 'Publication Date' ); ?> <span class="required">*</span></label>
                 <input type="date" id="cd-pub-date" name="document_pub_date" value="<?php echo esc_attr( $pub_date ); ?>">
             </div>
-            <div class="cd-col">
-                <label><?php esc_html_e( 'File Format' ); ?> <span class="required">*</span></label>
-                <div class="cd-radio-group">
-                    <?php foreach ( $formats as $val => $label ) : ?>
-                    <label>
-                        <input type="radio" name="document_file_format" value="<?php echo esc_attr( $val ); ?>"
-                            <?php checked( $file_format, $val ); ?>>
-                        <?php echo esc_html( $label ); ?>
-                    </label>
-                    <?php endforeach; ?>
-                </div>
-            </div>
+            <div class="cd-col"></div>
         </div>
 
-        <!-- Audience + Document Type -->
-        <div class="cd-row">
+        <!-- Audience + Document Type — this document's own. In a multi-policy
+             upload there is no single value that fits every policy inside it,
+             so this row does not apply there: the split panel below completes
+             them per policy with AI instead. -->
+        <div class="cd-row cd-mode-single-only">
             <div class="cd-col">
                 <label><?php esc_html_e( 'Audience' ); ?></label>
                 <div class="cd-select-wrap">
@@ -813,7 +875,7 @@ function aidocs_meta_box_html( $post ) {
         </div>
 
         <!-- Description -->
-        <div style="margin-bottom:16px;">
+        <div style="margin-bottom:16px;" class="cd-mode-single-only">
             <label for="cd-description"><?php esc_html_e( 'Description' ); ?></label>
             <textarea id="cd-description" name="document_description" rows="3"><?php echo esc_textarea( $description ); ?></textarea>
         </div>
@@ -827,8 +889,85 @@ function aidocs_meta_box_html( $post ) {
         $can_setup_ai   = current_user_can( 'manage_options' );
         ?>
 
+        <!-- Step 1b — several policies in one upload. The split is regular
+             expressions over the same labels extraction already matches, so it
+             needs no AI and no API key either. -->
+        <div id="cd-split-wrap" class="cd-mode-multi-only">
+            <div class="cd-step-head">
+                <strong><?php esc_html_e( 'Policies in this document' ); ?></strong>
+                <span id="cd-split-badge" class="cd-badge is-off"><?php esc_html_e( 'Not read yet' ); ?></span>
+                <span id="cd-split-status" class="cd-step-status"></span>
+            </div>
+            <p class="cd-step-hint">
+                <?php esc_html_e( 'Each policy inside the file is found by its own Teaser / Body / Last Updated labels — no AI, no API key — and its title, description, date, history and content are read the same way a policy uploaded on its own would be. Review the list, then create one entry per policy. The first one is written over this entry; the rest are added as new ones.' ); ?>
+            </p>
+            <div class="cd-step-actions">
+                <button type="button" id="cd-split-detect-btn" class="button">
+                    &#128269; <?php esc_html_e( 'Read the policies again' ); ?>
+                </button>
+            </div>
+
+            <!-- Audience and Document Type have no label of their own in the
+                 source, so — same as the single-policy panel below — the AI
+                 fills whichever of these are ticked. It runs once per policy
+                 when the entries are created, with no review step in between:
+                 reviewing forty-nine proposals one at a time is exactly what
+                 this batch flow exists to avoid. -->
+            <div id="cd-split-ai">
+                <strong style="font-size:13px;display:block;margin:14px 0 6px;"><?php esc_html_e( 'Complete fields with AI, per policy:' ); ?></strong>
+                <div id="cd-split-ai-fields">
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-split-ai-check" data-field-id="title">
+                        <?php esc_html_e( 'Title' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-split-ai-check" data-field-id="description">
+                        <?php esc_html_e( 'Description' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-split-ai-check" data-field-id="audience" checked>
+                        <?php esc_html_e( 'Audience' ); ?>
+                    </label>
+                    <label class="cd-ai-field-option">
+                        <input type="checkbox" class="cd-split-ai-check" data-field-id="document_type" checked>
+                        <?php esc_html_e( 'Document Type' ); ?>
+                    </label>
+                </div>
+                <p class="cd-step-hint">
+                    <?php if ( $ai_key_set ) : ?>
+                        <?php esc_html_e( 'Title and Description are already read from the labels above on almost every policy, so they only need this when one is missing. Requires the Gemini key configured below.' ); ?>
+                    <?php else : ?>
+                        <?php esc_html_e( 'No Gemini API key is configured — a field ticked here is imported empty until an administrator adds one in Documents → Settings.' ); ?>
+                    <?php endif; ?>
+                </p>
+            </div>
+
+            <div id="cd-split-review" hidden>
+                <div class="cd-step-head" style="margin-top:14px;">
+                    <label class="cd-ai-label">
+                        <input type="checkbox" id="cd-split-all" checked>
+                        <?php esc_html_e( 'Select all' ); ?>
+                    </label>
+                </div>
+                <div id="cd-split-list"></div>
+                <div class="cd-step-actions" style="margin-top:12px;">
+                    <button type="button" id="cd-split-import-btn" class="button button-primary">
+                        &#10133; <?php esc_html_e( 'Create the selected entries' ); ?>
+                    </button>
+                </div>
+                <div id="cd-split-progress" hidden><span></span></div>
+            </div>
+
+            <div id="cd-split-result" hidden>
+                <div class="cd-ai-fidelity is-ok">
+                    <strong id="cd-split-result-head"></strong>
+                    <ul id="cd-split-result-list"></ul>
+                </div>
+            </div>
+        </div>
+
         <!-- Step 1 — extraction, no AI. This is what runs by default. -->
-        <div id="cd-extract-wrap">
+        <div id="cd-extract-wrap" class="cd-mode-single-only">
             <div class="cd-step-head">
                 <strong><?php esc_html_e( 'Document content' ); ?></strong>
                 <span id="cd-content-badge" class="cd-badge <?php echo $has_content ? 'is-ok' : 'is-off'; ?>">
@@ -862,8 +1001,10 @@ function aidocs_meta_box_html( $post ) {
             </details>
         </div>
 
-        <!-- Step 2 — AI, opt-in, and only ever proposes values. -->
-        <details id="cd-ai-panel">
+        <!-- Step 2 — AI, opt-in, and only ever proposes values. It proposes them
+             for one document's fields, so it has nothing to say about an upload
+             that is about to become fifty. -->
+        <details id="cd-ai-panel" class="cd-mode-single-only">
             <summary>&#9889; <?php esc_html_e( 'Complete fields with AI (optional)' ); ?></summary>
             <div id="cd-ai-process-wrap">
                 <p class="cd-step-hint">
@@ -1055,9 +1196,6 @@ function aidocs_meta_box_html( $post ) {
                 );
                 var autoTitle = cdTitleFromFilename(a.filename);
                 if (autoTitle) { $('#title').val(autoTitle).trigger('input').trigger('keyup').trigger('focus').trigger('blur'); }
-                if (ext === 'pdf') {
-                    $('input[name="document_file_format"][value="pdf"]').prop('checked', true);
-                }
                 $('#cd-file-preview').show();
                 // swap standalone upload button for the card's Replace button
                 $('#cd-upload-btn').not('#cd-file-preview #cd-upload-btn').hide();
@@ -1082,7 +1220,7 @@ function aidocs_meta_box_html( $post ) {
             // show standalone upload button if visible
             var $standalone = $('button#cd-upload-btn').not('#cd-file-preview button#cd-upload-btn');
             if (!$standalone.length) {
-                $('#cd-file-preview').after('<button type="button" id="cd-upload-btn" class="button">Upload File</button>');
+                $('#cd-file-preview').after('<button type="button" id="cd-upload-btn" class="button">Upload source file</button>');
             } else {
                 $standalone.show();
             }
@@ -1204,10 +1342,73 @@ function aidocs_meta_box_html( $post ) {
         var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
 
         // ── PDF Text Extraction ───────────────────────
+        // Declared ahead of the upload-mode block below: cdApplyMode() calls
+        // cdRenderPageBadges() as soon as the page loads, and that function
+        // reads cdPageTexts — were it declared any later, that first call would
+        // hit the `var`'s hoisted-but-unassigned value (undefined) instead of
+        // {}, throw, and silently kill every click handler the rest of this
+        // script still had left to register, including Create the selected
+        // entries below.
         var cdPageTexts = {};
         // Whether this document already has parsed content stored, which is what
         // decides if extraction runs on its own after the text comes in.
         var cdHasContent = <?php echo $has_content ? 'true' : 'false'; ?>;
+
+        // ── Upload mode ───────────────────────────────
+        // One policy or many is the first question on the screen, and the rest of
+        // the panel is shown or hidden by the answer: the fields a single policy
+        // fills in, and the AI that proposes values for them, have nothing to act
+        // on when the upload is a compilation about to be split.
+        function cdMode() {
+            return $('input[name="document_source_mode"]:checked').val() || 'single';
+        }
+
+        function cdApplyMode() {
+            var multi = cdMode() === 'multi';
+            $('.cd-mode-single-only').toggle(!multi);
+            $('.cd-mode-multi-only').toggle(multi);
+            cdRenderPageBadges();
+        }
+
+        $(document).on('change', 'input[name="document_source_mode"]', function() {
+            cdApplyMode();
+            // The text is already in hand; what to do with it just changed.
+            if (cdMode() === 'multi' && cdRawText()) cdDetectPolicies(true);
+        });
+        cdApplyMode();
+
+        /** The extracted pages as one document, in page order. */
+        function cdRawText() {
+            return Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
+                return cdPageTexts[p];
+            }).join('\n');
+        }
+
+        /**
+         * A clickable badge per page is how a single policy's extraction gets
+         * reviewed. A compilation running to hundreds of pages has no use for
+         * that — nobody is checking page 214 of 324 by hand before the split
+         * does its own, much more useful review — so multi mode collapses the
+         * same information down to the one number that matters there.
+         */
+        function cdRenderPageBadges() {
+            var $badges = $('#cd-page-badges').empty();
+            var pages   = Object.keys(cdPageTexts);
+            if (!pages.length) return;
+
+            if (cdMode() === 'multi') {
+                $('<span style="font-size:12px;color:#646970;"></span>')
+                    .text(pages.length + ' page' + (pages.length !== 1 ? 's' : ''))
+                    .appendTo($badges);
+                return;
+            }
+
+            pages.sort(function(a, b) { return a - b; }).forEach(function(pageNum) {
+                var $badge = $('<button type="button" class="button button-small cd-page-badge"></button>').text('Page ' + pageNum);
+                $badge.on('click', function() { cdOpenPageModal(pageNum); });
+                $badges.append($badge);
+            });
+        }
 
         async function cdExtractPdf(pdfUrl) {
             pdfUrl = pdfUrl || $('#cd-file-url').val();
@@ -1215,10 +1416,9 @@ function aidocs_meta_box_html( $post ) {
 
             var $wrap   = $('#cd-page-badges-wrap');
             var $status = $('#cd-extract-status');
-            var $badges = $('#cd-page-badges');
 
             $wrap.show();
-            $badges.empty();
+            $('#cd-page-badges').empty();
             $status.text('Loading…');
             cdPageTexts = {};
 
@@ -1242,20 +1442,21 @@ function aidocs_meta_box_html( $post ) {
                 });
 
                 extracted.pages.forEach(function(text, index) {
-                    var pageNum = index + 1;
-                    cdPageTexts[pageNum] = text;
-                    var $badge = $('<button type="button" class="button button-small cd-page-badge"></button>').text('Page ' + pageNum);
-                    $badge.on('click', function() { cdOpenPageModal(pageNum); });
-                    $badges.append($badge);
+                    cdPageTexts[index + 1] = text;
                 });
+                cdRenderPageBadges();
 
                 $status.text(pdf.numPages + ' page' + (pdf.numPages !== 1 ? 's' : ''));
 
-                // Parsing the text into blocks is the default path and needs no
-                // AI, so it runs as soon as the text is in — but only when the
-                // document has nothing stored yet, so re-opening the editor
-                // never quietly rewrites content an editor has already checked.
-                if (!cdHasContent) cdExtractContent(true);
+                // What the text is for depends on what was uploaded. A single
+                // policy is parsed into this document's own blocks — the default
+                // path, no AI — but only when the document has nothing stored
+                // yet, so re-opening the editor never quietly rewrites content an
+                // editor has already checked. A compilation is instead read for
+                // the policies it holds, and nothing is written until the editor
+                // has seen the list.
+                if (cdMode() === 'multi') cdDetectPolicies(true);
+                else if (!cdHasContent) cdExtractContent(true);
             } catch (err) {
                 $status.text('Error: ' + err.message);
             }
@@ -1267,7 +1468,6 @@ function aidocs_meta_box_html( $post ) {
         if ( $file_id && $file_ext_loaded === 'pdf' && $file_url ) :
         ?>
         $(function() {
-            $('input[name="document_file_format"][value="pdf"]').prop('checked', true);
             $('#cd-page-badges-wrap').show();
             cdExtractPdf(<?php echo json_encode( $file_url ); ?>);
         });
@@ -1508,10 +1708,7 @@ function aidocs_meta_box_html( $post ) {
 
         // ── Restructure the extracted content with AI ──
         $('#cd-ai-restructure-btn').on('click', function() {
-            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
-                return cdPageTexts[p];
-            }).join('\n');
-
+            var rawText = cdRawText();
             var $status = $('#cd-ai-restructure-status');
 
             if (!rawText.trim()) {
@@ -1631,9 +1828,7 @@ function aidocs_meta_box_html( $post ) {
         $('#cd-extract-content-btn').on('click', function() { cdExtractContent(false); });
 
         function cdExtractContent(automatic) {
-            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
-                return cdPageTexts[p];
-            }).join('\n');
+            var rawText = cdRawText();
 
             if (!rawText.trim()) {
                 if (!automatic) $('#cd-ai-status').text('<?php echo esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) ); ?>');
@@ -1695,6 +1890,201 @@ function aidocs_meta_box_html( $post ) {
             });
         }
 
+        // ── Several policies in one upload ─────────────
+        // Reading the file and writing the entries are kept apart on purpose: an
+        // upload turning into fifty published entries is not something to do
+        // before the editor has seen the list of what was found.
+        var cdPolicies = [];
+
+        $('#cd-split-detect-btn').on('click', function() { cdDetectPolicies(false); });
+
+        function cdDetectPolicies(automatic) {
+            var rawText = cdRawText();
+            var $status = $('#cd-split-status');
+
+            if (!rawText.trim()) {
+                if (!automatic) $status.text('<?php echo esc_js( __( 'No document text — load a file and wait for extraction.' ) ); ?>');
+                return;
+            }
+
+            var $btn = $('#cd-split-detect-btn').prop('disabled', true);
+            $status.text('<?php echo esc_js( __( 'Reading…' ) ); ?>');
+            $('#cd-split-result').prop('hidden', true);
+
+            $.post(cdAjaxUrl, {
+                action:   'aidocs_detect_policies',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                raw_text: rawText
+            })
+            .done(function(res) {
+                if (!res.success) {
+                    $status.text('Error: ' + res.data);
+                    $('#cd-split-badge').removeClass('is-ok').addClass('is-off')
+                        .text('<?php echo esc_js( __( 'Could not be split' ) ); ?>');
+                    $('#cd-split-review').prop('hidden', true);
+                    return;
+                }
+                cdPolicies = res.data.policies || [];
+                $status.text('');
+                $('#cd-split-badge').removeClass('is-off').addClass('is-ok')
+                    .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'policies found' ) ); ?>');
+                cdRenderPolicies();
+            })
+            .fail(function(xhr) {
+                $status.text('Error: ' + (xhr.responseJSON && xhr.responseJSON.data || xhr.statusText));
+            })
+            .always(function() { $btn.prop('disabled', false); });
+        }
+
+        function cdRenderPolicies() {
+            var $list = $('#cd-split-list').empty();
+            $.each(cdPolicies, function(_, policy) {
+                var $item = $('<div class="cd-split-item"></div>').attr('data-index', policy.index);
+                $('<input type="checkbox" class="cd-split-check" checked>').val(policy.index).appendTo($item);
+                var $body = $('<div class="cd-split-item-body"></div>');
+                $('<div class="cd-split-item-title"></div>')
+                    .text(policy.title || '<?php echo esc_js( __( '(no title found)' ) ); ?>').appendTo($body);
+                var meta = [];
+                if (policy.pub_date) meta.push(policy.pub_date);
+                meta.push(policy.blocks + ' <?php echo esc_js( __( 'blocks' ) ); ?>');
+                $('<div class="cd-split-item-meta"></div>').text(meta.join(' · ')).appendTo($body);
+                if (policy.teaser) {
+                    $('<div class="cd-split-item-teaser"></div>')
+                        .text(policy.teaser.length > 180 ? policy.teaser.slice(0, 180) + '…' : policy.teaser)
+                        .appendTo($body);
+                }
+                $item.append($body);
+                $list.append($item);
+            });
+            $('#cd-split-review').prop('hidden', !cdPolicies.length);
+            $('#cd-split-progress').prop('hidden', true).find('span').css('width', 0);
+            $('#cd-split-all').prop('checked', true).prop('disabled', false);
+            $('.cd-split-check, #cd-split-import-btn').prop('disabled', false);
+            cdUpdateImportLabel();
+        }
+
+        $('#cd-split-all').on('change', function() {
+            $('.cd-split-check').prop('checked', $(this).prop('checked'));
+            cdUpdateImportLabel();
+        });
+        $(document).on('change', '.cd-split-check', cdUpdateImportLabel);
+
+        function cdSelectedPolicies() {
+            return $('.cd-split-check:checked').map(function() { return parseInt(this.value, 10); }).get();
+        }
+
+        function cdUpdateImportLabel() {
+            var count = cdSelectedPolicies().length;
+            $('#cd-split-import-btn').prop('disabled', count === 0).html(
+                '&#10133; ' + '<?php echo esc_js( __( 'Create' ) ); ?> ' + count + ' '
+                + (count === 1 ? '<?php echo esc_js( __( 'entry' ) ); ?>' : '<?php echo esc_js( __( 'entries' ) ); ?>')
+            );
+        }
+
+        // Every entry written is indexed for semantic search, and fifty embedding
+        // calls do not fit in one request — so the import walks the selection a
+        // few at a time and reports as it goes.
+        function cdSplitAiFields() {
+            return $('.cd-split-ai-check:checked').map(function() { return $(this).data('field-id'); }).get();
+        }
+
+        $('#cd-split-import-btn').on('click', function() {
+            var selection = cdSelectedPolicies();
+            if (!selection.length) return;
+
+            $('#cd-split-import-btn, #cd-split-detect-btn, .cd-split-check, #cd-split-all, .cd-split-ai-check').prop('disabled', true);
+            $('#cd-split-progress').prop('hidden', false);
+            $('#cd-split-result-list').empty();
+            $('#cd-split-result').prop('hidden', true);
+
+            cdImportBatch(selection, cdSplitAiFields(), 0);
+        });
+
+        function cdImportBatch(selection, aiFields, offset) {
+            var $status = $('#cd-split-status');
+            $status.text(offset + ' / ' + selection.length);
+
+            $.post(cdAjaxUrl, {
+                action:    'aidocs_import_policies',
+                nonce:     cdAjaxNonce,
+                post_id:   cdDocId,
+                indexes:   selection,
+                offset:    offset,
+                // A batch that also asks the AI to fill fields makes one more
+                // Gemini call per policy on top of the embedding it already
+                // makes, so it is walked in smaller bites to keep each request
+                // inside a reasonable time.
+                limit:     aiFields.length ? 2 : 4,
+                ai_fields: JSON.stringify(aiFields)
+            })
+            .done(function(res) {
+                if (!res.success) { cdImportFailed(res.data); return; }
+                var d = res.data;
+
+                if (d.ai_warning && !$('#cd-split-ai-warning').length) {
+                    $('<div id="cd-split-ai-warning" class="cd-ai-fidelity is-warn"></div>')
+                        .text(d.ai_warning).insertBefore('#cd-split-progress');
+                }
+
+                $.each(d.created || [], function(_, doc) {
+                    var $li = $('<li></li>');
+                    if (doc.current) {
+                        $li.text(doc.title + ' — ')
+                           .append($('<em></em>').text('<?php echo esc_js( __( 'this entry' ) ); ?>'));
+                    } else {
+                        $li.append($('<a target="_blank"></a>').attr('href', doc.edit).text(doc.title));
+                    }
+                    var meta = [doc.blocks + ' <?php echo esc_js( __( 'blocks' ) ); ?>'];
+                    if ((doc.audience || []).length) meta.push(doc.audience.join(', '));
+                    if ((doc.type || []).length)     meta.push(doc.type.join(', '));
+                    $li.append(document.createTextNode(' (' + meta.join(' · ') + ')'));
+                    $('#cd-split-result-list').append($li);
+
+                    // The first policy was written over the post this form is
+                    // open on, so the form has to show that — otherwise clicking
+                    // Update would put the stale values straight back.
+                    if (doc.current) {
+                        cdHasContent = true;
+                        $('#title').val(doc.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
+                        if (doc.fields.description) $('#cd-description').val(doc.fields.description);
+                        if (doc.fields.pub_date)    $('#cd-pub-date').val(doc.fields.pub_date);
+                    }
+                });
+
+                var done = d.next;
+                $('#cd-split-progress span').css('width', Math.round(done / selection.length * 100) + '%');
+
+                // Mark off what has been written, so a run interrupted halfway
+                // leaves the list saying where it stopped.
+                $('.cd-split-check').each(function() {
+                    var index = selection.indexOf(parseInt(this.value, 10));
+                    if (index > -1 && index < done) $(this).closest('.cd-split-item').addClass('is-done');
+                });
+
+                if (!d.done) { cdImportBatch(selection, aiFields, done); return; }
+
+                $('#cd-split-status').text('');
+                $('#cd-split-result-head').text(
+                    selection.length + ' <?php echo esc_js( __( 'entries created — remember to update this one so the form and the entry agree.' ) ); ?>'
+                );
+                $('#cd-split-result').prop('hidden', false);
+                // The list stays locked: these entries exist now, and importing
+                // the same selection twice would duplicate them. Reading the file
+                // again is what starts over.
+                $('#cd-split-detect-btn, .cd-split-ai-check').prop('disabled', false);
+            })
+            .fail(function(xhr) {
+                cdImportFailed(xhr.responseJSON && xhr.responseJSON.data || xhr.statusText);
+            });
+        }
+
+        function cdImportFailed(message) {
+            $('#cd-split-status').text('Error: ' + message);
+            $('#cd-split-import-btn, #cd-split-detect-btn, .cd-split-check, #cd-split-all, .cd-split-ai-check').prop('disabled', false);
+            cdUpdateImportLabel();
+        }
+
         function cdOpenPageModal(pageNum) {
             $('#cd-modal-title').text('Page ' + pageNum);
             $('#cd-modal-content').text(cdPageTexts[pageNum] || '');
@@ -1751,10 +2141,11 @@ function aidocs_save_meta( $post_id ) {
         update_post_meta( $post_id, '_document_pub_date', $date );
     }
 
-    // File Format
-    $allowed_formats = [ 'pdf', 'word', 'excel' ];
-    if ( isset( $_POST['document_file_format'] ) && in_array( $_POST['document_file_format'], $allowed_formats, true ) ) {
-        update_post_meta( $post_id, '_document_file_format', $_POST['document_file_format'] );
+    // What the upload was, so re-opening the editor asks the same question the
+    // same way round rather than resetting to a single policy.
+    if ( isset( $_POST['document_source_mode'] ) ) {
+        $mode = $_POST['document_source_mode'] === 'multi' ? 'multi' : 'single';
+        update_post_meta( $post_id, '_document_source_mode', $mode );
     }
 
     // Description
@@ -1782,22 +2173,14 @@ function aidocs_save_meta( $post_id ) {
 // ──────────────────────────────────────────────
 // 5. AI Processing — Gemini AJAX handler
 // ──────────────────────────────────────────────
-add_action( 'wp_ajax_aidocs_ai_process', 'aidocs_ai_process' );
-function aidocs_ai_process() {
-    check_ajax_referer( 'aidocs_ai', 'nonce' );
-    if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
-
-    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
-    $fields   = json_decode( stripslashes( $_POST['fields'] ?? '[]' ), true );
-
-    if ( ! $raw_text )     wp_send_json_error( __( 'No text provided. Extract PDF pages first.' ) );
-    if ( empty( $fields ) ) wp_send_json_error( __( 'No fields selected for AI completion.' ) );
-
-    $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
-
-    if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured in Settings.' ) );
-
+/**
+ * The field-description lines of a "complete these fields" Gemini prompt.
+ *
+ * Shared between the interactive single-document flow and the per-policy
+ * completion used while importing a multi-policy upload, so a field reads the
+ * same way to the model regardless of which flow is asking.
+ */
+function aidocs_ai_fields_desc( array $fields ) {
     $available_audiences = implode( ', ', aidocs_get_audiences() );
     $available_types     = implode( ', ', aidocs_get_types() );
 
@@ -1807,9 +2190,7 @@ function aidocs_ai_process() {
         $label = $f['label'] ?? '';
         $type  = $f['type']  ?? 'text';
 
-        if ( $id === 'file_format' ) {
-            $fields_desc .= '- id: "file_format", label: "' . $label . '", type: text (respond with EXACTLY one of: pdf, word, excel)' . "\n";
-        } elseif ( $id === 'audience' ) {
+        if ( $id === 'audience' ) {
             $fields_desc .= '- id: "audience", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_audiences . ')' . "\n";
         } elseif ( $id === 'document_type' ) {
             $fields_desc .= '- id: "document_type", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_types . ')' . "\n";
@@ -1818,6 +2199,21 @@ function aidocs_ai_process() {
             $fields_desc .= '- id: "' . $id . '", label: "' . $label . '", type: ' . $type_hint . "\n";
         }
     }
+    return $fields_desc;
+}
+
+/**
+ * Ask Gemini to fill a set of fields from a document's text.
+ *
+ * @param string $raw_text
+ * @param array  $fields    [ [ 'id', 'label', 'type' ], … ].
+ * @param string $api_key
+ * @param string $model
+ * @param bool   $truncated Out param: whether the text sent was cut short.
+ * @return array|WP_Error Decoded fields (plus "_summary"), or the failure.
+ */
+function aidocs_ai_complete_fields( $raw_text, array $fields, $api_key, $model, &$truncated = null ) {
+    $fields_desc = aidocs_ai_fields_desc( $fields );
 
     // The whole document goes in: every offered model takes a 1M-token context,
     // and a field like Document Type is often only decidable from a section
@@ -1846,13 +2242,13 @@ function aidocs_ai_process() {
         ]
     );
 
-    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+    if ( is_wp_error( $response ) ) return $response;
 
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
     if ( $code !== 200 ) {
-        wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+        return new WP_Error( 'aidocs_ai_http', $body['error']['message'] ?? 'API error ' . $code );
     }
 
     $text = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
@@ -1860,7 +2256,30 @@ function aidocs_ai_process() {
     $text = preg_replace( '/\s*```\s*$/m', '', $text );
 
     $result = json_decode( trim( $text ), true );
-    if ( ! is_array( $result ) ) wp_send_json_error( __( 'Could not parse AI response. Try again.' ) );
+    if ( ! is_array( $result ) ) {
+        return new WP_Error( 'aidocs_ai_parse', __( 'Could not parse AI response. Try again.' ) );
+    }
+    return $result;
+}
+
+add_action( 'wp_ajax_aidocs_ai_process', 'aidocs_ai_process' );
+function aidocs_ai_process() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+    if ( ! current_user_can( 'edit_posts' ) ) wp_send_json_error( 'Unauthorized.' );
+
+    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
+    $fields   = json_decode( stripslashes( $_POST['fields'] ?? '[]' ), true );
+
+    if ( ! $raw_text )     wp_send_json_error( __( 'No text provided. Extract PDF pages first.' ) );
+    if ( empty( $fields ) ) wp_send_json_error( __( 'No fields selected for AI completion.' ) );
+
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+
+    if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured in Settings.' ) );
+
+    $result = aidocs_ai_complete_fields( $raw_text, $fields, $api_key, $model, $truncated );
+    if ( is_wp_error( $result ) ) wp_send_json_error( $result->get_error_message() );
 
     // Extract and save summary + embedding
     $summary         = isset( $result['_summary'] ) ? sanitize_textarea_field( $result['_summary'] ) : '';
@@ -2042,6 +2461,319 @@ function aidocs_extract_content_ajax() {
         'title'      => $parsed['title'],
         'html'       => aidocs_render_content_blocks( $blocks ),
         'indexed'    => $indexed,
+    ] );
+}
+
+// ──────────────────────────────────────────────
+// Several policies in one upload
+// ──────────────────────────────────────────────
+// The compilations the Commission publishes are single files holding dozens of
+// standalone policies, and each of those has to end up as its own entry. The
+// split itself is the parser's (aidocs_split_multi_policy_text); what lives here
+// is the two steps around it: reading the upload to say what it holds, and then
+// writing one entry per policy.
+//
+// Detection and import are separate requests because they answer to different
+// questions — "what is in this file?" is something the editor has to see and
+// approve before fifty entries appear — and the import is itself batched, since
+// every entry written is indexed for semantic search and fifty embedding calls
+// do not fit in one request.
+
+/** Where a detected split is held between the two requests. */
+function aidocs_policy_batch_key( $post_id ) {
+    return 'aidocs_policies_' . get_current_user_id() . '_' . (int) $post_id;
+}
+
+/**
+ * The fields one policy contributes to an entry, ready to be written.
+ *
+ * @param array $parsed Output of aidocs_parse_labeled_document().
+ * @return array{title:string,description:string,pub_date:string,history:string,blocks:array}
+ */
+function aidocs_policy_fields( array $parsed ) {
+    return [
+        'title'       => $parsed['title'],
+        'description' => $parsed['teaser'],
+        'pub_date'    => aidocs_normalize_doc_date( $parsed['last_updated'] ),
+        'history'     => $parsed['document_history'],
+        'blocks'      => $parsed['blocks'],
+    ];
+}
+
+/**
+ * Write one split-out policy over a document, whether new or the one being edited.
+ *
+ * Unlike the single-document path, the deterministic fields here — content,
+ * description, date, history — are written unconditionally: the entry either did
+ * not exist a moment ago, or is the one the editor pointed at this compilation, so
+ * there is no manual correction to outrank. Audience and Document Type are not
+ * deterministic at all — the label schema has no section for them — so they come
+ * from wherever aidocs_ai_fill_policy_fields() found them, one policy at a time,
+ * the same as the interactive "Complete fields with AI" panel would for a single
+ * document, just applied without a manual review step: reviewing forty-nine of
+ * them one by one is the batching this whole flow exists to avoid.
+ *
+ * @param int   $post_id Target document.
+ * @param array $fields  Output of aidocs_policy_fields().
+ * @param array $terms   [ 'audience' => string[], 'type' => string[] ]
+ */
+function aidocs_write_policy( $post_id, array $fields, array $terms ) {
+    // See aidocs_extract_content_ajax() on why the JSON is slashed.
+    update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $fields['blocks'] ) ) );
+
+    if ( $fields['description'] !== '' ) {
+        update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $fields['description'] ) );
+    }
+    if ( $fields['pub_date'] !== '' ) {
+        update_post_meta( $post_id, '_document_pub_date', $fields['pub_date'] );
+    }
+    if ( $fields['history'] !== '' ) {
+        update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $fields['history'] ) );
+    }
+
+    if ( $terms['audience'] ) wp_set_post_terms( $post_id, $terms['audience'], 'document_audience' );
+    if ( $terms['type'] )     wp_set_post_terms( $post_id, $terms['type'],     'document_type' );
+
+    return aidocs_maybe_reindex( $post_id );
+}
+
+/** Field ids the batch import can ask the AI to complete, and their prompt labels. */
+function aidocs_policy_ai_field_labels() {
+    return [
+        'title'         => __( 'Title' ),
+        'description'   => __( 'Description' ),
+        'audience'      => __( 'Audience' ),
+        'document_type' => __( 'Document Type' ),
+    ];
+}
+
+/**
+ * Keep only the AI's answer for a term field that names a configured term.
+ *
+ * The prompt already asks Gemini to choose from the configured list, but a model
+ * answer is not a guarantee — this is what stops an invented term from reaching
+ * the taxonomy no differently than a typo would if it were typed by hand.
+ *
+ * @return string[] Term names, in their configured casing.
+ */
+function aidocs_sanitize_ai_terms( $values, array $vocabulary ) {
+    $by_lower = array_combine( array_map( 'strtolower', $vocabulary ), $vocabulary );
+    $out      = [];
+    foreach ( (array) $values as $value ) {
+        if ( ! is_string( $value ) ) continue;
+        $match = $by_lower[ strtolower( trim( $value ) ) ] ?? null;
+        if ( $match !== null ) $out[] = $match;
+    }
+    return array_values( array_unique( $out ) );
+}
+
+/**
+ * Ask the AI to fill the requested fields for one policy.
+ *
+ * @param string $raw_text  The policy's own text — never the whole compilation,
+ *                          so the model is not asked to guess which of forty-nine
+ *                          policies a field belongs to.
+ * @param array  $field_ids Subset of aidocs_policy_ai_field_labels() keys.
+ * @return array Field id => value. Empty when nothing was requested, no key is
+ *               configured, or the call failed — the caller treats that the same
+ *               as the AI simply not having an opinion.
+ */
+function aidocs_ai_fill_policy_fields( $raw_text, array $field_ids, $api_key, $model ) {
+    $labels = aidocs_policy_ai_field_labels();
+    $fields = [];
+    foreach ( $field_ids as $id ) {
+        if ( isset( $labels[ $id ] ) ) $fields[] = [ 'id' => $id, 'label' => $labels[ $id ], 'type' => 'text' ];
+    }
+    if ( ! $fields || ! $api_key ) return [];
+
+    $result = aidocs_ai_complete_fields( $raw_text, $fields, $api_key, $model );
+    if ( is_wp_error( $result ) ) return [];
+
+    $out = [];
+    if ( isset( $result['title'] ) && is_string( $result['title'] ) ) {
+        $out['title'] = sanitize_text_field( $result['title'] );
+    }
+    if ( isset( $result['description'] ) && is_string( $result['description'] ) ) {
+        $out['description'] = sanitize_textarea_field( $result['description'] );
+    }
+    if ( isset( $result['audience'] ) ) {
+        $out['audience'] = aidocs_sanitize_ai_terms( $result['audience'], aidocs_get_audiences() );
+    }
+    if ( isset( $result['document_type'] ) ) {
+        $out['document_type'] = aidocs_sanitize_ai_terms( $result['document_type'], aidocs_get_types() );
+    }
+    return $out;
+}
+
+/**
+ * AJAX: read an upload and report the standalone policies it holds.
+ *
+ * Nothing is written here. The split is kept for the import that follows so the
+ * text — a compilation runs to hundreds of kilobytes — is only sent once.
+ */
+add_action( 'wp_ajax_aidocs_detect_policies', 'aidocs_detect_policies_ajax' );
+function aidocs_detect_policies_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+
+    $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
+    if ( ! trim( $raw_text ) ) {
+        wp_send_json_error( __( 'No document text to read. Load a file and wait for extraction.' ) );
+    }
+
+    $segments = aidocs_split_multi_policy_text( $raw_text );
+    if ( ! $segments ) {
+        wp_send_json_error( __( 'No policy could be told apart in this document. Splitting needs the Teaser / Body / Last Updated labels — without them, upload the policies one at a time.' ) );
+    }
+
+    set_transient( aidocs_policy_batch_key( $post_id ), $segments, HOUR_IN_SECONDS );
+
+    $policies = [];
+    foreach ( $segments as $index => $segment ) {
+        $fields     = aidocs_policy_fields( aidocs_parse_labeled_document( $segment ) );
+        $policies[] = [
+            'index'    => $index,
+            'title'    => $fields['title'],
+            'teaser'   => $fields['description'],
+            'pub_date' => $fields['pub_date'],
+            'blocks'   => count( $fields['blocks'] ),
+        ];
+    }
+
+    wp_send_json_success( [
+        'count'    => count( $policies ),
+        'policies' => $policies,
+    ] );
+}
+
+/**
+ * AJAX: write one entry per detected policy, a batch at a time.
+ *
+ * The first policy of the selection is written over the document being edited —
+ * the editor already created it to point at this file, so leaving it behind as an
+ * empty extra entry would be worse than filling it. Every other policy becomes a
+ * new document. None of them carries the source file: the file held fifty
+ * policies and none of them is it, and there is nothing public left that a file
+ * would be shown through anyway.
+ */
+add_action( 'wp_ajax_aidocs_import_policies', 'aidocs_import_policies_ajax' );
+function aidocs_import_policies_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+        wp_send_json_error( 'Invalid post.' );
+    }
+    // Editing the one document open in the editor is not the same permission as
+    // publishing a further forty-nine of them, so both are required here.
+    if ( ! current_user_can( 'publish_posts' ) ) {
+        wp_send_json_error( 'Unauthorized.' );
+    }
+
+    $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
+    if ( ! is_array( $segments ) || ! $segments ) {
+        wp_send_json_error( __( 'The detected policies are no longer held — run the detection again.' ) );
+    }
+
+    $selection = array_values( array_unique( array_map( 'absint', (array) ( $_POST['indexes'] ?? [] ) ) ) );
+    $selection = array_values( array_filter( $selection, function ( $index ) use ( $segments ) {
+        return isset( $segments[ $index ] );
+    } ) );
+    if ( ! $selection ) {
+        wp_send_json_error( __( 'Select at least one policy to import.' ) );
+    }
+
+    $offset = absint( $_POST['offset'] ?? 0 );
+    $limit  = max( 1, min( 10, absint( $_POST['limit'] ?? 4 ) ) );
+    $batch  = array_slice( $selection, $offset, $limit );
+
+    $ai_field_ids = array_values( array_intersect(
+        (array) json_decode( stripslashes( $_POST['ai_fields'] ?? '[]' ), true ) ?: [],
+        array_keys( aidocs_policy_ai_field_labels() )
+    ) );
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+
+    $created = [];
+    foreach ( $batch as $position => $index ) {
+        $fields = aidocs_policy_fields( aidocs_parse_labeled_document( $segments[ $index ] ) );
+
+        // The AI is read from the policy's own text, for exactly the fields the
+        // label schema does not cover — one call per policy, same as the
+        // interactive panel would make for a single document. A title or
+        // description the parser already found still wins; there is nothing
+        // for the parser to have found for Audience or Document Type at all, so
+        // those come from the AI whenever it was asked to fill them.
+        $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $ai_field_ids, $api_key, $model );
+        if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
+        if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
+        $terms = [
+            'audience' => $ai['audience']      ?? [],
+            'type'     => $ai['document_type'] ?? [],
+        ];
+
+        $title = $fields['title'] !== ''
+            ? $fields['title']
+            /* translators: %d: position of the policy inside the uploaded document. */
+            : sprintf( __( 'Untitled policy %d' ), $index + 1 );
+
+        $first  = ( $offset === 0 && $position === 0 );
+        $target = $post_id;
+
+        if ( $first ) {
+            // The slug goes too. This entry was created to point at the
+            // compilation and is being given a policy's identity outright —
+            // title, description, date, content — so a URL still derived from
+            // the upload's own filename would describe none of it. An empty
+            // post_name has WordPress build a fresh one from the new title.
+            wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '' ] );
+        } else {
+            $target = wp_insert_post( [
+                'post_type'   => 'aidoc',
+                'post_status' => 'publish',
+                'post_title'  => $title,
+            ], true );
+            if ( is_wp_error( $target ) ) {
+                wp_send_json_error( $target->get_error_message() );
+            }
+        }
+
+        aidocs_write_policy( $target, $fields, $terms );
+
+        $created[] = [
+            'id'       => $target,
+            'title'    => $title,
+            'current'  => $first,
+            'blocks'   => count( $fields['blocks'] ),
+            'edit'     => get_edit_post_link( $target, 'raw' ),
+            'link'     => get_permalink( $target ),
+            'audience' => $terms['audience'],
+            'type'     => $terms['type'],
+            'fields'   => [
+                'description' => $fields['description'],
+                'pub_date'    => $fields['pub_date'],
+            ],
+        ];
+    }
+
+    $next = $offset + count( $batch );
+    if ( $next >= count( $selection ) ) delete_transient( aidocs_policy_batch_key( $post_id ) );
+
+    wp_send_json_success( [
+        'created'    => $created,
+        'done'       => $next >= count( $selection ),
+        'next'       => $next,
+        'total'      => count( $selection ),
+        // The fields were requested but there is nothing to fill them with —
+        // worth one warning up front rather than forty-nine silently empty
+        // Audience/Document Type columns the editor has to notice on their own.
+        'ai_warning' => ( $ai_field_ids && ! $api_key )
+            ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Documents → Settings.' )
+            : '',
     ] );
 }
 
@@ -2820,11 +3552,10 @@ function aidocs_settings_page() { // phpcs:ignore
 add_filter( 'manage_aidoc_posts_columns', 'aidocs_admin_columns' );
 function aidocs_admin_columns( $cols ) {
     $new = [ 'cb' => $cols['cb'], 'title' => $cols['title'] ];
-    $new['_document_pub_date']    = __( 'Publication Date' );
-    $new['_document_file_format'] = __( 'Format' );
-    $new['document_audience']     = __( 'Audience' );
-    $new['document_type']         = __( 'Type' );
-    $new['date']                  = $cols['date'];
+    $new['_document_pub_date'] = __( 'Publication Date' );
+    $new['document_audience']  = __( 'Audience' );
+    $new['document_type']      = __( 'Type' );
+    $new['date']               = $cols['date'];
     return $new;
 }
 
@@ -2833,10 +3564,6 @@ function aidocs_admin_column_values( $col, $post_id ) {
     switch ( $col ) {
         case '_document_pub_date':
             echo esc_html( get_post_meta( $post_id, '_document_pub_date', true ) );
-            break;
-        case '_document_file_format':
-            $f = get_post_meta( $post_id, '_document_file_format', true );
-            echo $f ? '<span style="text-transform:uppercase;">' . esc_html( $f ) . '</span>' : '—';
             break;
         case 'document_audience':
             $terms = get_the_terms( $post_id, 'document_audience' );
@@ -2932,18 +3659,15 @@ function aidocs_search_shortcode( $atts ) {
     $js_found   = esc_js( __( 'document(s) found' ) );
     $js_page    = esc_js( __( 'Page' ) );
     $js_of      = esc_js( __( 'of' ) );
-    $js_dl      = esc_js( __( 'Download' ) );
     $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
     $js_conn       = esc_js( __( 'Connection error. Please try again.' ) );
     $js_send       = esc_js( __( 'Send' ) );
     $js_ai_thinking = esc_js( __( 'AI is analyzing your query…' ) );
     $js_ai_label   = esc_js( __( 'AI Suggestion' ) );
     $js_ai_view    = esc_js( __( 'View details' ) );
-    $js_nopdf        = esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) );
-    $js_selone       = esc_js( __( 'Select at least one field.' ) );
-    $js_doc_content     = esc_js( __( 'Document content' ) );
+    $js_doc_content     = esc_js( __( 'Content' ) );
     $js_loading_content = esc_js( __( 'Loading content…' ) );
-    $js_no_content      = esc_js( __( 'No structured content has been extracted for this document yet.' ) );
+    $js_no_content      = esc_js( __( 'No content has been extracted for this entry yet.' ) );
 
     $js = <<<ENDSCRIPT
 jQuery(function($){
@@ -2968,11 +3692,8 @@ jQuery(function($){
                     \$suggestions.empty();
                     if(!res.success||!res.data.results.length){\$suggestions.hide();return;}
                     \$.each(res.data.results,function(_,doc){
-                        var fmt=doc.format||'generic';
-                        var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
                         var \$s=\$('<div class="cd-fs-suggestion"></div>');
                         \$('<span class="cd-fs-suggestion-title"></span>').text(doc.title).appendTo(\$s);
-                        \$s.append(\$('<span class="cd-fs-doc-tag format-'+fmt+'">'+lbl+'</span>'));
                         \$s.on('click',function(){\$kw.val(doc.title);\$suggestions.hide().empty();doSearch(1);});
                         \$suggestions.append(\$s);
                     });
@@ -3011,14 +3732,9 @@ jQuery(function($){
 
     var \$modalOverlay=\$('#cd-doc-modal-overlay-'+uid);
     \$('body').append(\$modalOverlay.detach());
-    var \$modalIcon=\$('#cd-doc-modal-icon-'+uid),\$modalTitle=\$('#cd-doc-modal-title-'+uid);
+    var \$modalTitle=\$('#cd-doc-modal-title-'+uid);
     var \$modalTags=\$('#cd-doc-modal-tags-'+uid),\$modalBody=\$('#cd-doc-modal-body-'+uid);
     var \$modalFooter=\$('#cd-doc-modal-footer-'+uid);
-    var \$modalTabsBar=\$('#cd-doc-modal-tabs-'+uid);
-    var \$paneContent=\$('#cd-doc-modal-pane-content-'+uid);
-    var \$panePreview=\$('#cd-doc-modal-pane-preview-'+uid);
-    var \$modalIframe=\$('#cd-doc-modal-iframe-'+uid);
-    var \$noPreview=\$('#cd-doc-no-preview-'+uid);
     var \$modalPermalink=\$('#cd-doc-modal-permalink-'+uid);
     var \$dcMsgs=\$('#cd-doc-chat-msgs-'+uid);
     var \$dcInput=\$('#cd-doc-chat-input-'+uid);
@@ -3027,22 +3743,9 @@ jQuery(function($){
     var _dcHistory=[],_dcDocId=null;
     var _contentCache={},_contentXhr=null;
 
-    \$modalTabsBar.on('click','.cd-doc-modal-tab',function(){
-        var pane=\$(this).data('pane');
-        \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active');
-        \$(this).addClass('active');
-        \$paneContent.add(\$panePreview).removeClass('active');
-        if(pane==='preview')\$panePreview.addClass('active');
-        else \$paneContent.addClass('active');
-    });
-
     function openModal(doc){
-        var fmt=doc.format||'generic';
-        var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||fmt.toUpperCase()||'FILE';
-        \$modalOverlay.find('.cd-doc-modal').attr('class','cd-doc-modal fmt-'+fmt);
-        \$modalIcon.attr('class','cd-doc-modal-icon '+fmt).text(lbl);
         \$modalTitle.text(doc.title||'');
-        var tags='<span class="cd-fs-doc-tag format-'+fmt+'">'+lbl+'</span>';
+        var tags='';
         \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
         \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
         \$modalTags.html(tags);
@@ -3053,27 +3756,15 @@ jQuery(function($){
         if((doc.audience||[]).length) grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Audience</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.audience.join(', ')).html()+'</div></div>';
         if((doc.type||[]).length)     grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Document Type</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.type.join(', ')).html()+'</div></div>';
         if(doc.pub_date)              grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Publication Date</div><div class="cd-doc-modal-value">'+formatDate(doc.pub_date)+'</div></div>';
-        if(doc.format)                grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Format</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.format.toUpperCase()).html()+'</div></div>';
         if(grid) body+='<div class="cd-doc-modal-grid">'+grid+'</div>';
         body+='<div class="aidocs-section-label">{$js_doc_content}</div>';
         body+='<div class="cd-doc-content-slot"><div class="aidocs-content-loading">{$js_loading_content}</div></div>';
         \$modalBody.html(body);
         loadContent(doc.id);
-        \$modalFooter.find('.cd-doc-modal-dl').remove();
         \$modalFooter.find('.cd-doc-modal-footer-left').remove();
         var footerLeft=doc.pub_date?'<span class="cd-doc-modal-footer-left">'+formatDate(doc.pub_date)+'</span>':'<span class="cd-doc-modal-footer-left"></span>';
         \$modalFooter.prepend(footerLeft);
-        if(doc.file_url){
-            \$modalFooter.find('.cd-doc-modal-footer-right').prepend('<a href="'+doc.file_url+'" target="_blank" class="cd-doc-modal-dl" download>\u2193 Download</a>');
-        }
         \$modalPermalink.hide().attr('href','#');
-        /* Reset to Content tab */
-        \$modalTabsBar.find('.cd-doc-modal-tab').removeClass('active').first().addClass('active');
-        \$paneContent.addClass('active');\$panePreview.removeClass('active');
-        /* PDF preview */
-        var isPdf=fmt==='pdf';
-        if(isPdf&&doc.file_url){\$modalIframe.attr('src',doc.file_url);\$modalIframe.show();\$noPreview.hide();}
-        else{\$modalIframe.attr('src','about:blank');\$modalIframe.hide();\$noPreview.show();}
         /* Reset the Ask AI bar per doc */
         if(_dcDocId!==doc.id){
             _dcDocId=doc.id;_dcHistory=[];
@@ -3163,19 +3854,19 @@ jQuery(function($){
         var hdr=\$('<div class="cd-fs-results-header"></div>').text(data.total+' {$js_found}'+(data.total_pages>1?' \u2014 {$js_page} '+data.page+' {$js_of} '+data.total_pages:''));
         \$results.append(hdr);
         \$.each(data.results,function(i,doc){
-            var fmt=doc.format||'generic';
-            var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||fmt.toUpperCase()||'FILE';
-            var tags='<span class="cd-fs-doc-tag format-'+fmt+'">'+lbl+'</span>';
+            var tags='';
             \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
             \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
             if(doc.pub_date)tags+='<span class="cd-fs-doc-tag date">'+formatDate(doc.pub_date)+'</span>';
-            var docSvg='<svg width="22" height="26" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2h10l6 6v18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><polyline points="14 2 14 8 20 8"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/><line x1="7" y1="21" x2="12" y2="21"/></svg>';
-            // The card itself already navigates straight to the document, so a
-            // "View document"/"Download" pair here would just duplicate that.
+            /* A reading glyph, not a file one: what a card leads to is the
+               information itself, never a file to open or save. */
+            var docSvg='<svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+            // The card itself already navigates straight to the entry, so a
+            // "View"/"Download" pair here would just duplicate that.
             var snippetHtml=doc.snippet?'<p class="cd-fs-doc-snippet">'+doc.snippet+'</p>':'';
             var \$card=\$(
                 '<div class="cd-fs-doc-card">'+
-                '<div class="cd-fs-doc-icon '+fmt+'">'+docSvg+'</div>'+
+                '<div class="cd-fs-doc-icon">'+docSvg+'</div>'+
                 '<div class="cd-fs-doc-body">'+
                 '<p class="cd-fs-doc-title">'+\$('<span>').text(doc.title).html()+'</p>'+
                 snippetHtml+
@@ -3211,15 +3902,11 @@ jQuery(function($){
             \$box.append(\$lbl);
             if(res.data.message)\$box.append(\$('<p class="cd-fs-ai-suggest-msg"></p>').text(res.data.message));
             \$.each(res.data.docs||[],function(_,doc){
-                var fmt=doc.format||'generic';
-                var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
                 var \$card=\$('<div class="cd-fs-ai-suggest-doc"></div>');
-                \$('<div class="cd-fs-doc-icon '+fmt+'"></div>').text(lbl).appendTo(\$card);
                 var \$info=\$('<div class="cd-fs-ai-suggest-doc-info"></div>');
                 \$('<div class="cd-fs-ai-suggest-doc-title"></div>').text(doc.title).appendTo(\$info);
                 var \$actions=\$('<div class="cd-fs-ai-suggest-doc-actions"></div>');
                 \$('<button class="cd-fs-ai-suggest-view" type="button">{$js_ai_view}</button>').on('click',function(){if(doc.permalink)location.href=doc.permalink;}).appendTo(\$actions);
-                if(doc.file_url)\$('<a class="cd-fs-doc-dl" target="_blank" download>{$js_dl} \u2193</a>').attr('href',doc.file_url).appendTo(\$actions);
                 \$info.append(\$actions);
                 \$card.append(\$info);
                 \$box.append(\$card);
@@ -3264,15 +3951,9 @@ jQuery(function($){
         \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
         if(docs&&docs.length){
             \$.each(docs,function(_,doc){
-                var fmt=doc.format||'generic';
-                var lbl={pdf:'PDF',word:'DOC',excel:'XLS',powerpoint:'PPT'}[fmt]||'FILE';
                 var \$card=\$('<div class="cd-bot-doc-card"></div>');
-                \$('<div class="cd-bot-doc-icon '+fmt+'"></div>').text(lbl).appendTo(\$card);
                 var \$info=\$('<div class="cd-bot-doc-info"></div>');
                 \$('<div class="cd-bot-doc-title"></div>').text(doc.title).appendTo(\$info);
-                if(doc.file_url){
-                    \$('<a class="cd-bot-doc-dl" target="_blank" download>\u2193 Download</a>').attr('href',doc.file_url).appendTo(\$info);
-                }
                 \$card.append(\$info);
                 \$card.on('click',function(e){if(!\$(e.target).closest('a').length&&doc.permalink)location.href=doc.permalink;});
                 \$turn.append(\$card);
@@ -3351,13 +4032,7 @@ ENDSCRIPT;
     .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
     .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
-    .cd-fs-doc-tag.format-word{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
-    .cd-fs-doc-tag.format-excel{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
-    .cd-fs-doc-tag.format-generic{background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;}
     .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}.cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
-    .cd-fs-doc-dl{display:inline-flex;align-items:center;gap:6px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-radius:var(--wp--custom--button-border-radius,7px);padding:8px 16px;font-size:13px;font-weight:600;text-decoration:none;transition:background .15s;white-space:nowrap;}
-    .cd-fs-doc-dl:hover{background:var(--wp--preset--color--secondary,#2c4a7c);color:#fff;}
     .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
     .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
     .cd-fs-page-btn{height:34px;min-width:34px;padding:0 10px;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px);font-size:13px;cursor:pointer;transition:background .15s,border-color .15s;}
@@ -3395,27 +4070,13 @@ ENDSCRIPT;
     .cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
     .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
     .cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
-    /* colored top accent based on format */
-    .cd-doc-modal.fmt-pdf{border-top:4px solid #e74c3c;}
-    .cd-doc-modal.fmt-word{border-top:4px solid #2b5797;}
-    .cd-doc-modal.fmt-excel{border-top:4px solid #1e7145;}
-    .cd-doc-modal.fmt-generic{border-top:4px solid #7f8c8d;}
     .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
-    .cd-doc-modal-icon{flex-shrink:0;width:50px;height:62px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;letter-spacing:.5px;}
-    .cd-doc-modal-icon.pdf{background:linear-gradient(145deg,#e74c3c,#c0392b);}
-    .cd-doc-modal-icon.word{background:linear-gradient(145deg,#2b5797,#1a3d7a);}
-    .cd-doc-modal-icon.excel{background:linear-gradient(145deg,#1e7145,#145232);}
-    .cd-doc-modal-icon.generic{background:linear-gradient(145deg,#7f8c8d,#636e72);}
     .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
     .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 10px;line-height:1.4;}
     .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
     .cd-doc-modal-close:hover{color:var(--wp--preset--color--contrast,#1a2744);background:#f0f2f5;}
     /* Modal tabs */
-    .cd-doc-modal-tabs-bar{display:flex;border-bottom:1px solid #edf0f4;padding:0 20px;flex-shrink:0;background:#fafbfc;}
-    .cd-doc-modal-tab{background:none;border:none;border-bottom:2.5px solid transparent;padding:11px 16px;font-size:13px;font-weight:500;color:#6b7280;cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s;display:flex;align-items:center;gap:6px;}
-    .cd-doc-modal-tab:hover{color:var(--wp--preset--color--contrast,#1a2744);}
-    .cd-doc-modal-tab.active{color:var(--wp--preset--color--primary,#1e3a5f);border-bottom-color:var(--wp--preset--color--primary,#1e3a5f);font-weight:600;}
     .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
     .cd-doc-modal-pane.active{display:flex;}
     /* Details pane */
@@ -3424,10 +4085,6 @@ ENDSCRIPT;
     .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
     .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
     .cd-doc-modal-value{font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);font-weight:500;line-height:1.5;}
-    /* Preview pane */
-    .cd-doc-modal-iframe{width:100%;flex:1;border:none;min-height:460px;}
-    .cd-doc-no-preview{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#9ca3af;font-size:14px;padding:40px;}
-    .cd-doc-no-preview svg{color:#d1d5db;}
     /* Chat pane */
     /* Ask AI — persistent bar pinned below the panes */
     .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
@@ -3462,8 +4119,6 @@ ENDSCRIPT;
     .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
     .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
     .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
-    .cd-doc-modal-dl{display:inline-flex;align-items:center;gap:8px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-radius:var(--wp--custom--button-border-radius,8px);padding:10px 22px;font-size:14px;font-weight:600;text-decoration:none;transition:background .15s;}
-    .cd-doc-modal-dl:hover{background:var(--wp--preset--color--secondary,#2c4a7c);color:#fff;}
     .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
     .cd-doc-modal-cancel:hover{border-color:var(--wp--preset--color--secondary,#2c4a7c);background:#f0f6ff;}
     /* card clickable */
@@ -3487,12 +4142,8 @@ ENDSCRIPT;
     .cd-bot-turn.user .cd-bot-msg{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-bottom-right-radius:3px;}
     .cd-bot-doc-card{display:flex;gap:10px;align-items:center;background:#fff;border:1.5px solid #d0dce8;border-radius:10px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s,border-color .15s;width:100%;box-sizing:border-box;}
     .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:var(--wp--preset--color--secondary,#2c4a7c);}
-    .cd-bot-doc-icon{flex-shrink:0;width:36px;height:44px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;}
-    .cd-bot-doc-icon.pdf{background:#e74c3c;}.cd-bot-doc-icon.word{background:#2b5797;}.cd-bot-doc-icon.excel{background:#1e7145;}.cd-bot-doc-icon.generic{background:#7f8c8d;}
     .cd-bot-doc-info{flex:1;min-width:0;}
     .cd-bot-doc-title{font-size:12px;font-weight:600;color:var(--wp--preset--color--contrast,#1a2744);margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
-    .cd-bot-doc-dl{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;background:#e8f0fb;padding:3px 9px;border-radius:4px;transition:background .15s;}
-    .cd-bot-doc-dl:hover{background:#c0d4f0;color:var(--wp--preset--color--contrast,#1a2744);}
     .cd-bot-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
     .cd-bot-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e9ef;flex-shrink:0;}
     .cd-bot-input{flex:1;height:38px;padding:0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
@@ -3504,13 +4155,13 @@ ENDSCRIPT;
 
     <div class="cd-fs-wrap" id="<?php echo esc_attr( $uid ); ?>">
         <div class="cd-fs-card">
-            <h2 class="cd-fs-title"><?php esc_html_e( 'Document Search' ); ?></h2>
+            <h2 class="cd-fs-title"><?php esc_html_e( 'Find what applies to you' ); ?></h2>
             <p class="cd-fs-subtitle">
                 <span class="cd-fs-subtitle-badge">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     <?php esc_html_e( 'AI-powered' ); ?>
                 </span>
-                <?php esc_html_e( 'Type anything in any language and AI will find the most relevant document for you.' ); ?>
+                <?php esc_html_e( 'Ask in any language and the AI will point you to what answers it.' ); ?>
             </p>
 
             <!-- Single-row controls: keyword + audience + type + search -->
@@ -3551,36 +4202,19 @@ ENDSCRIPT;
     <div class="cd-doc-modal-overlay" id="cd-doc-modal-overlay-<?php echo esc_attr( $uid ); ?>" role="dialog" aria-modal="true">
         <div class="cd-doc-modal">
             <div class="cd-doc-modal-header">
-                <div class="cd-doc-modal-icon" id="cd-doc-modal-icon-<?php echo esc_attr( $uid ); ?>">PDF</div>
                 <div class="cd-doc-modal-title-wrap">
                     <p class="cd-doc-modal-title" id="cd-doc-modal-title-<?php echo esc_attr( $uid ); ?>"></p>
                     <div class="cd-doc-modal-tags" id="cd-doc-modal-tags-<?php echo esc_attr( $uid ); ?>"></div>
                 </div>
                 <button class="cd-doc-modal-close" id="cd-doc-modal-close-<?php echo esc_attr( $uid ); ?>" aria-label="Close">&times;</button>
             </div>
-            <div class="cd-doc-modal-tabs-bar" id="cd-doc-modal-tabs-<?php echo esc_attr( $uid ); ?>">
-                <button class="cd-doc-modal-tab active" data-pane="content">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    <?php esc_html_e( 'Content' ); ?>
-                </button>
-                <button class="cd-doc-modal-tab" data-pane="preview">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
-                    <?php esc_html_e( 'Preview' ); ?>
-                </button>
-            </div>
-            <!-- Content pane: extracted fields, then the structured document body -->
+            <!-- The content itself: extracted fields, then the structured body.
+                 There is no second pane beside it — the original file is not part
+                 of what this repository offers a reader. -->
             <div class="cd-doc-modal-pane active" id="cd-doc-modal-pane-content-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-body" id="cd-doc-modal-body-<?php echo esc_attr( $uid ); ?>"></div>
             </div>
-            <!-- Preview pane -->
-            <div class="cd-doc-modal-pane" id="cd-doc-modal-pane-preview-<?php echo esc_attr( $uid ); ?>">
-                <iframe class="cd-doc-modal-iframe" id="cd-doc-modal-iframe-<?php echo esc_attr( $uid ); ?>" src="about:blank"></iframe>
-                <div class="cd-doc-no-preview" id="cd-doc-no-preview-<?php echo esc_attr( $uid ); ?>" style="display:none;">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    <span><?php esc_html_e( 'Preview only available for PDF files.' ); ?></span>
-                </div>
-            </div>
-            <!-- Ask AI: fixed bar spanning the whole document, not a tab -->
+            <!-- Ask AI: fixed bar spanning the whole entry, not a tab -->
             <div class="cd-doc-ask" id="cd-doc-ask-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-ask-answers" id="cd-doc-chat-msgs-<?php echo esc_attr( $uid ); ?>"></div>
                 <div class="cd-doc-ask-bar">
@@ -3637,10 +4271,7 @@ ENDSCRIPT;
 // header/content/footer shell instead of whatever sidebar, related-posts or
 // comments markup the active theme's single-post layout happens to add.
 function aidocs_render_single_document( $pid ) {
-    $file_id   = get_post_meta( $pid, '_document_file_id', true );
-    $file_url  = $file_id ? wp_get_attachment_url( $file_id ) : '';
     $pub_date  = get_post_meta( $pid, '_document_pub_date', true );
-    $format    = get_post_meta( $pid, '_document_file_format', true );
     $desc      = get_post_meta( $pid, '_document_description', true );
     $audience  = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
     $types     = wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] );
@@ -3648,23 +4279,18 @@ function aidocs_render_single_document( $pid ) {
     $types     = is_wp_error( $types ) ? [] : $types;
     $blocks    = aidocs_get_content_blocks( $pid );
 
-    $fmt   = $format ?: 'generic';
-    $label = [ 'pdf' => 'PDF', 'word' => 'DOC', 'excel' => 'XLS' ][ $fmt ] ?? 'FILE';
-
     ob_start();
     aidocs_single_view_styles();
     ?>
-    <article class="aidocs-single fmt-<?php echo esc_attr( $fmt ); ?>">
+    <article class="aidocs-single">
 
         <a href="<?php echo esc_url( home_url( '/' . aidocs_get_archive_slug() . '/' ) ); ?>" class="aidocs-single-back">
-            &larr; <?php esc_html_e( 'Back to documents' ); ?>
+            &larr; <?php esc_html_e( 'Back to all topics' ); ?>
         </a>
 
         <header class="aidocs-single-header">
-            <div class="aidocs-single-icon <?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></div>
             <div class="aidocs-single-heading">
                 <div class="aidocs-single-tags">
-                    <span class="cd-fs-doc-tag format-<?php echo esc_attr( $fmt ); ?>"><?php echo esc_html( $label ); ?></span>
                     <?php foreach ( $audience as $a ) : ?>
                         <span class="cd-fs-doc-tag audience"><?php echo esc_html( $a ); ?></span>
                     <?php endforeach; ?>
@@ -3673,25 +4299,13 @@ function aidocs_render_single_document( $pid ) {
                     <?php endforeach; ?>
                 </div>
             </div>
-            <?php if ( $file_url ) : ?>
-            <a href="<?php echo esc_url( $file_url ); ?>" class="aidocs-single-dl" download target="_blank" rel="noopener">
-                &darr; <?php esc_html_e( 'Download' ); ?>
-            </a>
-            <?php endif; ?>
         </header>
 
         <?php if ( $desc ) : ?>
         <div class="aidocs-single-desc"><?php echo esc_html( $desc ); ?></div>
         <?php endif; ?>
 
-        <?php if ( $fmt === 'pdf' && $file_url ) : ?>
-        <details class="aidocs-single-preview">
-            <summary><?php esc_html_e( 'Preview original PDF' ); ?></summary>
-            <iframe src="<?php echo esc_url( $file_url ); ?>" title="<?php echo esc_attr( get_the_title( $pid ) ); ?>"></iframe>
-        </details>
-        <?php endif; ?>
-
-        <?php if ( $audience || $types || $pub_date || $format ) : ?>
+        <?php if ( $audience || $types || $pub_date ) : ?>
         <div class="aidocs-single-grid">
             <?php if ( $audience ) : ?>
             <div><div class="aidocs-single-label"><?php esc_html_e( 'Audience' ); ?></div>
@@ -3705,18 +4319,14 @@ function aidocs_render_single_document( $pid ) {
             <div><div class="aidocs-single-label"><?php esc_html_e( 'Publication Date' ); ?></div>
                  <div class="aidocs-single-value"><?php echo esc_html( mysql2date( get_option( 'date_format' ), $pub_date ) ); ?></div></div>
             <?php endif; ?>
-            <?php if ( $format ) : ?>
-            <div><div class="aidocs-single-label"><?php esc_html_e( 'Format' ); ?></div>
-                 <div class="aidocs-single-value"><?php echo esc_html( strtoupper( $format ) ); ?></div></div>
-            <?php endif; ?>
         </div>
         <?php endif; ?>
 
-        <div class="aidocs-section-label"><?php esc_html_e( 'Document content' ); ?></div>
+        <div class="aidocs-section-label"><?php esc_html_e( 'Content' ); ?></div>
         <?php if ( $blocks ) : ?>
             <?php echo aidocs_render_content_blocks( $blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
         <?php else : ?>
-            <p class="aidocs-content-empty"><?php esc_html_e( 'No structured content has been extracted for this document yet.' ); ?></p>
+            <p class="aidocs-content-empty"><?php esc_html_e( 'No content has been extracted for this entry yet.' ); ?></p>
         <?php endif; ?>
         <?php echo aidocs_render_document_history( $pid ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
 
@@ -3806,22 +4416,11 @@ function aidocs_single_view_styles() {
     .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;margin-bottom:18px;}
     .aidocs-single-back:hover{text-decoration:underline;}
     .aidocs-single-header{display:flex;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
-    .aidocs-single-icon{flex-shrink:0;width:50px;height:62px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;letter-spacing:.5px;}
-    .aidocs-single-icon.pdf{background:linear-gradient(145deg,#e74c3c,#c0392b);}
-    .aidocs-single-icon.word{background:linear-gradient(145deg,#2b5797,#1a3d7a);}
-    .aidocs-single-icon.excel{background:linear-gradient(145deg,#1e7145,#145232);}
-    .aidocs-single-icon.generic{background:linear-gradient(145deg,#7f8c8d,#636e72);}
-    .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;min-height:62px;}
+    .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;}
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.format-pdf{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
-    .cd-fs-doc-tag.format-word{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
-    .cd-fs-doc-tag.format-excel{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
-    .cd-fs-doc-tag.format-generic{background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;}
     .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}
     .cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}
-    .aidocs-single-dl{flex-shrink:0;display:inline-flex;align-items:center;gap:8px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-radius:var(--wp--custom--button-border-radius,8px);padding:10px 20px;font-size:14px;font-weight:600;text-decoration:none;}
-    .aidocs-single-dl:hover{background:var(--wp--preset--color--secondary,#2c4a7c);color:#fff;}
     .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
     .aidocs-single-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-bottom:4px;}
     .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
@@ -3838,9 +4437,6 @@ function aidocs_single_view_styles() {
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
     .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
     .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
-    .aidocs-single-preview{margin:0 0 22px;border:1px solid #e5e9ef;border-radius:10px;padding:14px 18px;}
-    .aidocs-single-preview summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);}
-    .aidocs-single-preview iframe{width:100%;min-height:560px;border:none;margin-top:14px;}
     /* Ask AI — pinned to the bottom of the viewport while reading */
     .aidocs-single-ask{position:sticky;bottom:0;z-index:50;margin-top:32px;background:#fbfcfd;border:1px solid #e5e9ef;border-radius:12px;box-shadow:0 -2px 16px rgba(0,0,0,.06);overflow:hidden;}
     .aidocs-single-ask-answers{display:none;max-height:260px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid #edf0f4;}
@@ -3858,7 +4454,7 @@ function aidocs_single_view_styles() {
     #aidocs-single-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
     #aidocs-single-ask-send:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
     #aidocs-single-ask-send:disabled{opacity:.5;cursor:default;}
-    @media(max-width:600px){.aidocs-single-grid{grid-template-columns:1fr;}.aidocs-single-header{flex-wrap:wrap;}.aidocs-single-dl{width:100%;justify-content:center;}}
+    @media(max-width:600px){.aidocs-single-grid{grid-template-columns:1fr;}.aidocs-single-header{flex-wrap:wrap;}}
     </style>
     <?php
 }
@@ -3932,18 +4528,17 @@ function aidocs_search_ajax() {
 
     while ( $query->have_posts() ) {
         $query->the_post();
-        $pid      = get_the_ID();
-        $file_id  = get_post_meta( $pid, '_document_file_id', true );
-        $file_url = $file_id ? wp_get_attachment_url( $file_id ) : '';
+        $pid = get_the_ID();
 
+        // The source file the content was read from is deliberately not here:
+        // what this repository publishes is the information, not the file it
+        // arrived in, so nothing downstream is given a way to link to one.
         $results[] = [
             'id'          => $pid,
             'title'       => get_the_title(),
             'description' => get_post_meta( $pid, '_document_description', true ),
-            'file_url'    => $file_url,
             'permalink'   => get_permalink( $pid ),
             'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
-            'format'      => get_post_meta( $pid, '_document_file_format', true ),
             'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
             'snippet'     => $keyword ? aidocs_search_snippet( $pid, $keyword ) : '',
@@ -4112,7 +4707,6 @@ function aidocs_ai_recommend_ajax() {
     $candidates  = [];
     foreach ( $candidate_ids as $pid ) {
         $pid          = (int) $pid;
-        $file_id      = get_post_meta( $pid, '_document_file_id', true );
         $candidates[] = [
             'id'          => $pid,
             'title'       => get_the_title( $pid ),
@@ -4127,9 +4721,7 @@ function aidocs_ai_recommend_ajax() {
             'excerpt'     => aidocs_candidate_excerpt( $pid, $excerpt_len ),
             'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
-            'format'      => get_post_meta( $pid, '_document_file_format', true ),
             'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
-            'file_url'    => $file_id ? wp_get_attachment_url( $file_id ) : '',
             'permalink'   => get_permalink( $pid ),
         ];
     }

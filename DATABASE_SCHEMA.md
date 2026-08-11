@@ -23,9 +23,9 @@ One row per field per document (`post_id` = ID of the `aidoc` post).
 
 | `meta_key` | Type | Description |
 |---|---|---|
-| `_document_file_id` | `int` | WordPress attachment ID of the uploaded file |
+| `_document_file_id` | `int` | WordPress attachment ID of the source file. Read for its text only — nothing public links to it, offers it for download or previews it. Absent on entries created by the multiple-policy import, since the file that was split is not any one of them. |
 | `_document_pub_date` | `string` | Publication date in `YYYY-MM-DD` format |
-| `_document_file_format` | `string` | One of: `pdf`, `word`, `excel` |
+| `_document_source_mode` | `string` | `single` or `multi` — which question the editor answered about this upload, so re-opening the editor asks it the same way round. Presentational only; nothing on the frontend reads it. |
 | `_document_description` | `text` | Value of the built-in Description field |
 | `_document_content` | `text` (JSON) | Structured document body as a JSON array of blocks, produced by regex parsing of the PDF text (no AI). Written by "Extract content again" and by the automatic extraction that runs when a PDF is first loaded. See *Content block shape* below. |
 | `_document_content_ai` | `text` (JSON) | A pending AI-restructured version of the content above, in the same block shape. Written by "Restructure content with AI"; only ever promoted to `_document_content` if the editor clicks "Replace content with this" (`aidocs_ai_restructure_apply_ajax()`), and deleted either way once a decision is made — so it never lingers as stale state. |
@@ -133,7 +133,7 @@ The CPT's menu label/icon and allowed file formats remain hardcoded (`Documents`
 
 ## 6. WordPress Media Library — `wp_posts` + `wp_postmeta`
 
-Uploaded document files are stored as standard WordPress attachments (`post_type = attachment`). The plugin stores only the attachment ID in `_document_file_id`. The actual file URL, path, and size are retrieved via standard WordPress functions (`wp_get_attachment_url`, `get_attached_file`).
+Uploaded source files are stored as standard WordPress attachments (`post_type = attachment`). The plugin stores only the attachment ID in `_document_file_id`, and uses it in the editor alone — to re-read the file's text. The URL, path, and size are retrieved via standard WordPress functions (`wp_get_attachment_url`, `get_attached_file`). No frontend surface exposes any of them.
 
 ---
 
@@ -167,7 +167,7 @@ wp_posts
     └── post_id → wp_postmeta
                   ├── _document_file_id         → wp_posts (attachment)
                   ├── _document_pub_date
-                  ├── _document_file_format
+                  ├── _document_source_mode
                   ├── _document_description
                   ├── _document_content         (JSON block[])
                   ├── _document_content_ai      (JSON block[], pending review only)

@@ -83,20 +83,182 @@ const AIDOCS_NOTE_PATTERNS = [
 // ──────────────────────────────────────────────
 
 /**
+ * The pattern that matches a section label at the head of a line.
+ *
+ * The authored files use four interchangeable spellings for a marker:
+ * "Label:", "[Label]", "**Label:**" and a line holding nothing but the label. A
+ * delimiter of some kind is always required, so prose that merely starts with a
+ * label word ("Bodies of work…") is not a section boundary.
+ */
+function aidocs_doc_label_pattern() {
+    static $pattern = null;
+    if ( $pattern === null ) {
+        $alt     = implode( '|', array_map( 'preg_quote', AIDOCS_DOC_LABELS ) );
+        $pattern = '/^(' . $alt . ')\s*(?::\s*(.*))?$/i';
+    }
+    return $pattern;
+}
+
+/**
+ * Split a compilation into the standalone policies it holds.
+ *
+ * The files the Commission publishes are single Word documents carrying dozens
+ * of separate policies one after another, and each of those has to become an
+ * entry of its own. What delimits them is the same label schema one policy is
+ * authored with: a policy has exactly one "Body" label, so counting those labels
+ * counts the policies, and each policy begins at the title printed above its own
+ * "Teaser"/"Body" pair.
+ *
+ * Only the first heading of an extraction is written as a level-1 title (see
+ * aidocs-pdf-structure.js), so from the second policy on the title arrives as an
+ * all-caps level-2 heading. Each segment's title is rewritten to the single
+ * level-1 heading aidocs_parse_labeled_document() reads, which is what lets one
+ * segment be parsed exactly as if it had been uploaded on its own.
+ *
+ * @param string $raw_text Canonical text of the whole compilation.
+ * @return string[] One text per policy, in the order they appear. Empty when the
+ *                  text carries no label schema at all.
+ */
+function aidocs_split_multi_policy_text( $raw_text ) {
+    $lines   = aidocs_normalize_lines( $raw_text );
+    $pattern = aidocs_doc_label_pattern();
+
+    $labels = [];   // line index => label, lower-case
+    foreach ( $lines as $index => $line ) {
+        $bare = aidocs_label_candidate( $line );
+        if ( $bare === null || ! preg_match( $pattern, $bare, $m ) ) continue;
+        $labels[ $index ] = strtolower( $m[1] );
+    }
+
+    $bodies = [];
+    foreach ( $labels as $index => $label ) {
+        if ( $label === 'body' ) $bodies[] = $index;
+    }
+    if ( ! $bodies ) return [];
+
+    // Where each policy begins. The search for a title is fenced by the previous
+    // policy's "Body" label, so a title the layout lost can never be looked for
+    // so far up that it lands inside the policy before it.
+    $starts = [];
+    foreach ( $bodies as $position => $body ) {
+        $floor = $position === 0 ? 0 : $bodies[ $position - 1 ] + 1;
+
+        // The teaser sits between the title and the body, so when one was
+        // authored the title is above its label rather than above the body's.
+        $head = $body;
+        for ( $index = $body - 1; $index >= $floor; $index-- ) {
+            if ( ( $labels[ $index ] ?? '' ) === 'teaser' ) { $head = $index; break; }
+        }
+
+        $starts[] = aidocs_policy_start_line( $lines, $labels, $head, $floor );
+    }
+
+    $count = count( $lines );
+    $out   = [];
+    foreach ( $starts as $position => $start ) {
+        $end   = isset( $starts[ $position + 1 ] ) ? $starts[ $position + 1 ] : $count;
+        $slice = array_slice( $lines, $start, $end - $start );
+        $out[] = implode( "\n", aidocs_promote_policy_title( $slice ) );
+    }
+
+    return $out;
+}
+
+/**
+ * How many standalone policies a document holds.
+ *
+ * @param string $raw_text Canonical text.
+ * @return int Zero when the text carries no label schema, so nothing can be told.
+ */
+function aidocs_count_policies( $raw_text ) {
+    return count( aidocs_split_multi_policy_text( $raw_text ) );
+}
+
+/**
+ * The line a policy starts on: the top of the heading run holding its title.
+ *
+ * Titles are set over two and three lines often enough that the run has to be
+ * followed up rather than stopping at the first heading. Two things end it:
+ *
+ *  - **A different heading level.** A title broken across lines is one heading,
+ *    so every line of it carries the same level. The heading above a title at a
+ *    shallower level is the compilation's own section header — "2. Policies —"
+ *    ahead of the first policy in it — and belongs to no policy.
+ *  - **The previous policy's trailer.** Its dates and provenance lines are, in a
+ *    few documents, set in a weight the extractor reads as a heading, so
+ *    aidocs_is_trailer_text() stops the run there.
+ *
+ * @param string[] $lines  All lines.
+ * @param array    $labels Line index => label.
+ * @param int      $head   The policy's first label line.
+ * @param int      $floor  Lowest line index the search may reach.
+ * @return int The start line, or $head when no title precedes the labels.
+ */
+function aidocs_policy_start_line( array $lines, array $labels, $head, $floor ) {
+    $index = $head - 1;
+    while ( $index >= $floor && trim( $lines[ $index ] ) === '' ) $index--;
+    if ( $index < $floor || isset( $labels[ $index ] ) ) return $head;
+
+    // The heading level of a title line, or 0 when the line is not one.
+    $title_level = function ( $line ) {
+        if ( ! preg_match( '/^(#{1,6})\s+(\S.*)$/', ltrim( $line ), $m ) ) return 0;
+        return aidocs_is_trailer_text( $m[2] ) ? 0 : strlen( $m[1] );
+    };
+
+    $level = $title_level( $lines[ $index ] );
+
+    // A title the extractor did not read as a heading at all: the single line
+    // above the labels is taken as the title, unless it is the tail of the
+    // previous policy rather than the head of this one.
+    if ( ! $level ) {
+        $text = aidocs_plain_text( $lines[ $index ] );
+        return ( aidocs_is_trailer_text( $text ) || ! aidocs_reads_like_heading( $text ) ) ? $head : $index;
+    }
+
+    $start = $index;
+    while ( $start - 1 >= $floor && $title_level( $lines[ $start - 1 ] ) === $level ) $start--;
+    return $start;
+}
+
+/**
+ * Rewrite a segment's title into the one level-1 heading the parser reads.
+ *
+ * @param string[] $lines One policy's lines.
+ * @return string[] The same lines with their leading heading run collapsed.
+ */
+function aidocs_promote_policy_title( array $lines ) {
+    $pattern = aidocs_doc_label_pattern();
+
+    $title = [];
+    $index = 0;
+    $count = count( $lines );
+
+    while ( $index < $count ) {
+        $line = $lines[ $index ];
+        if ( trim( $line ) === '' ) { $index++; continue; }
+
+        $bare = aidocs_label_candidate( $line );
+        if ( $bare !== null && preg_match( $pattern, $bare ) ) break;
+
+        $heading = preg_match( '/^#{1,6}\s+(\S.*)$/', ltrim( $line ), $m ) ? $m[1] : $line;
+        $title[] = trim( $heading );
+        $index++;
+    }
+
+    if ( ! $title ) return $lines;
+
+    return array_merge( [ '# ' . aidocs_join_plain( $title ) ], array_slice( $lines, $index ) );
+}
+
+/**
  * Split a single policy document into its labelled parts.
  *
  * @param string $raw_text Text extracted from the document.
  * @return array{title:string,teaser:string,last_updated:string,document_history:string,blocks:array,labeled:bool}
  */
 function aidocs_parse_labeled_document( $raw_text ) {
-    $lines = aidocs_normalize_lines( $raw_text );
-
-    $label_alt = implode( '|', array_map( 'preg_quote', AIDOCS_DOC_LABELS ) );
-    // The authored files use four interchangeable spellings for a marker:
-    // "Label:", "[Label]", "**Label:**" and a line holding nothing but the
-    // label. A delimiter of some kind is always required, so prose that merely
-    // starts with a label word ("Bodies of work…") is not a section boundary.
-    $pattern = '/^(' . $label_alt . ')\s*(?::\s*(.*))?$/i';
+    $lines   = aidocs_normalize_lines( $raw_text );
+    $pattern = aidocs_doc_label_pattern();
 
     $title     = '';
     $preamble  = [];
@@ -267,6 +429,10 @@ function aidocs_join_plain( array $lines ) {
 function aidocs_join_history( array $lines ) {
     $text = [];
     foreach ( $lines as $line ) {
+        // A provenance line the extractor read as a heading arrives with its
+        // marker still on it — a few documents set the trailer in a weight it
+        // cannot tell from a section title. The marker is layout, not history.
+        $line = preg_replace( '/^\s*#{1,6}\s+/', '', $line );
         $line = trim( trim( aidocs_plain_text( $line ), "[] \t" ) );
         if ( $line !== '' ) $text[] = $line;
     }

@@ -153,7 +153,38 @@ split across two or three lines (`THE APPEALS PROCEDURES` / `OF THE COLLEGE
 DELEGATE ASSEMBLY`). Those lines are rejoined, compared against the title, and
 dropped — the page already shows it as a heading.
 
-## 4. Hand-pasted text
+## 4. Several policies in one file
+
+The files the Commission publishes are single documents carrying dozens of
+standalone policies one after another. `aidocs_split_multi_policy_text()` cuts one
+into a text per policy, each of which is then parsed by
+`aidocs_parse_labeled_document()` exactly as if it had been uploaded on its own —
+so the split adds one rule and changes none of the others.
+
+What delimits a policy is the label schema itself:
+
+- **A policy carries exactly one `Body:` label**, so the number of those labels is
+  the number of policies. A file with none cannot be split.
+- **A policy starts at its title**, the heading run printed above its own
+  `Teaser:`/`Body:` pair. The search for it is fenced by the previous policy's
+  `Body:` label, so a title the layout lost is never looked for so far up that it
+  lands inside the policy before it. Titles set over two and three lines are
+  followed up and rejoined; `aidocs_is_trailer_text()` stops the run at the
+  previous policy's dates and provenance lines, which a few documents set in a
+  weight the extractor reads as a heading.
+- **Anything before the first policy's title** — a cover page, a table of
+  contents — is left out.
+
+One catch the split has to correct: only the *first* heading of an extraction is
+written as a level-1 `#` title (see `headingLevel()` in the JS), so from the second
+policy on the title arrives as an all-caps level-2 heading. Each segment's leading
+heading run is rewritten to the single `# Title` line the parser reads, which is
+what makes a segment indistinguishable from a standalone upload.
+
+`aidocs_count_policies()` is the same work for its count alone. On a single-policy
+file it returns 1, so the rule needs no special case for the ordinary upload.
+
+## 5. Hand-pasted text
 
 Text without markers (`#`, indentation) is detected by
 `aidocs_text_is_annotated()` and processed with the usual fallback rules:
@@ -162,7 +193,7 @@ paragraphs separated by a blank line, bullets by glyph, and headings by
 trailing punctuation). The same block shape comes out either way, so
 rendering and storage never change.
 
-## 5. Verification
+## 6. Verification
 
 ```bash
 php tools/parse-check.php path/*.txt            # block census + warnings
@@ -181,7 +212,7 @@ a larger document and carry neither), 30 level-2 headings, 296 level-3, 29
 level-4, 10 note sections, 25 boxed notes, 346 lists with 1,449 items up to 4
 levels deep, and 35 tables.
 
-## 6. Known limitations
+## 7. Known limitations
 
 - **Tables without grid lines** are reconstructed from horizontal gaps. On
   pages with rotated column headers (the substantive-change-type appendix)
@@ -192,6 +223,10 @@ levels deep, and 35 tables.
 - **Fonts with no embedded name**: when `commonObjs` does not expose one, the
   parser falls back to margin and line-spacing signals, and a heading that
   isn't outdented becomes a paragraph.
+- **Splitting needs the labels.** A compilation whose policies carry no
+  `Body:` label cannot be cut apart — there is no other reliable boundary, and
+  guessing one would silently merge two policies or halve one. Those are uploaded
+  a policy at a time.
 - **"The Commission"** is the corpus's one mixed-case exception — the
   organisation's name, substituted at a fixed case even inside an all-caps
   title ("AND ACTIONS OF The Commission"). It is ignored when checking whether
