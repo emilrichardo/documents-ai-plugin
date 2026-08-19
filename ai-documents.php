@@ -14,8 +14,9 @@ define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
 // Document structure: the regex parser and the block renderer. Paired with
-// assets/js/aidocs-pdf-structure.js, which turns a PDF's layout into the
-// canonical text the parser reads.
+// assets/js/aidocs-pdf-structure.js and assets/js/aidocs-docx-structure.js,
+// which turn a PDF's layout or a Word file's own styles into the same
+// canonical text this parser reads either way.
 require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
 
 define( 'AIDOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
@@ -335,6 +336,25 @@ function aidocs_get_content_blocks( $pid ) {
 }
 
 /**
+ * The canonical text the blocks above were parsed from — whatever
+ * aidocs_extract_content_ajax() last received, whether that came from the
+ * PDF/Word extractor or from an editor's own hand edit applied afterwards.
+ *
+ * A document extracted before this meta existed has no text on file — only
+ * the blocks it already produced — so one is reconstructed from those blocks
+ * with aidocs_blocks_to_canonical_text() instead of leaving the "Edit
+ * extracted content" textarea empty. Not persisted here: it becomes the real
+ * thing automatically the next time extraction runs or an edit is applied.
+ */
+function aidocs_get_raw_text( $pid ) {
+    $raw = (string) get_post_meta( $pid, '_document_raw_text', true );
+    if ( $raw !== '' ) return $raw;
+
+    $blocks = aidocs_get_content_blocks( $pid );
+    return $blocks ? aidocs_blocks_to_canonical_text( $blocks ) : '';
+}
+
+/**
  * Flatten a document's content blocks back to plain text (search indexing, AI context).
  */
 function aidocs_content_plain_text( $pid ) {
@@ -433,6 +453,14 @@ function aidocs_enqueue_scripts( $hook ) {
         'aidocs-pdf-structure',
         AIDOCS_URL . 'assets/js/aidocs-pdf-structure.js',
         [ 'pdfjs' ],
+        AIDOCS_VERSION,
+        true
+    );
+    wp_enqueue_script( 'mammoth', AIDOCS_URL . 'assets/js/vendor/mammoth.browser.min.js', [], '1.12.1', true );
+    wp_enqueue_script(
+        'aidocs-docx-structure',
+        AIDOCS_URL . 'assets/js/aidocs-docx-structure.js',
+        [ 'mammoth' ],
         AIDOCS_VERSION,
         true
     );
@@ -623,6 +651,14 @@ function aidocs_meta_box_html( $post ) {
     }
 
     $file_ext = $file_id ? strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) : '';
+
+    // Add vs. Edit: a document with content of its own has already been set
+    // up — through the normal upload flow, or written over by the
+    // multi-policy importer, which never touches this form at all — so the
+    // "what are you uploading?" question and the source-file upload card have
+    // nothing left to ask. Keyed off content rather than post_status so a
+    // draft saved before extraction ever ran still gets the setup flow.
+    $is_new = ! aidocs_get_content_blocks( $post->ID );
     ?>
     <style>
         .aidocs-wrap { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -690,6 +726,13 @@ function aidocs_meta_box_html( $post ) {
         .cd-preview-body .aidocs-content-h2 { font-size:15px; margin:14px 0 6px; }
         .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--wp--preset--color--secondary,#2c4a7c); }
         .cd-preview-body .aidocs-content-p, .cd-preview-body li { font-size:12.5px; line-height:1.7; color:#3c434a; }
+        /* Extracted-content tabs: edit (default) vs. preview */
+        .cd-tabs { margin-top:12px; }
+        .cd-tabs-nav { display:flex; gap:2px; border-bottom:1px solid #dcdcde; }
+        .cd-tab-btn { background:none; border:1px solid transparent; border-bottom:none; border-radius:4px 4px 0 0; padding:8px 14px; font-size:12.5px; font-weight:600; color:#646970; cursor:pointer; margin-bottom:-1px; }
+        .cd-tab-btn:hover { color:#1d2327; }
+        .cd-tab-btn.is-active { background:#fff; border-color:#dcdcde; color:#1d2327; }
+        .cd-tab-panel { padding-top:12px; }
         /* Step 2: AI (opt-in) */
         #cd-ai-panel { margin-top:14px; }
         #cd-ai-panel > summary { cursor:pointer; font-size:13px; font-weight:600; padding:10px 14px; background:#f0f6ff; border:1.5px solid #b8d4f5; border-radius:8px; }
@@ -756,10 +799,12 @@ function aidocs_meta_box_html( $post ) {
 
     <div class="aidocs-wrap">
 
+        <?php if ( $is_new ) : ?>
         <!-- Step 0 — one policy, or a document holding many. Everything below
              this reads from it: what extraction does with the text, which
              fields are the editor's to fill, and whether the AI panel applies
-             at all. -->
+             at all. Only asked once: a document that already has content has
+             already answered it. -->
         <div id="cd-mode-wrap">
             <label><?php esc_html_e( 'What are you uploading?' ); ?></label>
             <div class="cd-mode-toggle">
@@ -776,7 +821,7 @@ function aidocs_meta_box_html( $post ) {
                     <span class="cd-mode-option-card">
                         <span class="cd-mode-radio-dot" aria-hidden="true"></span>
                         <strong><?php esc_html_e( 'A document holding several policies' ); ?></strong>
-                        <span><?php esc_html_e( 'Each policy inside it becomes an entry of its own. PDF only — the splitter reads the same extracted text as everything else, so a Word or Excel file cannot be split; convert it to PDF first, or switch to "One policy" and upload each one on its own.' ); ?></span>
+                        <span><?php esc_html_e( 'Each policy inside it becomes an entry of its own. Works for PDF and Word (.docx) — the splitter reads the same extracted text as everything else, so an Excel file cannot be split; switch to "One policy" and upload each one on its own instead.' ); ?></span>
                     </span>
                 </label>
             </div>
@@ -811,23 +856,39 @@ function aidocs_meta_box_html( $post ) {
                 <?php esc_html_e( 'Read for its text only — the file itself is never published, linked or offered for download.' ); ?>
             </p>
 
-            <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && $file_ext === 'pdf' ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
-                <div id="cd-page-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-                <span id="cd-extract-status" style="display:block;font-size:11px;color:#999;margin-top:5px;min-height:14px;"></span>
-            </div>
-
-            <input type="hidden" name="document_file_id" id="cd-file-id" value="<?php echo esc_attr( $file_id ); ?>">
-            <input type="hidden" id="cd-file-url" value="<?php echo esc_attr( $file_url ); ?>">
             <?php if ( ! $file_id ) : ?>
             <button type="button" id="cd-upload-btn" class="button"><?php esc_html_e( 'Upload source file' ); ?></button>
             <?php endif; ?>
         </div>
+        <?php elseif ( $file_id ) : ?>
+        <!-- Edit mode: the source file was fixed at creation — correct a
+             misread extraction through the "Edit content" tab below instead
+             of replacing the file. -->
+        <p class="cd-step-hint" style="margin:0 0 16px;">
+            <?php
+            printf(
+                /* translators: 1: file name, 2: file extension (e.g. PDF) */
+                esc_html__( 'Source: %1$s (%2$s) — read for its text only, never shown to readers.' ),
+                esc_html( $title ?: $file_name ),
+                esc_html( strtoupper( $file_ext ) )
+            );
+            ?>
+        </p>
+        <?php endif; ?>
 
-        <!-- Publication Date. Read from the document's own "Last Updated" label
+        <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && in_array( $file_ext, [ 'pdf', 'docx' ], true ) ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
+            <div id="cd-page-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+            <span id="cd-extract-status" style="display:block;font-size:11px;color:#999;margin-top:5px;min-height:14px;"></span>
+        </div>
+
+        <input type="hidden" name="document_file_id" id="cd-file-id" value="<?php echo esc_attr( $file_id ); ?>">
+        <input type="hidden" id="cd-file-url" value="<?php echo esc_attr( $file_url ); ?>">
+
+        <!-- Last Updated. Read from the document's own "Last Updated" label
              when it carries one, so this is normally left alone. -->
         <div class="cd-row cd-mode-single-only">
             <div class="cd-col">
-                <label for="cd-pub-date"><?php esc_html_e( 'Publication Date' ); ?> <span class="required">*</span></label>
+                <label for="cd-pub-date"><?php esc_html_e( 'Last Updated' ); ?> <span class="required">*</span></label>
                 <input type="date" id="cd-pub-date" name="document_pub_date" value="<?php echo esc_attr( $pub_date ); ?>">
             </div>
             <div class="cd-col"></div>
@@ -880,6 +941,14 @@ function aidocs_meta_box_html( $post ) {
             <textarea id="cd-description" name="document_description" rows="3"><?php echo esc_textarea( $description ); ?></textarea>
         </div>
 
+        <!-- Document History. Read from the source document's own "Document
+             History" label ("Adopted … · Revised …") when it carries one,
+             but editable here like every other extracted field. -->
+        <div style="margin-bottom:16px;" class="cd-mode-single-only">
+            <label for="cd-history"><?php esc_html_e( 'Document History' ); ?></label>
+            <textarea id="cd-history" name="document_history" rows="2"><?php echo esc_textarea( get_post_meta( $post->ID, '_document_history', true ) ); ?></textarea>
+        </div>
+
         <?php
         $content_blocks = aidocs_get_content_blocks( $post->ID );
         $has_content    = (bool) $content_blocks;
@@ -889,9 +958,11 @@ function aidocs_meta_box_html( $post ) {
         $can_setup_ai   = current_user_can( 'manage_options' );
         ?>
 
+        <?php if ( $is_new ) : ?>
         <!-- Step 1b — several policies in one upload. The split is regular
              expressions over the same labels extraction already matches, so it
-             needs no AI and no API key either. -->
+             needs no AI and no API key either. Only relevant while setting a
+             document up: an existing entry is always a single policy by now. -->
         <div id="cd-split-wrap" class="cd-mode-multi-only">
             <div class="cd-step-head">
                 <strong><?php esc_html_e( 'Policies in this document' ); ?></strong>
@@ -965,6 +1036,7 @@ function aidocs_meta_box_html( $post ) {
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <!-- Step 1 — extraction, no AI. This is what runs by default. -->
         <div id="cd-extract-wrap" class="cd-mode-single-only">
@@ -986,19 +1058,45 @@ function aidocs_meta_box_html( $post ) {
                 <span id="cd-ai-status" class="cd-step-status"></span>
             </div>
             <p class="cd-step-hint">
-                <?php esc_html_e( 'Title, teaser, date, headings, notes, lists and tables are read straight from the PDF with regular expressions — no AI, no API key. This runs on its own when a PDF is loaded. Basic search always works from this alone; when a Gemini key is configured below, the document is also indexed automatically for semantic AI matching — there is nothing to click for either.' ); ?>
+                <?php esc_html_e( 'Title, teaser, date, headings, notes, lists and tables are read straight from the PDF or Word file — no AI, no API key. This runs on its own when a file is loaded. Basic search always works from this alone; when a Gemini key is configured below, the document is also indexed automatically for semantic AI matching — there is nothing to click for either.' ); ?>
             </p>
             <div class="cd-step-actions">
                 <button type="button" id="cd-extract-content-btn" class="button">
                     &#128196; <?php esc_html_e( 'Extract content again' ); ?>
                 </button>
             </div>
-            <details id="cd-content-preview" class="cd-preview" <?php echo $has_content ? '' : 'hidden'; ?>>
-                <summary><?php esc_html_e( 'Review extracted content' ); ?></summary>
-                <div id="cd-content-preview-body" class="cd-preview-body">
-                    <?php echo aidocs_render_content_blocks( $content_blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
+            <div id="cd-content-tabs" class="cd-tabs" <?php echo $has_content ? '' : 'hidden'; ?>>
+                <div class="cd-tabs-nav" role="tablist">
+                    <button type="button" class="cd-tab-btn is-active" data-tab="edit" role="tab" aria-selected="true">
+                        <?php esc_html_e( 'Edit content' ); ?>
+                    </button>
+                    <button type="button" class="cd-tab-btn" data-tab="preview" role="tab" aria-selected="false">
+                        <?php esc_html_e( 'Preview' ); ?>
+                    </button>
                 </div>
-            </details>
+
+                <!-- Edit tab — the default: what most edits to a document are,
+                     after it already has content. -->
+                <div class="cd-tab-panel" data-tab-panel="edit">
+                    <p class="cd-step-hint">
+                        <?php esc_html_e( 'This is the plain text the parser above reads — the same headings, lists, tables and bold/italic markup (##, -, |, **, *) documented for a PDF. Fix a misread line or add missing text here, then apply it: the content, description, date and history are re-parsed from what you type, exactly as if it had been extracted from the source file.' ); ?>
+                    </p>
+                    <textarea id="cd-raw-text-edit" rows="16" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( aidocs_get_raw_text( $post->ID ) ); ?></textarea>
+                    <div class="cd-step-actions" style="margin-top:8px;">
+                        <button type="button" id="cd-apply-raw-text-btn" class="button button-primary">
+                            <?php esc_html_e( 'Apply edited content' ); ?>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Preview tab — the same HTML the frontend renders, to check
+                     the result without leaving the editor. -->
+                <div class="cd-tab-panel" data-tab-panel="preview" hidden>
+                    <div id="cd-content-preview-body" class="cd-preview-body">
+                        <?php echo aidocs_render_content_blocks( $content_blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Step 2 — AI, opt-in, and only ever proposes values. It proposes them
@@ -1203,6 +1301,7 @@ function aidocs_meta_box_html( $post ) {
                 // this document, so extraction runs again for the new one.
                 cdHasContent = false;
                 if (ext === 'pdf') cdExtractPdf(a.url);
+                else if (ext === 'docx') cdExtractDocx(a.url);
                 else $('#cd-page-badges-wrap').hide();
             });
             mediaFrame.open();
@@ -1386,6 +1485,15 @@ function aidocs_meta_box_html( $post ) {
         });
         cdApplyMode();
 
+        // ── Extracted content: edit / preview tabs ─────
+        $(document).on('click', '#cd-content-tabs .cd-tab-btn', function() {
+            var $btn = $(this), tab = $btn.data('tab'), $tabs = $btn.closest('#cd-content-tabs');
+            $tabs.find('.cd-tab-btn').removeClass('is-active').attr('aria-selected', 'false');
+            $btn.addClass('is-active').attr('aria-selected', 'true');
+            $tabs.find('.cd-tab-panel').prop('hidden', true);
+            $tabs.find('[data-tab-panel="' + tab + '"]').prop('hidden', false);
+        });
+
         /** The extracted pages as one document, in page order. */
         function cdRawText() {
             return Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
@@ -1464,14 +1572,110 @@ function aidocs_meta_box_html( $post ) {
                 // editor has already checked. A compilation is instead read for
                 // the policies it holds, and nothing is written until the editor
                 // has seen the list.
-                if (cdMode() === 'multi') cdDetectPolicies(true);
-                else if (!cdHasContent) cdExtractContent(true);
+                if (cdMode() === 'multi') {
+                    cdDetectPolicies(true);
+                } else if ($('#cd-mode-wrap').length && !cdHasContent) {
+                    // The mode picker only exists while setting a document up
+                    // (it disappears once content exists), and that is exactly
+                    // when it's worth checking on the editor's behalf whether
+                    // "One policy" was really the right answer.
+                    cdAutoDetectMultiMode();
+                } else if (!cdHasContent) {
+                    cdExtractContent(true);
+                }
             } catch (err) {
                 $status.text('Error: ' + err.message);
             }
         }
 
-        // Auto-extract on page load if a PDF is already set
+        /**
+         * Silently checks whether the just-extracted text carries more than
+         * one policy and, if so, switches the mode picker to "A document
+         * holding several policies" — the editor still sees and confirms the
+         * list before anything is imported, this just saves the extra click
+         * (and re-upload) of picking that mode by hand after noticing the
+         * file wasn't a single policy after all. Falls back to treating it as
+         * one policy, same as before this existed, if detection finds one or
+         * none, or fails outright.
+         */
+        function cdAutoDetectMultiMode() {
+            var rawText = cdRawText();
+            $.post(cdAjaxUrl, {
+                action:   'aidocs_detect_policies',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                raw_text: rawText
+            })
+            .done(function(res) {
+                if (res.success && res.data.count > 1) {
+                    cdPolicies = res.data.policies || [];
+                    $('input[name="document_source_mode"][value="multi"]').prop('checked', true);
+                    cdApplyMode();
+                    $('#cd-split-badge').removeClass('is-off').addClass('is-ok')
+                        .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'policies found' ) ); ?>');
+                    $('#cd-split-status').text('<?php echo esc_js( __( 'Several policies were found in this file — switched to "A document holding several policies".' ) ); ?>');
+                    cdRenderPolicies();
+                } else {
+                    cdExtractContent(true);
+                }
+            })
+            .fail(function() {
+                // Detection failing is not a reason to leave the editor with
+                // nothing extracted — fall back to the single-policy path.
+                cdExtractContent(true);
+            });
+        }
+
+        // Word's own styles already carry the structure a PDF has to be
+        // reverse-engineered for, so this is the same flow as cdExtractPdf()
+        // without any layout sniffing — mammoth.js reads the .docx directly
+        // into semantic HTML, and AidocsDocxStructure walks that into the
+        // same canonical text format. No multi-policy split here: that split
+        // depends on the same PDF-derived text every other single-file rule
+        // does, so a Word compilation still has to be uploaded one policy at
+        // a time (same limitation Excel already has).
+        async function cdExtractDocx(docxUrl) {
+            docxUrl = docxUrl || $('#cd-file-url').val();
+            if (!docxUrl) return;
+
+            var $wrap   = $('#cd-page-badges-wrap');
+            var $status = $('#cd-extract-status');
+
+            $wrap.show();
+            $('#cd-page-badges').empty();
+            $status.text('Loading…');
+            cdPageTexts = {};
+
+            try {
+                if (typeof AidocsDocxStructure === 'undefined') {
+                    $status.text('Extractor not loaded — please refresh.');
+                    return;
+                }
+                var response = await fetch(docxUrl);
+                var buffer   = await response.arrayBuffer();
+
+                var extracted = await AidocsDocxStructure.extract(buffer);
+                cdPageTexts[1] = extracted.text;
+                cdRenderPageBadges();
+
+                $status.text('<?php echo esc_js( __( 'Read' ) ); ?>');
+
+                // The split works off the canonical text mammoth.js just
+                // produced, the exact same text a PDF would have yielded, so
+                // a Word compilation splits the same way a PDF one does.
+                if (cdMode() === 'multi') {
+                    cdDetectPolicies(true);
+                } else if ($('#cd-mode-wrap').length && !cdHasContent) {
+                    cdAutoDetectMultiMode();
+                } else if (!cdHasContent) {
+                    cdExtractContent(true);
+                }
+            } catch (err) {
+                $status.text('Error: ' + err.message);
+            }
+        }
+
+        // Auto-extract on page load if a PDF or Word file is already set
         <?php
         $file_ext_loaded = $file_id ? strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) : '';
         if ( $file_id && $file_ext_loaded === 'pdf' && $file_url ) :
@@ -1479,6 +1683,11 @@ function aidocs_meta_box_html( $post ) {
         $(function() {
             $('#cd-page-badges-wrap').show();
             cdExtractPdf(<?php echo json_encode( $file_url ); ?>);
+        });
+        <?php elseif ( $file_id && $file_ext_loaded === 'docx' && $file_url ) : ?>
+        $(function() {
+            $('#cd-page-badges-wrap').show();
+            cdExtractDocx(<?php echo json_encode( $file_url ); ?>);
         });
         <?php endif; ?>
 
@@ -1564,7 +1773,7 @@ function aidocs_meta_box_html( $post ) {
             }).join('\n\n');
 
             if (!rawText) {
-                $('#cd-ai-status').text('<?php esc_html_e( 'No PDF text — load a PDF and wait for extraction.' ); ?>');
+                $('#cd-ai-status').text('<?php esc_html_e( 'No text extracted yet — load a PDF or Word file and wait for extraction.' ); ?>');
                 return;
             }
 
@@ -1806,7 +2015,7 @@ function aidocs_meta_box_html( $post ) {
                 // extraction section above has to show that, not its own count.
                 cdHasContent = true;
                 $('#cd-content-badge').removeClass('is-off').addClass('is-ok').html('✓ ' + res.data.total + ' blocks');
-                $('#cd-content-preview').prop('hidden', false);
+                $('#cd-content-tabs').prop('hidden', false);
                 $('#cd-content-preview-body').html(res.data.html || '');
                 if (res.data.indexed !== undefined) cdSetEmbeddingBadge(res.data.indexed);
                 $status.text('<?php echo esc_js( __( 'Applied — content replaced.' ) ); ?>');
@@ -1836,15 +2045,31 @@ function aidocs_meta_box_html( $post ) {
         // Runs by itself once a PDF's text is in, and again on demand.
         $('#cd-extract-content-btn').on('click', function() { cdExtractContent(false); });
 
-        function cdExtractContent(automatic) {
-            var rawText = cdRawText();
+        // ── Apply a hand-edited version of the extracted text ──
+        // Same endpoint as extraction, just fed the textarea's current value
+        // instead of what the source file produced.
+        $('#cd-apply-raw-text-btn').on('click', function() {
+            cdExtractContent(false, $('#cd-raw-text-edit').val(), $(this));
+        });
+
+        /**
+         * @param {boolean}  automatic
+         * @param {string}   [overrideText] Explicit text to parse instead of
+         *                   the source file's own extraction — used by the
+         *                   "Apply edited content" button.
+         * @param {jQuery}   [$triggerBtn]  Button to disable while this runs,
+         *                   when it isn't the default "Extract again" one.
+         */
+        function cdExtractContent(automatic, overrideText, $triggerBtn) {
+            var rawText = (typeof overrideText === 'string') ? overrideText : cdRawText();
 
             if (!rawText.trim()) {
-                if (!automatic) $('#cd-ai-status').text('<?php echo esc_js( __( 'No PDF text — load a PDF and wait for extraction.' ) ); ?>');
+                if (!automatic) $('#cd-ai-status').text('<?php echo esc_js( __( 'No text extracted yet — load a PDF or Word file and wait for extraction.' ) ); ?>');
                 return;
             }
 
-            var $btn = $('#cd-extract-content-btn');
+            var $btn = $triggerBtn || $('#cd-extract-content-btn');
+            var btnLabel = $btn.html();
             $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Extracting…' ) ); ?>');
             $('#cd-ai-status').text('');
 
@@ -1863,21 +2088,26 @@ function aidocs_meta_box_html( $post ) {
                 cdHasContent = true;
                 $('#cd-content-badge').removeClass('is-off').addClass('is-ok').html('✓ ' + d.total + ' blocks');
 
-                // The labelled schema carries its own description and date, so
-                // those come from the document itself, never from the AI. Only
-                // empty fields are filled — an editor's correction wins.
+                // The labelled schema carries its own description, date and
+                // history, so those come from the document itself, never from
+                // the AI. Only empty fields are filled — an editor's
+                // correction wins.
                 if (d.filled && d.filled.description) {
                     $('#cd-description').val(d.filled.description);
                 }
                 if (d.filled && d.filled.pub_date) {
                     $('#cd-pub-date').val(d.filled.pub_date);
                 }
+                if (d.filled && d.filled.document_history) {
+                    $('#cd-history').val(d.filled.document_history);
+                }
                 if (d.title && !$('#title').val()) {
                     $('#title').val(d.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
                 }
 
-                $('#cd-content-preview').prop('hidden', false);
+                $('#cd-content-tabs').prop('hidden', false);
                 $('#cd-content-preview-body').html(d.html || '');
+                $('#cd-raw-text-edit').val(rawText);
                 if (d.indexed !== undefined) cdSetEmbeddingBadge(d.indexed);
 
                 var msg = d.headings + ' headings, ' + d.paragraphs + ' paragraphs, ' + d.lists + ' lists';
@@ -1895,7 +2125,7 @@ function aidocs_meta_box_html( $post ) {
                 $('#cd-ai-status').text('Error: ' + msg);
             })
             .always(function() {
-                $btn.prop('disabled', false).html('&#128196; <?php echo esc_js( __( 'Extract content again' ) ); ?>');
+                $btn.prop('disabled', false).html(btnLabel);
             });
         }
 
@@ -2165,7 +2395,7 @@ function aidocs_save_meta( $post_id ) {
         }
     }
 
-    // Publication Date
+    // Last Updated
     if ( isset( $_POST['document_pub_date'] ) ) {
         $date = sanitize_text_field( $_POST['document_pub_date'] );
         update_post_meta( $post_id, '_document_pub_date', $date );
@@ -2181,6 +2411,11 @@ function aidocs_save_meta( $post_id ) {
     // Description
     if ( isset( $_POST['document_description'] ) ) {
         update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $_POST['document_description'] ) );
+    }
+
+    // Document History
+    if ( isset( $_POST['document_history'] ) ) {
+        update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $_POST['document_history'] ) );
     }
 
     // Audience taxonomy
@@ -2439,7 +2674,7 @@ function aidocs_extract_content_ajax() {
 
     $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
     if ( ! trim( $raw_text ) ) {
-        wp_send_json_error( __( 'No PDF text to parse. Load a PDF and wait for extraction.' ) );
+        wp_send_json_error( __( 'No text to parse. Load a PDF or Word file and wait for extraction.' ) );
     }
 
     $parsed = aidocs_parse_labeled_document( $raw_text );
@@ -2453,6 +2688,11 @@ function aidocs_extract_content_ajax() {
     // unparseable meta behind. Only shows up on documents containing non-ASCII
     // characters — curly quotes, em dashes — so it fails silently on the rest.
     update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
+
+    // The canonical text itself, kept alongside the blocks it produced so the
+    // editor can hand-correct it later without re-running extraction from the
+    // source file — see the "Edit content" tab textarea.
+    update_post_meta( $post_id, '_document_raw_text', wp_slash( $raw_text ) );
 
     // A labelled document carries its own description and date, so there is no
     // reason to ask the AI for either. Existing values are never overwritten —
@@ -2844,7 +3084,7 @@ function aidocs_ai_restructure_ajax() {
 
     $raw_text = isset( $_POST['raw_text'] ) ? wp_strip_all_tags( stripslashes( $_POST['raw_text'] ) ) : '';
     if ( ! trim( $raw_text ) ) {
-        wp_send_json_error( __( 'No document text. Load a PDF and wait for extraction.' ) );
+        wp_send_json_error( __( 'No document text. Load a PDF or Word file and wait for extraction.' ) );
     }
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
@@ -3346,6 +3586,8 @@ function aidocs_settings_page() { // phpcs:ignore
     $audiences_arr = array_filter( array_map( 'trim', explode( "\n", $audiences_list ) ) );
     $first_type    = reset( $types_arr )     ?: 'Policies';
     $first_aud     = reset( $audiences_arr ) ?: 'Institution';
+    $sample_doc    = get_posts( [ 'post_type' => 'aidoc', 'post_status' => 'publish', 'numberposts' => 1 ] );
+    $sample_doc_id = $sample_doc ? $sample_doc[0]->ID : 123;
     ?>
     <div class="wrap">
     <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
@@ -3464,6 +3706,12 @@ function aidocs_settings_page() { // phpcs:ignore
             <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features. The chat bubble is already off by default.' ); ?></p>
             <div class="cd-sc-code"><code id="cd-sc-8">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'One document, embedded anywhere' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Shows a single entry\'s own content — the same rendering as its /documents/{entry}/ page — inside any post or page.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-9">[aidocs_document id="<?php echo esc_html( $sample_doc_id ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-9"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-10">[aidocs_document slug="document-slug"]</code><button class="cd-sc-copy" data-target="cd-sc-10"><?php esc_html_e( 'Copy' ); ?></button></div>
+        </div>
         <table class="cd-sc-params" style="margin-top:18px;">
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
             <tbody>
@@ -3577,12 +3825,189 @@ function aidocs_settings_page() { // phpcs:ignore
 
 
 // ──────────────────────────────────────────────
+// 6a. Admin Menu — Document Type shortcuts
+// ──────────────────────────────────────────────
+// One submenu item per configured Document Type, each just a link to the
+// standard Documents list pre-filtered by that type — same list table, same
+// columns, same bulk actions, nothing duplicated. Audience gets none of
+// this: it stays exactly as it is until Cirlot confirms whether it is still
+// needed at all, so nothing here assumes it will still exist.
+add_action( 'admin_menu', 'aidocs_admin_menu_type_shortcuts', 20 );
+function aidocs_admin_menu_type_shortcuts() {
+    $parent = 'edit.php?post_type=aidoc';
+    foreach ( aidocs_get_types() as $type ) {
+        add_submenu_page(
+            $parent,
+            $type,
+            $type,
+            'edit_posts',
+            $parent . '&document_type=' . sanitize_title( $type )
+        );
+    }
+}
+
+/**
+ * WordPress appends every add_submenu_page() call after "Add New", so left
+ * alone the Type shortcuts would land after it instead of grouped below it,
+ * ahead of Settings, as asked for. Reordered once, late, by matching each
+ * existing item's own slug rather than assuming a position.
+ *
+ * Also where the Type items get set apart visually from "Add New" and
+ * "Settings" — a non-clickable "Browse by Type" heading above them and an
+ * extra indent on each — since WordPress's admin menu has no native concept
+ * of a third level or a separator to group a handful of submenu items as
+ * their own cluster. The 5th element of a $submenu entry is an
+ * (undocumented but stable — see wp-admin/menu-header.php) extra CSS class
+ * on its <li>, which is what aidocs_admin_menu_css() below styles.
+ */
+add_action( 'admin_menu', 'aidocs_reorder_admin_menu', 999 );
+function aidocs_reorder_admin_menu() {
+    global $submenu;
+
+    $parent = 'edit.php?post_type=aidoc';
+    if ( empty( $submenu[ $parent ] ) ) return;
+
+    $items = $submenu[ $parent ];
+    $find  = function ( callable $matches ) use ( $items ) {
+        foreach ( $items as $item ) {
+            if ( $matches( $item[2] ) ) return $item;
+        }
+        return null;
+    };
+
+    $all_documents = $find( function ( $slug ) use ( $parent ) { return $slug === $parent; } );
+    $add_new       = $find( function ( $slug ) { return strpos( $slug, 'post-new.php' ) === 0; } );
+    $settings      = $find( function ( $slug ) { return $slug === 'aidocs-settings'; } );
+    $types         = array_values( array_filter( $items, function ( $item ) use ( $parent ) {
+        return strpos( $item[2], $parent . '&document_type=' ) === 0;
+    } ) );
+
+    $heading = [];
+    if ( $types && current_user_can( 'edit_posts' ) ) {
+        $heading = [ [ __( 'Browse by Type' ), 'edit_posts', '#', __( 'Browse by Type' ), 'aidocs-type-heading' ] ];
+        $types   = array_map( function ( $item ) {
+            $item[4] = trim( ( $item[4] ?? '' ) . ' aidocs-type-item' );
+            return $item;
+        }, $types );
+    }
+    if ( $settings && $types ) {
+        $settings[4] = trim( ( $settings[4] ?? '' ) . ' aidocs-type-divider-before' );
+    }
+
+    $submenu[ $parent ] = array_values( array_filter( array_merge(
+        [ $all_documents, $add_new ],
+        $heading,
+        $types,
+        [ $settings ]
+    ) ) );
+}
+
+/**
+ * The CSS aidocs_reorder_admin_menu()'s classes style — printed on every
+ * admin screen since the sidebar itself is. Scoped to those three classes
+ * alone, so it can't affect any other menu.
+ */
+add_action( 'admin_head', 'aidocs_admin_menu_css' );
+function aidocs_admin_menu_css() {
+    ?>
+    <style>
+        #adminmenu .aidocs-type-heading > a {
+            pointer-events: none;
+            cursor: default;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            opacity: .65;
+            padding-top: 8px;
+            border-top: 1px solid rgba(240,246,252,.15);
+            margin-top: 6px;
+        }
+        #adminmenu .aidocs-type-item > a { padding-left: 26px; }
+        #adminmenu .aidocs-type-divider-before > a {
+            border-top: 1px solid rgba(240,246,252,.15);
+            margin-top: 6px;
+            padding-top: 8px;
+        }
+    </style>
+    <?php
+}
+
+/**
+ * Highlights the right Type shortcut as the current submenu item even when
+ * the list is also searched, paginated or filtered by status — matching on
+ * the query string alone (WordPress's own default) only works when the URL
+ * is exactly the shortcut's own, with nothing else appended.
+ */
+add_filter( 'submenu_file', 'aidocs_highlight_type_submenu' );
+function aidocs_highlight_type_submenu( $submenu_file ) {
+    global $pagenow;
+    if ( $pagenow !== 'edit.php' ) return $submenu_file;
+    if ( ( $_GET['post_type'] ?? '' ) !== 'aidoc' ) return $submenu_file;
+    if ( empty( $_GET['document_type'] ) ) return $submenu_file;
+
+    $slug = sanitize_title( wp_unslash( $_GET['document_type'] ) );
+    return 'edit.php?post_type=aidoc&document_type=' . $slug;
+}
+
+// ──────────────────────────────────────────────
+// 6b. Document Type filter on the Documents list
+// ──────────────────────────────────────────────
+// A dropdown alongside WordPress's own status tabs (All / Published / Draft
+// / Trash) and search box — Type is its own, independent axis, not a
+// replacement for post status, so it filters on top of whichever status
+// view is active rather than instead of it.
+add_action( 'restrict_manage_posts', 'aidocs_type_filter_dropdown' );
+function aidocs_type_filter_dropdown( $post_type ) {
+    if ( $post_type !== 'aidoc' ) return;
+
+    $current = isset( $_GET['document_type'] ) ? sanitize_title( wp_unslash( $_GET['document_type'] ) ) : '';
+    ?>
+    <select name="document_type">
+        <option value=""><?php esc_html_e( 'All Types' ); ?></option>
+        <?php foreach ( aidocs_get_types() as $type ) : $slug = sanitize_title( $type ); ?>
+        <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $current, $slug ); ?>>
+            <?php echo esc_html( $type ); ?>
+        </option>
+        <?php endforeach; ?>
+    </select>
+    <?php
+    // WordPress already prints the "Filter" button once anything hooks
+    // restrict_manage_posts, and WP_List_Table::search_box() — already on
+    // this screen — preserves every other current query arg (post_status
+    // included) as hidden fields in the same #posts-filter form, so
+    // submitting this dropdown never drops the active status tab.
+}
+
+/**
+ * Applies the Type filter above (and the Type shortcut links in the admin
+ * menu, which land on this same query string) to the Documents list query.
+ * Explicit tax_query rather than relying on document_type's own query var
+ * resolving automatically, so this is unambiguous about combining correctly
+ * with post_status, search and pagination — all untouched, all still
+ * WordPress's own query vars.
+ */
+add_action( 'pre_get_posts', 'aidocs_filter_admin_list_by_type' );
+function aidocs_filter_admin_list_by_type( $query ) {
+    if ( ! is_admin() || ! $query->is_main_query() ) return;
+    if ( $query->get( 'post_type' ) !== 'aidoc' ) return;
+    if ( empty( $_GET['document_type'] ) ) return;
+
+    $query->set( 'tax_query', [
+        [
+            'taxonomy' => 'document_type',
+            'field'    => 'slug',
+            'terms'    => sanitize_title( wp_unslash( $_GET['document_type'] ) ),
+        ],
+    ] );
+}
+
+// ──────────────────────────────────────────────
 // 6. Admin Columns
 // ──────────────────────────────────────────────
 add_filter( 'manage_aidoc_posts_columns', 'aidocs_admin_columns' );
 function aidocs_admin_columns( $cols ) {
     $new = [ 'cb' => $cols['cb'], 'title' => $cols['title'] ];
-    $new['_document_pub_date'] = __( 'Publication Date' );
+    $new['_document_pub_date'] = __( 'Last Updated' );
     $new['document_audience']  = __( 'Audience' );
     $new['document_type']      = __( 'Type' );
     $new['date']               = $cols['date'];
@@ -3785,7 +4210,7 @@ jQuery(function($){
         var grid='';
         if((doc.audience||[]).length) grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Audience</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.audience.join(', ')).html()+'</div></div>';
         if((doc.type||[]).length)     grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Document Type</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.type.join(', ')).html()+'</div></div>';
-        if(doc.pub_date)              grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Publication Date</div><div class="cd-doc-modal-value">'+formatDate(doc.pub_date)+'</div></div>';
+        if(doc.pub_date)              grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Last Updated</div><div class="cd-doc-modal-value">'+formatDate(doc.pub_date)+'</div></div>';
         if(grid) body+='<div class="cd-doc-modal-grid">'+grid+'</div>';
         body+='<div class="aidocs-section-label">{$js_doc_content}</div>';
         body+='<div class="cd-doc-content-slot"><div class="aidocs-content-loading">{$js_loading_content}</div></div>';
@@ -4291,6 +4716,36 @@ ENDSCRIPT;
 }
 
 // ──────────────────────────────────────────────
+// 8b. Single document shortcode
+// ──────────────────────────────────────────────
+// Embeds one document's own content — the same rendering
+// aidocs_render_single_document() gives the dedicated /documents/{entry}/ page
+// — anywhere a shortcode can run, for the entries an editor wants to show
+// inline instead of only through search or a direct link.
+add_shortcode( 'aidocs_document', 'aidocs_document_shortcode' );
+function aidocs_document_shortcode( $atts ) {
+    $atts = shortcode_atts( [
+        'id'   => '',
+        'slug' => '',
+    ], $atts );
+
+    $post = null;
+    if ( $atts['id'] !== '' ) {
+        $post = get_post( absint( $atts['id'] ) );
+    } elseif ( $atts['slug'] !== '' ) {
+        $post = get_page_by_path( sanitize_title( $atts['slug'] ), OBJECT, 'aidoc' );
+    }
+
+    if ( ! $post || $post->post_type !== 'aidoc' || $post->post_status !== 'publish' ) {
+        return current_user_can( 'edit_posts' )
+            ? '<p>' . esc_html__( '[aidocs_document] could not find a published document for this id/slug.' ) . '</p>'
+            : '';
+    }
+
+    return aidocs_render_single_document( $post->ID, false );
+}
+
+// ──────────────────────────────────────────────
 // 9. Single document view
 // ──────────────────────────────────────────────
 // Documents have no post_content of their own, so the singular view is composed
@@ -4300,7 +4755,7 @@ ENDSCRIPT;
 // than through the theme's own singular template, so the page stays a simple
 // header/content/footer shell instead of whatever sidebar, related-posts or
 // comments markup the active theme's single-post layout happens to add.
-function aidocs_render_single_document( $pid ) {
+function aidocs_render_single_document( $pid, $standalone = true ) {
     $pub_date  = get_post_meta( $pid, '_document_pub_date', true );
     $desc      = get_post_meta( $pid, '_document_description', true );
     $audience  = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
@@ -4314,9 +4769,11 @@ function aidocs_render_single_document( $pid ) {
     ?>
     <article class="aidocs-single">
 
+        <?php if ( $standalone ) : ?>
         <a href="<?php echo esc_url( home_url( '/' . aidocs_get_archive_slug() . '/' ) ); ?>" class="aidocs-single-back">
             &larr; <?php esc_html_e( 'Back to all topics' ); ?>
         </a>
+        <?php endif; ?>
 
         <header class="aidocs-single-header">
             <div class="aidocs-single-heading">
@@ -4346,7 +4803,7 @@ function aidocs_render_single_document( $pid ) {
                  <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $types ) ); ?></div></div>
             <?php endif; ?>
             <?php if ( $pub_date ) : ?>
-            <div><div class="aidocs-single-label"><?php esc_html_e( 'Publication Date' ); ?></div>
+            <div><div class="aidocs-single-label"><?php esc_html_e( 'Last Updated' ); ?></div>
                  <div class="aidocs-single-value"><?php echo esc_html( mysql2date( get_option( 'date_format' ), $pub_date ) ); ?></div></div>
             <?php endif; ?>
         </div>
@@ -4354,6 +4811,7 @@ function aidocs_render_single_document( $pid ) {
 
         <div class="aidocs-section-label"><?php esc_html_e( 'Content' ); ?></div>
         <?php if ( $blocks ) : ?>
+            <?php echo aidocs_render_toc( $blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
             <?php echo aidocs_render_content_blocks( $blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
         <?php else : ?>
             <p class="aidocs-content-empty"><?php esc_html_e( 'No content has been extracted for this entry yet.' ); ?></p>
@@ -4426,9 +4884,58 @@ function aidocs_render_single_document( $pid ) {
         })();
         </script>
         <?php endif; ?>
+        <?php if ( $blocks ) : ?>
+        <script>
+        (function(){
+            // A section is a closed <details> by default, so jumping to one of
+            // its headings by id — from the table of contents above, or from an
+            // externally shared #anchor link — has to open it first, or the
+            // browser scrolls to a heading with nothing visible under it.
+            function openTarget(){
+                var hash = window.location.hash;
+                if(!hash || hash.length<2) return;
+                var el;
+                try { el = document.querySelector(hash); } catch(e){ return; }
+                if(!el) return;
+                var item = el.closest ? el.closest('.aidocs-accordion-item') : null;
+                if(item && !item.open){
+                    item.open = true;
+                    setTimeout(function(){ el.scrollIntoView({block:'start'}); }, 0);
+                }
+            }
+            window.addEventListener('hashchange', openTarget);
+            openTarget();
+        })();
+        </script>
+        <?php endif; ?>
     </article>
     <?php
     return ob_get_clean();
+}
+
+/**
+ * A table of contents linking to each collapsible section of the content,
+ * built from the same grouping aidocs_render_sections() uses internally
+ * (aidocs_group_sections() in includes/aidocs-doc-parser.php). Skipped when
+ * there is nothing to navigate between.
+ */
+function aidocs_render_toc( array $blocks ) {
+    $sections = array_values( array_filter(
+        aidocs_group_sections( $blocks ),
+        function ( $section ) {
+            return $section['heading'] && ! empty( $section['heading']['id'] ) && $section['blocks'];
+        }
+    ) );
+
+    if ( count( $sections ) < 2 ) return '';
+
+    $html = '<nav class="aidocs-toc" aria-label="' . esc_attr__( 'Sections' ) . '">'
+          . '<div class="aidocs-toc-label">' . esc_html__( 'In this document' ) . '</div><ul>';
+    foreach ( $sections as $section ) {
+        $heading = $section['heading'];
+        $html   .= '<li><a href="#' . esc_attr( $heading['id'] ) . '">' . aidocs_render_runs( $heading ) . '</a></li>';
+    }
+    return $html . '</ul></nav>';
 }
 
 /**
@@ -4464,6 +4971,12 @@ function aidocs_single_view_styles() {
     .aidocs-content-list{margin:0 0 16px;padding-left:24px;}
     .aidocs-content-list li{font-size:15px;color:#374151;line-height:1.75;margin-bottom:8px;}
     .aidocs-content-empty{font-size:14px;color:#9ca3af;font-style:italic;}
+    .aidocs-toc{margin:0 0 22px;padding:14px 16px;background:#f8f9fb;border:1px solid #edf0f4;border-radius:8px;}
+    .aidocs-toc-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:8px;}
+    .aidocs-toc ul{list-style:none;margin:0;padding:0;columns:2;column-gap:24px;}
+    .aidocs-toc li{margin-bottom:6px;break-inside:avoid;}
+    .aidocs-toc a{font-size:13px;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;font-weight:500;}
+    .aidocs-toc a:hover{text-decoration:underline;}
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
     .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
     .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
@@ -4878,7 +5391,7 @@ function aidocs_ai_doc_chat_ajax() {
     if ( $types && ! is_wp_error( $types ) ) $ctx .= 'Type: ' . implode( ', ', $types ) . "\n";
 
     $pub = get_post_meta( $doc_id, '_document_pub_date', true );
-    if ( $pub ) $ctx .= "Publication date: {$pub}\n";
+    if ( $pub ) $ctx .= "Last updated: {$pub}\n";
 
     $system  = "You are a helpful assistant answering questions about a specific document. ";
     $system .= "Answer ONLY based on the document context provided below. ";

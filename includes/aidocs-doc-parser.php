@@ -1303,6 +1303,130 @@ function aidocs_blocks_plain_text( array $blocks, $depth = 0 ) {
 }
 
 // ──────────────────────────────────────────────
+// Canonical text (reverse of parsing — see EXTRACTION_FORMAT.md §2)
+// ──────────────────────────────────────────────
+
+/**
+ * Reconstruct canonical text from already-parsed blocks — the reverse of
+ * aidocs_parse_structured_content(). Feeding the result back through the
+ * parser reproduces the same blocks, so this is what backs the "Edit
+ * extracted content" textarea for a document extracted before
+ * _document_raw_text existed to store the text it actually came from: rather
+ * than leaving that textarea empty, it has an equivalent to start editing
+ * from.
+ */
+function aidocs_blocks_to_canonical_text( array $blocks, $depth = 1 ) {
+    $indent = str_repeat( '  ', max( 0, $depth - 1 ) );
+    $lines  = [];
+
+    foreach ( $blocks as $block ) {
+        switch ( $block['type'] ?? '' ) {
+            case 'heading':
+                $level   = max( 2, min( 4, (int) ( $block['level'] ?? 3 ) ) );
+                $lines[] = $indent . str_repeat( '#', $level ) . ' ' . ( $block['text'] ?? '' );
+                break;
+
+            case 'paragraph':
+                $lines[] = $indent . aidocs_runs_to_markdown( $block );
+                break;
+
+            case 'note':
+                $label   = ! empty( $block['label'] ) ? $block['label'] . ': ' : '';
+                $lines[] = $indent . $label . aidocs_runs_to_markdown( $block );
+                break;
+
+            case 'list':
+                $style = (string) ( $block['style'] ?? ( ! empty( $block['ordered'] ) ? 'decimal' : 'bullet' ) );
+                $index = max( 1, (int) ( $block['start'] ?? 1 ) );
+                foreach ( (array) ( $block['items'] ?? [] ) as $item ) {
+                    // Content stored before nested items existed holds plain strings.
+                    $item    = is_array( $item ) ? $item : [ 'text' => (string) $item ];
+                    $marker  = $style === 'bullet' ? '-' : aidocs_list_marker( $style, $index++ );
+                    $lines[] = $indent . $marker . ' ' . aidocs_runs_to_markdown( $item );
+                    if ( ! empty( $item['blocks'] ) ) {
+                        $nested = aidocs_blocks_to_canonical_text( (array) $item['blocks'], $depth + 1 );
+                        if ( $nested !== '' ) $lines[] = $nested;
+                    }
+                }
+                break;
+
+            case 'table':
+                $rows = [];
+                if ( ! empty( $block['head'] ) ) $rows[] = (array) $block['head'];
+                foreach ( (array) ( $block['rows'] ?? [] ) as $row ) $rows[] = (array) $row;
+                foreach ( $rows as $row ) {
+                    $cells   = array_map( function ( $cell ) {
+                        return is_array( $cell ) ? ( $cell['text'] ?? '' ) : (string) $cell;
+                    }, $row );
+                    $lines[] = $indent . '| ' . implode( ' | ', $cells ) . ' |';
+                }
+                break;
+        }
+    }
+
+    return implode( "\n", $lines );
+}
+
+/** A list item's ordinal marker at $index, in its own numbering style. */
+function aidocs_list_marker( $style, $index ) {
+    switch ( $style ) {
+        case 'lower-alpha': return aidocs_index_to_alpha( $index ) . '.';
+        case 'upper-alpha': return strtoupper( aidocs_index_to_alpha( $index ) ) . '.';
+        case 'lower-roman': return aidocs_index_to_roman( $index ) . '.';
+        case 'upper-roman': return strtoupper( aidocs_index_to_roman( $index ) ) . '.';
+        default:            return $index . '.'; // decimal
+    }
+}
+
+/** 1 → a, 2 → b, … 26 → z, 27 → aa, … spreadsheet-column style — the reverse of aidocs_alpha_index(). */
+function aidocs_index_to_alpha( $index ) {
+    $out = '';
+    while ( $index > 0 ) {
+        $index--;
+        $out   = chr( 97 + ( $index % 26 ) ) . $out;
+        $index = intdiv( $index, 26 );
+    }
+    return $out;
+}
+
+/** 1 → i, 2 → ii, … lowercase roman numerals — the reverse of aidocs_roman_index(). */
+function aidocs_index_to_roman( $index ) {
+    $map = [ 1000 => 'm', 900 => 'cm', 500 => 'd', 400 => 'cd', 100 => 'c', 90 => 'xc',
+             50 => 'l', 40 => 'xl', 10 => 'x', 9 => 'ix', 5 => 'v', 4 => 'iv', 1 => 'i' ];
+    $out = '';
+    foreach ( $map as $value => $symbol ) {
+        while ( $index >= $value ) {
+            $out   .= $symbol;
+            $index -= $value;
+        }
+    }
+    return $out;
+}
+
+/** A block's runs re-rendered as markdown emphasis, falling back to its plain text. */
+function aidocs_runs_to_markdown( array $block ) {
+    $runs = (array) ( $block['runs'] ?? [] );
+    if ( ! $runs ) return (string) ( $block['text'] ?? '' );
+
+    $out = '';
+    foreach ( $runs as $run ) {
+        $text = (string) ( $run['text'] ?? '' );
+        if ( $text === '' ) continue;
+        $text = str_replace( [ '\\', '*' ], [ '\\\\', '\\*' ], $text );
+
+        if ( empty( $run['b'] ) && empty( $run['i'] ) ) { $out .= $text; continue; }
+
+        preg_match( '/^(\s*)(.*?)(\s*)$/s', $text, $m );
+        [ , $lead, $core, $tail ] = $m + [ '', '', '', '' ];
+        if ( $core === '' ) { $out .= $text; continue; }
+
+        $mark = ( ! empty( $run['b'] ) && ! empty( $run['i'] ) ) ? '***' : ( ! empty( $run['b'] ) ? '**' : '*' );
+        $out .= $lead . $mark . $core . $mark . $tail;
+    }
+    return $out !== '' ? $out : (string) ( $block['text'] ?? '' );
+}
+
+// ──────────────────────────────────────────────
 // Rendering
 // ──────────────────────────────────────────────
 

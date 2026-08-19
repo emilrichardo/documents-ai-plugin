@@ -97,25 +97,35 @@ A reference of every shortcode parameter with copy-to-clipboard examples.
 
 | Field | Description |
 |---|---|
-| **What are you uploading?** | **One policy**, or **a document holding several policies**. Everything below depends on this — see [Uploading several policies at once](#uploading-several-policies-at-once). |
-| **Source file** | Upload a file (PDF, Word, Excel) through the media picker. It is read for its text only, and is never published, linked or offered for download. |
+| **What are you uploading?** | **One policy**, or **a document holding several policies**. Everything below depends on this — see [Uploading several policies at once](#uploading-several-policies-at-once). Defaults to "One policy", but switches itself to "several policies" as soon as a PDF's own text shows more than one — no need to notice that ahead of time and pick it by hand. |
+| **Source file** | Upload a file (PDF, Word, Excel) through the media picker. It is read for its text only, and is never published, linked or offered for download. Text and structure are extracted from PDF and Word (`.docx`) files automatically; Excel is accepted but only for reference — it is not parsed. |
 | **Title** | Entry name |
-| **Publication Date** | Read from the document's own `Last Updated` label when it has one |
+| **Last Updated** | Read from the document's own `Last Updated` label when it has one |
 | **Audience** | One or more audiences |
 | **Document Type** | One or more types |
 | **Description** | Read from the document's own `Teaser` label when it has one |
 
 3. Click **"Publish"**.
 
+### Editing an existing document
+
+Once a document has content, its editor screen looks different from the Add New
+screen: the "what are you uploading?" question, the source-file upload card, and (for
+a compilation) the policy-splitting panel are all gone — they only ever apply while a
+document is being set up for the first time. What's left is every field editable
+directly: Title, Last Updated, Audience, Document Type, Description, Document
+History (the source document's own provenance line), and the content itself (see
+[Extracting structured content](#extracting-structured-content-default-no-ai)).
+
 ### Extracting structured content (default, no AI)
 
-Uploading a PDF extracts its text and **automatically** parses the document body with regular expressions — no AI call, no API key required — storing it as a sequence of blocks (three heading levels, paragraphs, notes, nested lists, tables) that the frontend renders as HTML. When the document follows the labelled schema described below, the title, teaser, publication date, and revision history are filled in at the same time.
+Uploading a PDF or a Word (`.docx`) file extracts its text and **automatically** parses the document body with regular expressions — no AI call, no API key required — storing it as a sequence of blocks (three heading levels, paragraphs, notes, nested lists, tables) that the frontend renders as HTML. When the document follows the labelled schema described below, the title, teaser, last-updated date, and revision history are filled in at the same time.
 
-1. Upload the PDF — text extraction and content parsing run on their own.
-2. Below the file, **"Document content"** shows how many blocks were saved and a **"Review extracted content"** panel to check the result before publishing.
-3. To re-run the parser — after editing the source PDF, for instance — use **"Extract content again"**.
+1. Upload the PDF or Word file — text extraction and content parsing run on their own.
+2. Below the file, **"Document content"** shows how many blocks were saved, a **"Review extracted content"** panel to check the rendered result, and an **"Edit extracted content"** panel with the plain text the parser read, editable before or after publishing.
+3. To re-run the parser from the source file — after editing the source document, for instance — use **"Extract content again"**. To fix a misread line by hand instead, edit the text in **"Edit extracted content"** and click **"Apply edited content"**.
 
-The PDF is read in two steps: `assets/js/aidocs-pdf-structure.js` turns the PDF's own layout (bold weight, point size, left margin, line spacing) into **canonical text** carrying that structure as markers, and `includes/aidocs-doc-parser.php` turns that text into blocks with regular expressions. The full format, recognised note variants, and known limitations are documented in [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
+A PDF is read in two steps: `assets/js/aidocs-pdf-structure.js` turns the PDF's own layout (bold weight, point size, left margin, line spacing) into **canonical text** carrying that structure as markers. A Word file skips the layout-sniffing — `assets/js/aidocs-docx-structure.js` reads the styles mammoth.js (vendored at `assets/js/vendor/mammoth.browser.min.js`) already recovers from the `.docx` itself. Either way, `includes/aidocs-doc-parser.php` turns the same canonical text into blocks with regular expressions, so nothing downstream cares which kind of file it came from. The full format, recognised note variants, and known limitations are documented in [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md).
 
 #### Labelled schema
 
@@ -126,7 +136,7 @@ When a document is authored with the SACSCOC label schema, extraction is **deter
 Teaser: <one-paragraph summary>       → Description
 Body:                                 → Structured content
 <paragraphs and bulleted requirements>
-Last Updated: <Month YYYY> (<body>)   → Publication Date
+Last Updated: <Month YYYY> (<body>)   → Last Updated
 Document History: <provenance>        → shown at the foot of the content
 ```
 
@@ -140,11 +150,13 @@ The files the Commission publishes are single documents carrying dozens of
 standalone policies one after another, and each of those has to become an entry of
 its own. Pick **"A document holding several policies"** at the top of the editor
 and the upload is read for what it holds instead of being parsed as one document.
-**PDF only** — the split reads the same extracted text as everything else, so a
-Word or Excel file cannot be split; convert it to PDF first, or switch to "One
-policy" and upload each one on its own.
+**PDF and Word (`.docx`)** — the split reads the same extracted text either produces,
+so it works the same way for both; an Excel file cannot be split, since it isn't
+extracted at all. Uploading a PDF that turns out to hold more than one policy
+switches this automatically — there's no need to notice that ahead of time and pick
+the mode by hand.
 
-1. Upload the PDF — the policies are found on their own, with no AI and no API key.
+1. Upload the PDF or Word file — the policies are found on their own, with no AI and no API key.
 2. **"Complete fields with AI, per policy"** — tick which of Title, Description,
    Audience or Document Type the AI should fill for each policy. Audience and
    Document Type are ticked by default: the label schema has no section for
@@ -155,7 +167,7 @@ policy" and upload each one on its own.
 4. **"Create N entries"** writes them. The first policy is written over the entry you are editing; the rest are added as new ones. The import runs a few at a time — fewer when AI fields are ticked, since each one is then an extra Gemini call alongside the embedding every entry already gets.
 5. Click **"Update"** afterwards, so the form and the entry it is open on agree.
 
-The single-policy fields — Description, Publication Date, Audience, Document Type
+The single-policy fields — Description, Last Updated, Audience, Document Type
 — and the "Complete fields with AI (optional)" panel below extraction are all
 hidden in this mode: none of them can hold one value that fits every policy in
 the upload, which is exactly why the fields are completed per policy above
@@ -191,6 +203,21 @@ A separate action, in its own box below the field proposals — it sends the **e
 2. The result is compared word-for-word against the current extracted content, and a fidelity report shows what — if anything — was added or dropped. A clean result reads "Text is verbatim — every word matches the extracted content."
 3. Review the restructured content in the preview, then **"Replace content with this"** to apply it, or **"Discard"** to keep the extracted version. Nothing is written to the document until you choose to apply it.
 
+### Browsing by Document Type
+
+**Documents** in the admin sidebar reads All Documents, Add New, then one submenu
+item per configured Document Type (Policies, Guidelines, Good Practices, Position
+Statements, and whatever else is listed under Settings → Taxonomy), set apart under
+their own "Browse by Type" label — indented, with a divider below the last one before
+Settings — so they read as their own group. Each one opens the same Documents list,
+pre-filtered to that type.
+
+The list itself also has a **Type** dropdown next to the Published/Draft/Trash tabs
+and the search box — an independent filter, not a replacement for those: picking a
+type narrows whichever status tab (or search) is already active, the same way the
+built-in date filter does. Audience has no equivalent yet — it stays exactly as it
+is, unchanged, pending a decision on whether it's still needed.
+
 ---
 
 ## Search shortcode
@@ -215,7 +242,20 @@ Clicking a result card goes straight to that entry's own page. Results carry no 
 
 ### The single entry page
 
-Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: audience and type tags, the description, a metadata grid, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
+Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: audience and type tags, the description, a metadata grid, a table of contents when the content has more than one section, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
+
+---
+
+## Document shortcode
+
+Embed one specific entry's own content — the same rendering as its `/documents/{entry}/` page, minus the "Back to all topics" link — inside any post or page:
+
+```
+[aidocs_document id="123"]
+[aidocs_document slug="document-slug"]
+```
+
+Pass either `id` (the entry's post ID) or `slug` (its URL slug). If neither resolves to a published document, administrators see a note; other visitors see nothing.
 
 ---
 

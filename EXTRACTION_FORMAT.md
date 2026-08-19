@@ -1,6 +1,6 @@
 # Document extraction structure
 
-How a policy PDF becomes structured content **without AI**: PDF position/style
+How a policy PDF or Word file becomes structured content **without AI**: layout/style
 plus regular expressions, nothing else.
 
 Pieces:
@@ -8,8 +8,13 @@ Pieces:
 | File | Role |
 | --- | --- |
 | `assets/js/aidocs-pdf-structure.js` | PDF → **canonical text** (pdf.js, runs in the editor) |
+| `assets/js/aidocs-docx-structure.js` | .docx → **canonical text** (mammoth.js, runs in the editor) |
 | `includes/aidocs-doc-parser.php` | canonical text → **blocks** (regex) + HTML render |
 | `tools/parse-check.php` | CLI check against a corpus of text files |
+
+Both extractors converge on the exact same canonical text grammar (§2 below), so
+`aidocs-doc-parser.php` and everything downstream of it never need to know
+which kind of file a document was uploaded as.
 
 ## 1. Why two steps
 
@@ -34,6 +39,13 @@ Signals step 1 uses (all measurable, none a content heuristic):
   usually sits 24pt further in; each distinct marker `x` is one list level.
 - **Line spacing** — the page's median; a gap over 1.35× that opens a new paragraph.
 - **Horizontal gaps** — more than 1.8× the body size within one line ⇒ table cells.
+
+A `.docx` file needs none of this layout reverse-engineering: `aidocs-docx-structure.js`
+runs mammoth.js on it, which already reads Word's own paragraph/character styles
+into semantic HTML (`<h1>`-`<h6>`, `<p>`, `<ul>`/`<ol>`, `<table>`, `<strong>`/`<em>`),
+then walks that HTML straight into the same canonical grammar below — no page
+metrics, no font-weight sniffing, and no page boundaries (`extract()` returns
+the whole document as a single "page").
 
 ## 2. Canonical text (intermediate format)
 
@@ -220,6 +232,12 @@ levels deep, and 35 tables.
 - **Table headers**: `<th>` is only used when the whole row was bold;
   otherwise every row is `<td>`.
 - **A scanned PDF** (no text layer) produces nothing — there is no OCR.
+- **Legacy `.doc` files** (the pre-2007 binary Word format) are not extracted —
+  mammoth.js only reads `.docx`. Save as `.docx` first, or export to PDF.
+- **An Excel file cannot be split** into several policies (§4) — it isn't
+  extracted to text at all, unlike PDF and `.docx`, both of which the split
+  reads identically since it works off their shared canonical text, not
+  anything PDF-specific.
 - **Fonts with no embedded name**: when `commonObjs` does not expose one, the
   parser falls back to margin and line-spacing signals, and a heading that
   isn't outdented becomes a paragraph.
