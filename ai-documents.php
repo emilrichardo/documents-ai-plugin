@@ -825,6 +825,17 @@ function aidocs_meta_box_html( $post ) {
         .cd-preview-body .aidocs-content-h2 { font-size:15px; margin:14px 0 6px; }
         .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--wp--preset--color--secondary,#2c4a7c); }
         .cd-preview-body .aidocs-content-p, .cd-preview-body li { font-size:12.5px; line-height:1.7; color:#3c434a; }
+        /* Rich markdown editor: CodeMirror still tags the literal #, ** and *
+           characters with their own span (cm-formatting-*) even though the
+           text around them is already styled bold/large — collapsing those
+           spans to zero width is what leaves only the visual formatting on
+           screen, no stray symbols. The characters are still really there,
+           still edited normally; only their rendered width is zero. */
+        #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-header,
+        #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-strong,
+        #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-em {
+            display: inline-block; width: 0; overflow: hidden;
+        }
         /* Extracted-content tabs: edit (default) vs. preview */
         .cd-tabs { margin-top:12px; }
         .cd-tabs-nav { display:flex; gap:2px; border-bottom:1px solid #dcdcde; }
@@ -1204,9 +1215,6 @@ function aidocs_meta_box_html( $post ) {
                 <!-- Edit tab — the default: what most edits to a document are,
                      after it already has content. -->
                 <div class="cd-tab-panel" data-tab-panel="edit">
-                    <p class="cd-step-hint">
-                        <?php esc_html_e( 'This is the plain text the parser above reads — the same headings, lists, tables and bold/italic markup (##, -, |, **, *) documented for a PDF. Fix a misread line or add missing text here, then apply it: the content, description, date and history are re-parsed from what you type, exactly as if it had been extracted from the source file. Switch to Preview any time to see it with its real styles instead of the raw markup.' ); ?>
-                    </p>
                     <textarea id="cd-raw-text-edit" rows="19" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( aidocs_get_raw_text( $post->ID ) ); ?></textarea>
                     <div class="cd-step-actions" style="margin-top:8px;">
                         <button type="button" id="cd-apply-raw-text-btn" class="button button-primary">
