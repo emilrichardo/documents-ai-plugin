@@ -625,6 +625,71 @@ function aidocs_add_meta_boxes() {
         'normal',
         'high'
     );
+    $post        = get_post();
+    $has_content = $post && aidocs_get_content_blocks( $post->ID );
+
+    if ( $post && $post->post_status === 'publish' && $has_content ) {
+        add_meta_box(
+            'aidocs_shortcode',
+            __( 'Shortcode' ),
+            'aidocs_shortcode_meta_box_html',
+            'aidoc',
+            'side',
+            'high'
+        );
+    }
+
+    // Only relevant during setup, before this entry has content of its own —
+    // once it does, the "one policy or many?" question (and the mode this
+    // button belongs to) is answered and gone.
+    if ( $post && ! $has_content ) {
+        add_meta_box(
+            'aidocs_publish_multi',
+            __( 'Publish' ),
+            'aidocs_publish_multi_meta_box_html',
+            'aidoc',
+            'side',
+            'high'
+        );
+    }
+}
+
+function aidocs_publish_multi_meta_box_html( $post ) {
+    ?>
+    <div id="cd-publish-multi" class="cd-mode-multi-only">
+        <p class="description" style="margin-top:0;">
+            <?php esc_html_e( 'Each policy selected on the left becomes its own published entry — this one included.' ); ?>
+        </p>
+        <button type="button" id="cd-split-import-btn" class="button button-primary" style="width:100%;text-align:center;">
+            &#10133; <?php esc_html_e( 'Create the selected entries' ); ?>
+        </button>
+        <div id="cd-split-progress" hidden style="margin-top:10px;"><span></span></div>
+    </div>
+    <?php
+}
+
+function aidocs_shortcode_meta_box_html( $post ) {
+    ?>
+    <div class="cd-shortcode-row" style="display:flex;gap:8px;">
+        <input type="text" readonly id="cd-shortcode-field" onclick="this.select();" style="flex:1;font-family:Consolas,Monaco,monospace;font-size:13px;" value='[aidocs_document id="<?php echo (int) $post->ID; ?>"]'>
+        <button type="button" class="button" id="cd-shortcode-copy"><?php esc_html_e( 'Copy' ); ?></button>
+    </div>
+    <script>
+    (function(){
+        var btn = document.getElementById('cd-shortcode-copy');
+        var field = document.getElementById('cd-shortcode-field');
+        if ( ! btn || ! field ) return;
+        var defaultLabel = btn.textContent;
+        btn.addEventListener('click', function(){
+            field.select();
+            navigator.clipboard && navigator.clipboard.writeText( field.value ).then( function(){
+                btn.textContent = '<?php echo esc_js( __( 'Copied!' ) ); ?>';
+                setTimeout( function(){ btn.textContent = defaultLabel; }, 1500 );
+            } );
+        });
+    })();
+    </script>
+    <?php
 }
 
 function aidocs_meta_box_html( $post ) {
@@ -1025,12 +1090,6 @@ function aidocs_meta_box_html( $post ) {
                     </label>
                 </div>
                 <div id="cd-split-list"></div>
-                <div class="cd-step-actions" style="margin-top:12px;">
-                    <button type="button" id="cd-split-import-btn" class="button button-primary">
-                        &#10133; <?php esc_html_e( 'Create the selected entries' ); ?>
-                    </button>
-                </div>
-                <div id="cd-split-progress" hidden><span></span></div>
             </div>
 
             <div id="cd-split-result" hidden>
@@ -1472,14 +1531,15 @@ function aidocs_meta_box_html( $post ) {
             $('.cd-mode-multi-only').toggle(multi);
             cdRenderPageBadges();
 
-            // Publish/Update — WordPress core's own button (#publishing-action
-            // in #major-publishing-actions), not part of this meta box — is
-            // what writes the single-policy fields this mode hides. "Create the
-            // selected entries" is this mode's own save action, already writing
-            // straight to the database as each entry is created, so leaving
-            // Publish/Update in place would just be a second, misleading way to
-            // "save" a screen that has nothing of its own left to save.
-            $('#publishing-action').toggle(!multi);
+            // Publish/Update and Save Draft — WordPress core's own buttons
+            // (#publishing-action and #save-post), not part of this meta box —
+            // are what write the single-policy fields this mode hides. "Create
+            // the selected entries" is this mode's own save action, already
+            // writing straight to the database — published, not draft — as each
+            // entry is created, so leaving either core button in place would
+            // just be a second, misleading way to "save" a screen that has
+            // nothing of its own left to save.
+            $('#publishing-action, #save-post').toggle(!multi);
         }
 
         $(document).on('change', 'input[name="document_source_mode"]', function() {
@@ -3004,7 +3064,7 @@ function aidocs_import_policies_ajax() {
             // title, description, date, content — so a URL still derived from
             // the upload's own filename would describe none of it. An empty
             // post_name has WordPress build a fresh one from the new title.
-            wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '' ] );
+            wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '', 'post_status' => 'publish' ] );
         } else {
             $target = wp_insert_post( [
                 'post_type'   => 'aidoc',
@@ -4781,6 +4841,7 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
         <?php endif; ?>
 
         <header class="aidocs-single-header">
+            <h1 class="aidocs-single-title"><?php echo esc_html( get_the_title( $pid ) ); ?></h1>
             <div class="aidocs-single-heading">
                 <div class="aidocs-single-tags">
                     <?php foreach ( $audience as $a ) : ?>

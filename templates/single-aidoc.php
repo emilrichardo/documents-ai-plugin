@@ -24,7 +24,6 @@ aidocs_document_header();
 
 <main id="aidocs-single-page" class="aidocs-single-page">
     <?php while ( have_posts() ) : the_post(); ?>
-    <h1 class="aidocs-single-title"><?php the_title(); ?></h1>
     <?php echo aidocs_render_single_document( get_the_ID() ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
     <?php endwhile; ?>
 </main>
