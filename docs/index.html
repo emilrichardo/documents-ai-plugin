@@ -189,15 +189,13 @@
 <li>Upload the PDF or Word file. The policies are found on their own — no AI, no API key.</li>
 <li>Under <strong>Complete fields with AI, per policy</strong>, tick which fields the AI should fill for each policy. <strong>Audience</strong> and <strong>Document Type</strong> are ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
 <li>Review <strong>Policies in this document</strong>. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.</li>
-<li>Click <strong>Create N entries</strong> — the button counts what is still ticked.</li>
+<li>In the <strong>Publish</strong> box in the sidebar, click <strong>Create N entries</strong> — the button counts what is still ticked.</li>
 </ol>
 <figure class="aidoc-shot"><img src="assets/screenshots/compilation-mode.png" alt="The upload-mode question, switched to a document holding several policies" loading="lazy"><figcaption>The upload-mode question, switched to a document holding several policies</figcaption></figure>
 <figure class="aidoc-shot"><img src="assets/screenshots/compilation-policies.png" alt="Forty-nine policies found in one file, each with the title, date, description and block count read from it" loading="lazy"><figcaption>Forty-nine policies found in one file, each with the title, date, description and block count read from it</figcaption></figure>
 <h3 id="what-happens-when-you-click-create">What happens when you click Create</h3>
-<p>The first policy is written over the entry you are editing; every other policy is added as a <strong>published</strong> entry of its own. The import runs a few at a time — fewer when AI fields are ticked, because each one is then an extra Gemini call alongside the embedding every entry gets anyway.</p>
-<p>There is no Publish or Update button on this screen: <em>Create N entries</em> is this mode&#039;s own save action, writing straight to the database as each entry is made, so a second way to &quot;save&quot; a form that has nothing left of its own would only mislead.</p>
-<blockquote class="aidoc-note"><p><strong>Publish the first policy yourself.</strong> The entry you started from keeps whatever status it already had — coming from <em>Add New</em>, that is a draft. Only the policies added as new entries are published. Open the first one from the Documents list and publish it, or it stays out of the catalogue.</p>
-</blockquote>
+<p>Every policy — including the one you started from — is created or updated as a <strong>published</strong> entry. The import runs a few at a time — fewer when AI fields are ticked, because each one is then an extra Gemini call alongside the embedding every entry gets anyway.</p>
+<p>There is no Save Draft or Publish/Update button in this mode: both are hidden, and <em>Create N entries</em>, in its own <strong>Publish</strong> box in the sidebar, is this mode&#039;s only save action. It writes straight to the database — published, not draft — as each entry is made, so nothing is left half-saved when you leave the screen.</p>
 <p>The imported entries carry <strong>no source file</strong>. The file held fifty policies and none of them is it.</p>
 <blockquote class="aidoc-note"><p>Fields ticked under <em>Complete fields with AI, per policy</em> are written as soon as each entry is created — there is no per-policy review step. Reviewing forty-nine proposals one at a time is exactly what this batch flow exists to avoid. Everything remains editable on each entry afterwards.</p>
 </blockquote>
@@ -323,6 +321,8 @@
 </tbody></table></div>
 <p>Pass one or the other. If neither resolves to a <strong>published</strong> entry of type <code>aidoc</code>, administrators and editors see a short note saying so and visitors see nothing at all — a draft or a deleted entry never leaves a broken block on a live page.</p>
 <blockquote class="aidoc-note"><p>Both shortcodes work in the block editor&#039;s Shortcode block, in a Classic editor, in a widget, and anywhere <code>do_shortcode()</code> is called from a theme template.</p>
+</blockquote>
+<blockquote class="aidoc-note"><p><strong>Copy it straight from the entry.</strong> Once a document is published and has content, its own edit screen shows a <strong>Shortcode</strong> box in the sidebar with <code>[aidocs_document id=&quot;…&quot;]</code> already filled in and a <strong>Copy</strong> button — no need to look up the ID by hand. The box appears only once there is something to embed: a draft, or an entry still mid-setup, shows no shortcode yet.</p>
 </blockquote>
 <h3 id="using-them-in-the-block-editor">Using them in the block editor</h3>
 <ol class="aidoc-steps">

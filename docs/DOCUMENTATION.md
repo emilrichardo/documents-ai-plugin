@@ -225,7 +225,7 @@ of standalone policies, and each of those has to become an entry of its own.
 3. Upload the PDF or Word file. The policies are found on their own — no AI, no API key.
 4. Under **Complete fields with AI, per policy**, tick which fields the AI should fill for each policy. **Audience** and **Document Type** are ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
 5. Review **Policies in this document**. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.
-6. Click **Create N entries** — the button counts what is still ticked.
+6. In the **Publish** box in the sidebar, click **Create N entries** — the button counts what is still ticked.
 
 ![The upload-mode question, switched to a document holding several policies](assets/screenshots/compilation-mode.png)
 
@@ -233,19 +233,15 @@ of standalone policies, and each of those has to become an entry of its own.
 
 ### What happens when you click Create
 
-The first policy is written over the entry you are editing; every other policy is
-added as a **published** entry of its own. The import runs a few at a time — fewer
-when AI fields are ticked, because each one is then an extra Gemini call alongside
-the embedding every entry gets anyway.
+Every policy — including the one you started from — is created or updated as a
+**published** entry. The import runs a few at a time — fewer when AI fields are
+ticked, because each one is then an extra Gemini call alongside the embedding
+every entry gets anyway.
 
-There is no Publish or Update button on this screen: *Create N entries* is this
-mode's own save action, writing straight to the database as each entry is made, so
-a second way to "save" a form that has nothing left of its own would only mislead.
-
-> **Publish the first policy yourself.** The entry you started from keeps
-> whatever status it already had — coming from *Add New*, that is a draft. Only
-> the policies added as new entries are published. Open the first one from the
-> Documents list and publish it, or it stays out of the catalogue.
+There is no Save Draft or Publish/Update button in this mode: both are hidden,
+and *Create N entries*, in its own **Publish** box in the sidebar, is this mode's
+only save action. It writes straight to the database — published, not draft — as
+each entry is made, so nothing is left half-saved when you leave the screen.
 
 The imported entries carry **no source file**. The file held fifty policies and
 none of them is it.
@@ -482,6 +478,12 @@ live page.
 > Both shortcodes work in the block editor's Shortcode block, in a Classic
 > editor, in a widget, and anywhere `do_shortcode()` is called from a theme
 > template.
+
+> **Copy it straight from the entry.** Once a document is published and has
+> content, its own edit screen shows a **Shortcode** box in the sidebar with
+> `[aidocs_document id="…"]` already filled in and a **Copy** button — no need
+> to look up the ID by hand. The box appears only once there is something to
+> embed: a draft, or an entry still mid-setup, shows no shortcode yet.
 
 ### Using them in the block editor
 
