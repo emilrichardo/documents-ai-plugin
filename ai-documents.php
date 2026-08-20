@@ -655,7 +655,7 @@ function aidocs_add_meta_boxes() {
     if ( $post && ! $has_content ) {
         add_meta_box(
             'aidocs_publish_multi',
-            __( 'Publish' ),
+            __( 'Create Entries' ),
             'aidocs_publish_multi_meta_box_html',
             'aidoc',
             'side',
@@ -1539,6 +1539,10 @@ function aidocs_meta_box_html( $post ) {
             var multi = cdMode() === 'multi';
             $('.cd-mode-single-only').toggle(!multi);
             $('.cd-mode-multi-only').toggle(multi);
+            // The whole meta box, not just its inner content — otherwise
+            // single-document mode is left with an empty, still-titled
+            // "Create Entries" box sitting above WordPress's own Publish box.
+            $('#aidocs_publish_multi').toggle(multi);
             cdRenderPageBadges();
 
             // Publish/Update and Save Draft — WordPress core's own buttons
