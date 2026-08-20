@@ -14,6 +14,12 @@ its own entry.
 Google Gemini is available as an opt-in layer for metadata suggestions,
 re-structuring a misread file, and semantic search.
 
+> **Looking for the illustrated manual?** [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
+> walks through every screen with screenshots. It is also the source of the
+> plugin's own **Documents → Documentation** page and of the standalone landing
+> page in `docs/index.html`; `bash tools/build-docs.sh` rebuilds all three and
+> the downloadable zip from it. This README stays as the technical reference.
+
 ---
 
 ## Table of contents
@@ -164,8 +170,7 @@ the mode by hand.
    Description are usually already read from the labels, so leave them unticked
    unless a particular upload is missing them.
 3. **"Policies in this document"** lists each one with the title, date, description and block count read from it. Untick anything that should not be imported.
-4. **"Create N entries"** writes them. The first policy is written over the entry you are editing; the rest are added as new ones. The import runs a few at a time — fewer when AI fields are ticked, since each one is then an extra Gemini call alongside the embedding every entry already gets.
-5. Click **"Update"** afterwards, so the form and the entry it is open on agree.
+4. **"Create N entries"** writes them. The first policy is written over the entry you are editing, keeping whatever post status it already had; the rest are inserted as new, published entries. The import runs a few at a time — fewer when AI fields are ticked, since each one is then an extra Gemini call alongside the embedding every entry already gets. Publish/Update is hidden in this mode — `Create N entries` is the save action — so the entry the form was open on has to be published from the Documents list afterwards.
 
 The single-policy fields — Description, Last Updated, Audience, Document Type
 — and the "Complete fields with AI (optional)" panel below extraction are all
@@ -232,7 +237,7 @@ By default, `/{slug}/` (see Settings → Display) already shows this same search
 
 ### What the search does
 
-- **Keyword field** — type in any language. After roughly 600ms of no typing, the AI reads the query and surfaces the single most relevant document with a short explanation (requires a configured API key; the field still does a plain WordPress keyword search without one).
+- **Keyword field** — type in any language. After roughly 600ms of no typing, the AI reads the query and surfaces the one to three documents that address it, with a short explanation (requires a configured API key; the field still does a plain WordPress keyword search without one).
 - **Filters** — Audience and Document Type dropdowns to narrow results.
 - **Clear button (×)** — empties the field and reloads the full catalog.
 - **Search button** — runs a plain WordPress keyword search and shows the full results list.
@@ -263,7 +268,7 @@ Pass either `id` (the entry's post ID) or `slug` (its URL slug). If neither reso
 
 | Feature | Where | Description |
 |---|---|---|
-| Inline recommendation | Search field | Most relevant document, with an explanation, in whatever language you typed |
+| Inline recommendation | Search field | The one to three documents that address the question, explained, in whatever language you typed |
 | Complete fields with AI | Document editor | Proposes values for Title/Description/Audience/Document Type from the extracted text, reviewed before applying |
 | Restructure content with AI | Document editor | Re-types a misread PDF's extracted text into the right block types, verified word-for-word before applying |
 | Ask AI (single document) | Document page | Answers questions about that one document |

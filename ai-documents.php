@@ -19,6 +19,10 @@ define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 // canonical text this parser reads either way.
 require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
 
+// Documents → Documentation: the manual, generated from docs/DOCUMENTATION.md
+// by tools/build-docs.sh so it never drifts from the version it ships with.
+require_once AIDOCS_DIR . 'includes/aidocs-documentation.php';
+
 define( 'AIDOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
 define( 'AIDOCS_TYPES', [
     'Policies', 'Guidelines', 'Good Practices', 'Position Statements',
@@ -3878,6 +3882,7 @@ function aidocs_reorder_admin_menu() {
     $all_documents = $find( function ( $slug ) use ( $parent ) { return $slug === $parent; } );
     $add_new       = $find( function ( $slug ) { return strpos( $slug, 'post-new.php' ) === 0; } );
     $settings      = $find( function ( $slug ) { return $slug === 'aidocs-settings'; } );
+    $documentation = $find( function ( $slug ) { return $slug === 'aidocs-documentation'; } );
     $types         = array_values( array_filter( $items, function ( $item ) use ( $parent ) {
         return strpos( $item[2], $parent . '&document_type=' ) === 0;
     } ) );
@@ -3898,7 +3903,7 @@ function aidocs_reorder_admin_menu() {
         [ $all_documents, $add_new ],
         $heading,
         $types,
-        [ $settings ]
+        [ $settings, $documentation ]
     ) ) );
 }
 

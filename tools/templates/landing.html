@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}} — {{PLUGIN_NAME}} {{VERSION}}</title>
+<meta name="description" content="{{TAGLINE}}">
+<meta name="generator" content="tools/build-docs.php">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f6feb'/><path d='M9 8h9l5 5v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z' fill='white'/><path d='M18 8v5h5' fill='%23c7dbff'/></svg>">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+
+<a class="aidoc-skip" href="#content">Skip to content</a>
+
+<header class="aidoc-hero">
+  <div class="aidoc-hero-inner">
+    <div class="aidoc-hero-text">
+      <p class="aidoc-eyebrow">WordPress plugin · Documentation</p>
+      <h1>{{PLUGIN_NAME}}</h1>
+      <p class="aidoc-lede">{{TAGLINE}}</p>
+      <p class="aidoc-meta">
+        <span class="aidoc-chip">Version {{VERSION}}</span>
+        <span class="aidoc-chip aidoc-chip-quiet">Updated {{BUILT_ON}}</span>
+      </p>
+      <div class="aidoc-hero-actions">
+        {{DOWNLOAD}}
+        <a class="aidoc-btn" href="#installation">Installation guide</a>
+      </div>
+    </div>
+    <div class="aidoc-hero-intro">{{INTRO}}</div>
+  </div>
+  <button class="aidoc-theme" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">◐</button>
+</header>
+
+<div class="aidoc-layout">
+  <aside class="aidoc-sidebar">
+    <nav aria-label="Contents">
+      <input class="aidoc-filter" type="search" placeholder="Filter sections…" aria-label="Filter sections">
+      <ul class="aidoc-nav">{{NAV}}</ul>
+    </nav>
+  </aside>
+
+  <main class="aidoc-main" id="content">{{BODY}}</main>
+</div>
+
+<footer class="aidoc-footer">
+  <p><strong>{{PLUGIN_NAME}}</strong> {{VERSION}} · documentation generated {{BUILT_ON}}</p>
+  <p class="aidoc-footnote">This page is generated from <code>docs/DOCUMENTATION.md</code> by <code>tools/build-docs.php</code>. Edit the Markdown, re-run <code>bash tools/build-docs.sh</code>, and this page, the plugin&rsquo;s own Documentation screen and the download below it all update together.</p>
+</footer>
+
+<div class="aidoc-lightbox" hidden>
+  <button class="aidoc-lightbox-close" type="button" aria-label="Close">×</button>
+  <img alt="">
+</div>
+
+<button class="aidoc-top" type="button" aria-label="Back to top" hidden>↑</button>
+
+<script src="assets/docs.js"></script>
+</body>
+</html>
