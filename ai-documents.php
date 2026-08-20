@@ -469,6 +469,14 @@ function aidocs_enqueue_scripts( $hook ) {
         true
     );
 
+    // The "Edit content" textarea — the plain text the parser reads — is
+    // turned into an EasyMDE editor further down this file: headings and
+    // bold/italic render styled as you type instead of staying literal ##
+    // and ** characters, without changing what is actually stored (still
+    // the same plain markup EasyMDE edits in place).
+    wp_enqueue_style( 'aidocs-easymde', AIDOCS_URL . 'assets/js/vendor/easymde.min.css', [], '2.18.0' );
+    wp_enqueue_script( 'aidocs-easymde', AIDOCS_URL . 'assets/js/vendor/easymde.min.js', [], '2.18.0', true );
+
     // Core's own periodic autosave (wp_autosave(), wp-admin/includes/post.php)
     // turns a fresh entry's auto-draft into a real draft in the background —
     // no button click involved — the moment the heartbeat first fires. That
@@ -680,22 +688,34 @@ function aidocs_publish_multi_meta_box_html( $post ) {
 
 function aidocs_shortcode_meta_box_html( $post ) {
     ?>
-    <div class="cd-shortcode-row" style="display:flex;gap:8px;">
-        <input type="text" readonly id="cd-shortcode-field" onclick="this.select();" style="flex:1;font-family:Consolas,Monaco,monospace;font-size:13px;" value='[aidocs_document id="<?php echo (int) $post->ID; ?>"]'>
-        <button type="button" class="button" id="cd-shortcode-copy"><?php esc_html_e( 'Copy' ); ?></button>
-    </div>
+    <input type="text" readonly id="cd-shortcode-field" title="<?php esc_attr_e( 'Click to copy' ); ?>" style="width:100%;box-sizing:border-box;font-family:Consolas,Monaco,monospace;font-size:13px;cursor:pointer;" value='[aidocs_document id="<?php echo (int) $post->ID; ?>"]'>
+    <p class="description" id="cd-shortcode-hint" style="margin:6px 0 0;"><?php esc_html_e( 'Click to copy' ); ?></p>
     <script>
     (function(){
-        var btn = document.getElementById('cd-shortcode-copy');
         var field = document.getElementById('cd-shortcode-field');
-        if ( ! btn || ! field ) return;
-        var defaultLabel = btn.textContent;
-        btn.addEventListener('click', function(){
+        var hint  = document.getElementById('cd-shortcode-hint');
+        if ( ! field || ! hint ) return;
+        var defaultHint = hint.textContent;
+        function copied(){
+            hint.textContent = '<?php echo esc_js( __( 'Copied!' ) ); ?>';
+            setTimeout( function(){ hint.textContent = defaultHint; }, 1500 );
+        }
+        field.addEventListener('click', function(){
+            field.focus();
             field.select();
-            navigator.clipboard && navigator.clipboard.writeText( field.value ).then( function(){
-                btn.textContent = '<?php echo esc_js( __( 'Copied!' ) ); ?>';
-                setTimeout( function(){ btn.textContent = defaultLabel; }, 1500 );
-            } );
+            field.setSelectionRange( 0, field.value.length );
+            // navigator.clipboard needs a secure context (HTTPS) — a plain
+            // http:// local site never has it, so this always has to fall
+            // back to the old select-and-execCommand trick rather than
+            // silently doing nothing when the modern API is missing.
+            if ( navigator.clipboard && window.isSecureContext ) {
+                navigator.clipboard.writeText( field.value ).then( copied );
+            } else {
+                try {
+                    document.execCommand( 'copy' );
+                    copied();
+                } catch ( e ) {}
+            }
         });
     })();
     </script>
@@ -955,7 +975,7 @@ function aidocs_meta_box_html( $post ) {
         </p>
         <?php endif; ?>
 
-        <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && in_array( $file_ext, [ 'pdf', 'docx' ], true ) ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
+        <div id="cd-page-badges-wrap" style="<?php echo ( $file_id && $file_ext === 'pdf' ) ? '' : 'display:none;'; ?>padding:8px 0 4px;">
             <div id="cd-page-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
             <span id="cd-extract-status" style="display:block;font-size:11px;color:#999;margin-top:5px;min-height:14px;"></span>
         </div>
@@ -1020,14 +1040,6 @@ function aidocs_meta_box_html( $post ) {
             <textarea id="cd-description" name="document_description" rows="3"><?php echo esc_textarea( $description ); ?></textarea>
         </div>
 
-        <!-- Document History. Read from the source document's own "Document
-             History" label ("Adopted … · Revised …") when it carries one,
-             but editable here like every other extracted field. -->
-        <div style="margin-bottom:16px;" class="cd-mode-single-only">
-            <label for="cd-history"><?php esc_html_e( 'Document History' ); ?></label>
-            <textarea id="cd-history" name="document_history" rows="2"><?php echo esc_textarea( get_post_meta( $post->ID, '_document_history', true ) ); ?></textarea>
-        </div>
-
         <?php
         $content_blocks = aidocs_get_content_blocks( $post->ID );
         $has_content    = (bool) $content_blocks;
@@ -1057,10 +1069,51 @@ function aidocs_meta_box_html( $post ) {
                 </button>
             </div>
 
+            <!-- Audience and Document Type, set once here rather than per
+                 policy: picking one manually is the common case (a whole
+                 compilation usually shares one audience and type), and it
+                 skips the AI call those two fields would otherwise cost per
+                 policy below. Left empty, nothing changes — the checkboxes
+                 below still decide, same as before this existed. -->
+            <div class="cd-row">
+                <div class="cd-col">
+                    <label><?php esc_html_e( 'Audience' ); ?></label>
+                    <div class="cd-select-wrap">
+                        <div class="cd-select-box" id="cd-multi-audience-box">
+                            <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
+                        </div>
+                        <ul class="cd-dropdown" id="cd-multi-audience-dropdown">
+                            <?php foreach ( aidocs_get_audiences() as $opt ) : ?>
+                            <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                    <input type="hidden" id="cd-multi-audience-value" value="">
+                </div>
+                <div class="cd-col">
+                    <label><?php esc_html_e( 'Document Type' ); ?></label>
+                    <div class="cd-select-wrap">
+                        <div class="cd-select-box" id="cd-multi-type-box">
+                            <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select type…' ); ?>" autocomplete="off">
+                        </div>
+                        <ul class="cd-dropdown" id="cd-multi-type-dropdown">
+                            <?php foreach ( aidocs_get_types() as $opt ) : ?>
+                            <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                    <input type="hidden" id="cd-multi-type-value" value="">
+                </div>
+            </div>
+            <p class="cd-step-hint">
+                <?php esc_html_e( 'Whatever is picked here is applied to every entry this upload creates — the same Audience and Document Type on all of them, not one value per policy.' ); ?>
+            </p>
+
             <!-- Audience and Document Type have no label of their own in the
                  source, so — same as the single-policy panel below — the AI
-                 fills whichever of these are ticked. It runs once per policy
-                 when the entries are created, with no review step in between:
+                 fills whichever of these are ticked, for whichever of the two
+                 above was left empty. It runs once per policy when the
+                 entries are created, with no review step in between:
                  reviewing forty-nine proposals one at a time is exactly what
                  this batch flow exists to avoid. -->
             <div id="cd-split-ai">
@@ -1152,9 +1205,9 @@ function aidocs_meta_box_html( $post ) {
                      after it already has content. -->
                 <div class="cd-tab-panel" data-tab-panel="edit">
                     <p class="cd-step-hint">
-                        <?php esc_html_e( 'This is the plain text the parser above reads — the same headings, lists, tables and bold/italic markup (##, -, |, **, *) documented for a PDF. Fix a misread line or add missing text here, then apply it: the content, description, date and history are re-parsed from what you type, exactly as if it had been extracted from the source file.' ); ?>
+                        <?php esc_html_e( 'This is the plain text the parser above reads — the same headings, lists, tables and bold/italic markup (##, -, |, **, *) documented for a PDF. Fix a misread line or add missing text here, then apply it: the content, description, date and history are re-parsed from what you type, exactly as if it had been extracted from the source file. Switch to Preview any time to see it with its real styles instead of the raw markup.' ); ?>
                     </p>
-                    <textarea id="cd-raw-text-edit" rows="16" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( aidocs_get_raw_text( $post->ID ) ); ?></textarea>
+                    <textarea id="cd-raw-text-edit" rows="19" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( aidocs_get_raw_text( $post->ID ) ); ?></textarea>
                     <div class="cd-step-actions" style="margin-top:8px;">
                         <button type="button" id="cd-apply-raw-text-btn" class="button button-primary">
                             <?php esc_html_e( 'Apply edited content' ); ?>
@@ -1162,14 +1215,26 @@ function aidocs_meta_box_html( $post ) {
                     </div>
                 </div>
 
-                <!-- Preview tab — the same HTML the frontend renders, to check
-                     the result without leaving the editor. -->
+                <!-- Preview tab — the same HTML the frontend renders, refreshed
+                     from whatever is currently typed in Edit, not just the last
+                     applied version, so a look here never needs a save first. -->
                 <div class="cd-tab-panel" data-tab-panel="preview" hidden>
+                    <p class="cd-step-status" id="cd-preview-status"></p>
                     <div id="cd-content-preview-body" class="cd-preview-body">
                         <?php echo aidocs_render_content_blocks( $content_blocks ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer ?>
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Document History. Read from the source document's own "Document
+             History" label ("Adopted … · Revised …") when it carries one,
+             but editable here like every other extracted field. Placed below
+             Document content rather than above it — it is itself read out of
+             that same extracted text, not a separate upload-time choice. -->
+        <div style="margin-bottom:16px;" class="cd-mode-single-only">
+            <label for="cd-history"><?php esc_html_e( 'Document History' ); ?></label>
+            <textarea id="cd-history" name="document_history" rows="2"><?php echo esc_textarea( get_post_meta( $post->ID, '_document_history', true ) ); ?></textarea>
         </div>
 
         <!-- Step 2 — AI, opt-in, and only ever proposes values. It proposes them
@@ -1420,7 +1485,7 @@ function aidocs_meta_box_html( $post ) {
                 return vals;
             }
 
-            function updateHidden() { $hidden.val(selectedValues().join(', ')); }
+            function updateHidden() { $hidden.val(selectedValues().join(', ')).trigger('change'); }
 
             function refreshDropdown(filter) {
                 var selected = selectedValues();
@@ -1512,6 +1577,20 @@ function aidocs_meta_box_html( $post ) {
 
         var cdAudienceSelect = initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
         var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
+        initDropdownSelect('cd-multi-audience-box', 'cd-multi-audience-dropdown', 'cd-multi-audience-value');
+        initDropdownSelect('cd-multi-type-box',     'cd-multi-type-dropdown',     'cd-multi-type-value');
+
+        // A fixed Audience/Document Type leaves the AI nothing to decide for
+        // that field, so its checkbox below is unticked and disabled — a
+        // ticked-but-ignored checkbox would only be confusing.
+        function cdSyncFixedFieldCheck(hiddenId, fieldId) {
+            var $check = $('.cd-split-ai-check[data-field-id="' + fieldId + '"]');
+            var fixed  = !! $('#' + hiddenId).val();
+            $check.prop('disabled', fixed);
+            if (fixed) $check.prop('checked', false);
+        }
+        $('#cd-multi-audience-value').on('change', function() { cdSyncFixedFieldCheck('cd-multi-audience-value', 'audience'); });
+        $('#cd-multi-type-value').on('change', function() { cdSyncFixedFieldCheck('cd-multi-type-value', 'document_type'); });
 
         // ── PDF Text Extraction ───────────────────────
         // Declared ahead of the upload-mode block below: cdApplyMode() calls
@@ -1563,6 +1642,47 @@ function aidocs_meta_box_html( $post ) {
         });
         cdApplyMode();
 
+        // ── Rich markdown editor ───────────────────────
+        // Progressively enhances the plain #cd-raw-text-edit textarea into a
+        // CodeMirror-based editor: headings and bold/italic render styled as
+        // you type, instead of sitting there as literal ##/** characters.
+        // EasyMDE keeps its own editing surface, so every existing reference
+        // to $('#cd-raw-text-edit').val() — Apply, the live Preview tab, the
+        // multi-policy split — is kept working by mirroring every keystroke
+        // back onto the original textarea's value.
+        var cdMde = null;
+        // This whole meta box is one big IIFE that runs the instant its
+        // <script> tag is parsed — well before wp_enqueue_script's own
+        // footer scripts, EasyMDE included, get to run. Deferred to "ready"
+        // so EasyMDE is actually defined by the time this looks for it.
+        $(function() {
+            if (typeof EasyMDE === 'undefined' || ! document.getElementById('cd-raw-text-edit')) return;
+            cdMde = new EasyMDE({
+                element: document.getElementById('cd-raw-text-edit'),
+                spellChecker: false,
+                status: false,
+                minHeight: '380px',
+                toolbar: [
+                    'bold', 'italic', 'heading-2', 'heading-3', '|',
+                    'unordered-list', 'ordered-list', 'table', '|',
+                    'undo', 'redo'
+                ]
+            });
+            cdMde.codemirror.on('change', function() {
+                $('#cd-raw-text-edit').val(cdMde.value());
+            });
+        });
+
+        /** Sets the raw text editor's content — through EasyMDE when it is
+         * active, so the rendered editor and the underlying textarea never
+         * fall out of sync — needed anywhere this text is replaced
+         * programmatically (fresh extraction, page-badge selection) rather
+         * than typed. */
+        function cdSetRawText(text) {
+            if (cdMde) cdMde.value(text);
+            else $('#cd-raw-text-edit').val(text);
+        }
+
         // ── Extracted content: edit / preview tabs ─────
         $(document).on('click', '#cd-content-tabs .cd-tab-btn', function() {
             var $btn = $(this), tab = $btn.data('tab'), $tabs = $btn.closest('#cd-content-tabs');
@@ -1570,7 +1690,45 @@ function aidocs_meta_box_html( $post ) {
             $btn.addClass('is-active').attr('aria-selected', 'true');
             $tabs.find('.cd-tab-panel').prop('hidden', true);
             $tabs.find('[data-tab-panel="' + tab + '"]').prop('hidden', false);
+            if (tab === 'preview') cdRefreshContentPreview();
         });
+
+        /**
+         * Renders whatever is currently typed in "Edit content" with its real
+         * styles — the same markup the published page would use — instead of
+         * the raw ##, **, - text. Nothing is saved: the server call this
+         * makes runs with preview:1, which parses and returns HTML without
+         * writing anything, so switching to this tab is free to do at any
+         * point while still typing.
+         */
+        var cdPreviewRequest = null;
+        function cdRefreshContentPreview() {
+            var rawText = $('#cd-raw-text-edit').val();
+            var $status = $('#cd-preview-status');
+            var $body   = $('#cd-content-preview-body');
+
+            if (!rawText.trim()) return;
+
+            if (cdPreviewRequest) cdPreviewRequest.abort();
+            $status.text('<?php echo esc_js( __( 'Rendering…' ) ); ?>');
+
+            cdPreviewRequest = $.post(cdAjaxUrl, {
+                action:   'aidocs_extract_content',
+                nonce:    cdAjaxNonce,
+                post_id:  cdDocId,
+                raw_text: rawText,
+                preview:  1
+            })
+            .done(function(res) {
+                $status.text('');
+                if (!res.success) { $status.text('Error: ' + res.data); return; }
+                $body.html(res.data.html || '');
+            })
+            .fail(function(xhr) {
+                if (xhr.statusText === 'abort') return;
+                $status.text('Error: ' + xhr.statusText);
+            });
+        }
 
         /** The extracted pages as one document, in page order. */
         function cdRawText() {
@@ -1716,10 +1874,13 @@ function aidocs_meta_box_html( $post ) {
             docxUrl = docxUrl || $('#cd-file-url').val();
             if (!docxUrl) return;
 
-            var $wrap   = $('#cd-page-badges-wrap');
             var $status = $('#cd-extract-status');
 
-            $wrap.show();
+            // No page badges here: mammoth.js reads a Word file as one flowed
+            // text with no page breaks of its own, so there is no real page
+            // count to show — unlike the PDF path, which reads one per
+            // rendered page.
+            $('#cd-page-badges-wrap').hide();
             $('#cd-page-badges').empty();
             $status.text('Loading…');
             cdPageTexts = {};
@@ -1734,7 +1895,6 @@ function aidocs_meta_box_html( $post ) {
 
                 var extracted = await AidocsDocxStructure.extract(buffer);
                 cdPageTexts[1] = extracted.text;
-                cdRenderPageBadges();
 
                 $status.text('<?php echo esc_js( __( 'Read' ) ); ?>');
 
@@ -1764,7 +1924,6 @@ function aidocs_meta_box_html( $post ) {
         });
         <?php elseif ( $file_id && $file_ext_loaded === 'docx' && $file_url ) : ?>
         $(function() {
-            $('#cd-page-badges-wrap').show();
             cdExtractDocx(<?php echo json_encode( $file_url ); ?>);
         });
         <?php endif; ?>
@@ -2185,7 +2344,7 @@ function aidocs_meta_box_html( $post ) {
 
                 $('#cd-content-tabs').prop('hidden', false);
                 $('#cd-content-preview-body').html(d.html || '');
-                $('#cd-raw-text-edit').val(rawText);
+                cdSetRawText(rawText);
                 if (d.indexed !== undefined) cdSetEmbeddingBadge(d.indexed);
 
                 var msg = d.headings + ' headings, ' + d.paragraphs + ' paragraphs, ' + d.lists + ' lists';
@@ -2335,10 +2494,22 @@ function aidocs_meta_box_html( $post ) {
             $('#cd-split-result-list').empty();
             $('#cd-split-result').prop('hidden', true);
 
-            cdImportBatch(selection, cdSplitAiFields(), 0);
+            // A manually picked Audience/Document Type applies to every entry
+            // as-is — nothing left for the AI to decide for that field, so it
+            // is dropped from the per-policy AI request rather than asking a
+            // question whose answer is then thrown away.
+            var fixedAudience = $('#cd-multi-audience-value').val() || '';
+            var fixedType     = $('#cd-multi-type-value').val() || '';
+            var aiFields = cdSplitAiFields().filter(function(id) {
+                if (id === 'audience'      && fixedAudience) return false;
+                if (id === 'document_type' && fixedType)     return false;
+                return true;
+            });
+
+            cdImportBatch(selection, aiFields, 0, fixedAudience, fixedType);
         });
 
-        function cdImportBatch(selection, aiFields, offset) {
+        function cdImportBatch(selection, aiFields, offset, fixedAudience, fixedType) {
             var $status = $('#cd-split-status');
             $status.text(offset + ' / ' + selection.length);
 
@@ -2352,8 +2523,10 @@ function aidocs_meta_box_html( $post ) {
                 // Gemini call per policy on top of the embedding it already
                 // makes, so it is walked in smaller bites to keep each request
                 // inside a reasonable time.
-                limit:     aiFields.length ? 2 : 4,
-                ai_fields: JSON.stringify(aiFields)
+                limit:         aiFields.length ? 2 : 4,
+                ai_fields:     JSON.stringify(aiFields),
+                fixed_audience: fixedAudience,
+                fixed_type:     fixedType
             })
             .done(function(res) {
                 if (!res.success) { cdImportFailed(res.data); return; }
@@ -2400,7 +2573,7 @@ function aidocs_meta_box_html( $post ) {
                     if (index > -1 && index < done) $(this).closest('.cd-split-item').addClass('is-done');
                 });
 
-                if (!d.done) { cdImportBatch(selection, aiFields, done); return; }
+                if (!d.done) { cdImportBatch(selection, aiFields, done, fixedAudience, fixedType); return; }
 
                 $('#cd-split-status').text('');
                 $('#cd-split-result-head').text(
@@ -2761,40 +2934,49 @@ function aidocs_extract_content_ajax() {
         wp_send_json_error( __( 'The parser found no content in this document.' ) );
     }
 
-    // wp_slash() is required: update_post_meta() runs wp_unslash() on the value,
-    // which would strip the backslashes out of JSON's \uXXXX escapes and leave
-    // unparseable meta behind. Only shows up on documents containing non-ASCII
-    // characters — curly quotes, em dashes — so it fails silently on the rest.
-    update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
+    // The "Preview" tab calls this with preview=1 while the editor is still
+    // typing, to render the same styles the published page would use — none
+    // of that is a save. Nothing is written and nothing is reindexed until
+    // "Apply edited content" sends the same request without it.
+    $preview = ! empty( $_POST['preview'] );
+    $filled  = [];
 
-    // The canonical text itself, kept alongside the blocks it produced so the
-    // editor can hand-correct it later without re-running extraction from the
-    // source file — see the "Edit content" tab textarea.
-    update_post_meta( $post_id, '_document_raw_text', wp_slash( $raw_text ) );
+    if ( ! $preview ) {
+        // wp_slash() is required: update_post_meta() runs wp_unslash() on the
+        // value, which would strip the backslashes out of JSON's \uXXXX
+        // escapes and leave unparseable meta behind. Only shows up on
+        // documents containing non-ASCII characters — curly quotes, em dashes
+        // — so it fails silently on the rest.
+        update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
 
-    // A labelled document carries its own description and date, so there is no
-    // reason to ask the AI for either. Existing values are never overwritten —
-    // an editor's correction outranks the parser.
-    $filled = [];
-    if ( $parsed['labeled'] ) {
-        if ( $parsed['teaser'] && ! get_post_meta( $post_id, '_document_description', true ) ) {
-            update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $parsed['teaser'] ) );
-            $filled['description'] = $parsed['teaser'];
-        }
-        $date = aidocs_normalize_doc_date( $parsed['last_updated'] );
-        if ( $date && ! get_post_meta( $post_id, '_document_pub_date', true ) ) {
-            update_post_meta( $post_id, '_document_pub_date', $date );
-            $filled['pub_date'] = $date;
-        }
-        if ( $parsed['document_history'] ) {
-            update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $parsed['document_history'] ) );
-            $filled['document_history'] = $parsed['document_history'];
+        // The canonical text itself, kept alongside the blocks it produced so
+        // the editor can hand-correct it later without re-running extraction
+        // from the source file — see the "Edit content" tab textarea.
+        update_post_meta( $post_id, '_document_raw_text', wp_slash( $raw_text ) );
+
+        // A labelled document carries its own description and date, so there
+        // is no reason to ask the AI for either. Existing values are never
+        // overwritten — an editor's correction outranks the parser.
+        if ( $parsed['labeled'] ) {
+            if ( $parsed['teaser'] && ! get_post_meta( $post_id, '_document_description', true ) ) {
+                update_post_meta( $post_id, '_document_description', sanitize_textarea_field( $parsed['teaser'] ) );
+                $filled['description'] = $parsed['teaser'];
+            }
+            $date = aidocs_normalize_doc_date( $parsed['last_updated'] );
+            if ( $date && ! get_post_meta( $post_id, '_document_pub_date', true ) ) {
+                update_post_meta( $post_id, '_document_pub_date', $date );
+                $filled['pub_date'] = $date;
+            }
+            if ( $parsed['document_history'] ) {
+                update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $parsed['document_history'] ) );
+                $filled['document_history'] = $parsed['document_history'];
+            }
         }
     }
 
     // The content just written above is what the embedding is built from, so
     // this is the other point (besides every save) where it needs a refresh.
-    $indexed = aidocs_maybe_reindex( $post_id );
+    $indexed = $preview ? (bool) get_post_meta( $post_id, '_document_embedding', true ) : aidocs_maybe_reindex( $post_id );
 
     $counts = array_count_values( wp_list_pluck( $blocks, 'type' ) );
     wp_send_json_success( [
@@ -3046,6 +3228,12 @@ function aidocs_import_policies_ajax() {
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
     $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
 
+    // A manually picked Audience/Document Type is the same for every entry
+    // this upload creates — set once above the policy list rather than left
+    // for the AI to guess per policy.
+    $fixed_audience = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_audience'] ?? '' ) ) ) ) );
+    $fixed_type     = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_type'] ?? '' ) ) ) ) );
+
     $created = [];
     foreach ( $batch as $position => $index ) {
         $fields = aidocs_policy_fields( aidocs_parse_labeled_document( $segments[ $index ] ) );
@@ -3060,8 +3248,8 @@ function aidocs_import_policies_ajax() {
         if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
         if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
         $terms = [
-            'audience' => $ai['audience']      ?? [],
-            'type'     => $ai['document_type'] ?? [],
+            'audience' => $fixed_audience ?: ( $ai['audience']      ?? [] ),
+            'type'     => $fixed_type     ?: ( $ai['document_type'] ?? [] ),
         ];
 
         $title = $fields['title'] !== ''
