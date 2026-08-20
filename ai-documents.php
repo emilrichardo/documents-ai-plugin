@@ -468,6 +468,16 @@ function aidocs_enqueue_scripts( $hook ) {
         AIDOCS_VERSION,
         true
     );
+
+    // Core's own periodic autosave (wp_autosave(), wp-admin/includes/post.php)
+    // turns a fresh entry's auto-draft into a real draft in the background —
+    // no button click involved — the moment the heartbeat first fires. That
+    // is exactly the "draft nobody asked for" a compilation upload should
+    // never leave behind, so autosave is dropped on this screen entirely.
+    // Manually saved drafts (single-document mode's own Save Draft) are a
+    // deliberate click and go through the normal form submit, untouched by
+    // this.
+    wp_dequeue_script( 'autosave' );
 }
 
 // ──────────────────────────────────────────────
