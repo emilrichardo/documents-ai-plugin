@@ -782,6 +782,24 @@ function aidocs_meta_box_html( $post ) {
         .cd-file-meta a:hover { text-decoration: underline; }
         .cd-file-actions { display: flex; gap: 8px; flex-shrink: 0; }
         .cd-radio-group label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; margin-right: 16px; }
+        /* Segmented "By AI / Manually" switch: two mutually exclusive options
+           read faster as one control with a selected half than as two loose
+           radio dots, and it takes the same vertical space the picker below
+           it needs. The radio itself stays in the markup (keyboard, form
+           semantics, :checked) and is only visually replaced. */
+        .cd-mode-switch { display: inline-flex; margin-bottom: 8px; border: 1px solid #c3c4c7; border-radius: 5px; overflow: hidden; background: #f6f7f7; }
+        .cd-mode-switch .cd-mode-option { margin: 0; }
+        .cd-mode-switch input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+        .cd-mode-switch .cd-mode-option span {
+            display: block; padding: 6px 14px; font-size: 12px; line-height: 1.4;
+            color: #50575e; cursor: pointer; user-select: none; white-space: nowrap;
+            transition: background .15s, color .15s;
+        }
+        .cd-mode-switch .cd-mode-option + .cd-mode-option span { border-left: 1px solid #c3c4c7; }
+        .cd-mode-switch .cd-mode-option span:hover { background: #eef1f3; color: #1d2327; }
+        .cd-mode-switch input:checked + span { background: #2271b1; color: #fff; font-weight: 600; }
+        .cd-mode-switch input:checked + span:hover { background: #135e96; color: #fff; }
+        .cd-mode-switch input:focus-visible + span { outline: 2px solid #2271b1; outline-offset: -2px; }
         .cd-select-wrap { position: relative; }
         .cd-select-box { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 36px; padding: 5px 8px; border: 1px solid #8c8f94; border-radius: 3px; cursor: pointer; background: #fff; }
         .cd-select-box:focus-within { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; }
@@ -1080,16 +1098,26 @@ function aidocs_meta_box_html( $post ) {
                 </button>
             </div>
 
-            <!-- Audience and Document Type, set once here rather than per
-                 policy: picking one manually is the common case (a whole
-                 compilation usually shares one audience and type), and it
-                 skips the AI call those two fields would otherwise cost per
-                 policy below. Left empty, nothing changes — the checkboxes
-                 below still decide, same as before this existed. -->
+            <!-- Audience and Document Type, decided once here rather than per
+                 policy. Each is its own "By AI" / "Manually" choice: manual
+                 shows a picker whose value is applied to every entry this
+                 upload creates (the common case — a compilation usually
+                 shares one audience and type, and it skips an AI call per
+                 policy); by AI asks per policy instead. -->
             <div class="cd-row">
                 <div class="cd-col">
                     <label><?php esc_html_e( 'Audience' ); ?></label>
-                    <div class="cd-select-wrap">
+                    <div class="cd-mode-switch">
+                        <label class="cd-mode-option">
+                            <input type="radio" name="cd-multi-audience-mode" value="ai" checked>
+                            <span>&#9889; <?php esc_html_e( 'By AI' ); ?></span>
+                        </label>
+                        <label class="cd-mode-option">
+                            <input type="radio" name="cd-multi-audience-mode" value="manual">
+                            <span>&#9998; <?php esc_html_e( 'Manually' ); ?></span>
+                        </label>
+                    </div>
+                    <div class="cd-select-wrap" id="cd-multi-audience-wrap" hidden>
                         <div class="cd-select-box" id="cd-multi-audience-box">
                             <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
                         </div>
@@ -1103,7 +1131,17 @@ function aidocs_meta_box_html( $post ) {
                 </div>
                 <div class="cd-col">
                     <label><?php esc_html_e( 'Document Type' ); ?></label>
-                    <div class="cd-select-wrap">
+                    <div class="cd-mode-switch">
+                        <label class="cd-mode-option">
+                            <input type="radio" name="cd-multi-type-mode" value="ai" checked>
+                            <span>&#9889; <?php esc_html_e( 'By AI' ); ?></span>
+                        </label>
+                        <label class="cd-mode-option">
+                            <input type="radio" name="cd-multi-type-mode" value="manual">
+                            <span>&#9998; <?php esc_html_e( 'Manually' ); ?></span>
+                        </label>
+                    </div>
+                    <div class="cd-select-wrap" id="cd-multi-type-wrap" hidden>
                         <div class="cd-select-box" id="cd-multi-type-box">
                             <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select type…' ); ?>" autocomplete="off">
                         </div>
@@ -1117,7 +1155,7 @@ function aidocs_meta_box_html( $post ) {
                 </div>
             </div>
             <p class="cd-step-hint">
-                <?php esc_html_e( 'Whatever is picked here is applied to every entry this upload creates — the same Audience and Document Type on all of them, not one value per policy.' ); ?>
+                <?php esc_html_e( '"By AI" reads each policy on its own and picks its own value for it; "Manually" applies the one value chosen here to every entry this upload creates.' ); ?>
             </p>
 
             <!-- Audience and Document Type have no label of their own in the
@@ -1138,15 +1176,10 @@ function aidocs_meta_box_html( $post ) {
                         <input type="checkbox" class="cd-split-ai-check" data-field-id="description">
                         <?php esc_html_e( 'Description' ); ?>
                     </label>
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-split-ai-check" data-field-id="audience" checked>
-                        <?php esc_html_e( 'Audience' ); ?>
-                    </label>
-                    <label class="cd-ai-field-option">
-                        <input type="checkbox" class="cd-split-ai-check" data-field-id="document_type" checked>
-                        <?php esc_html_e( 'Document Type' ); ?>
-                    </label>
                 </div>
+                <p class="cd-step-hint">
+                    <?php esc_html_e( 'Audience and Document Type are decided by their own "By AI" / "Manually" switches above, not by a checkbox here.' ); ?>
+                </p>
                 <p class="cd-step-hint">
                     <?php if ( $ai_key_set ) : ?>
                         <?php esc_html_e( 'Title and Description are already read from the labels above on almost every policy, so they only need this when one is missing. Requires the Gemini key configured below.' ); ?>
@@ -1476,6 +1509,18 @@ function aidocs_meta_box_html( $post ) {
             var $box      = $('#' + boxId);
             var $dropdown = $('#' + dropdownId);
             var $hidden   = $('#' + hiddenId);
+
+            // On an existing document the multi-policy split panel (and its
+            // own audience/type boxes) isn't rendered at all — initializing
+            // this for an element that doesn't exist would still register a
+            // document-level click handler below that dereferences it, and
+            // throwing from a jQuery-synthesized click (like "Apply all"'s
+            // .trigger('click')) aborts the whole trigger chain rather than
+            // just this listener the way a real click would.
+            if ( ! $box.length || ! $dropdown.length || ! $hidden.length ) {
+                return { addTag: function() {}, clearTags: function() {} };
+            }
+
             var $input    = $box.find('.cd-select-input');
 
             function selectedValues() {
@@ -1585,20 +1630,29 @@ function aidocs_meta_box_html( $post ) {
 
         var cdAudienceSelect = initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
         var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
-        initDropdownSelect('cd-multi-audience-box', 'cd-multi-audience-dropdown', 'cd-multi-audience-value');
-        initDropdownSelect('cd-multi-type-box',     'cd-multi-type-dropdown',     'cd-multi-type-value');
+        var cdMultiAudienceSelect = initDropdownSelect('cd-multi-audience-box', 'cd-multi-audience-dropdown', 'cd-multi-audience-value');
+        var cdMultiTypeSelect     = initDropdownSelect('cd-multi-type-box',     'cd-multi-type-dropdown',     'cd-multi-type-value');
 
-        // A fixed Audience/Document Type leaves the AI nothing to decide for
-        // that field, so its checkbox below is unticked and disabled — a
-        // ticked-but-ignored checkbox would only be confusing.
-        function cdSyncFixedFieldCheck(hiddenId, fieldId) {
-            var $check = $('.cd-split-ai-check[data-field-id="' + fieldId + '"]');
-            var fixed  = !! $('#' + hiddenId).val();
-            $check.prop('disabled', fixed);
-            if (fixed) $check.prop('checked', false);
+        // "By AI" / "Manually" switches for the multi-policy Audience and
+        // Document Type — manual shows that field's picker (whose value is
+        // then fixed on every entry); AI hides it and clears any leftover
+        // value, so the batch import reads it as "let the AI decide" the
+        // same way an empty picker always has.
+        function cdMultiFieldMode(name) {
+            return $('input[name="' + name + '"]:checked').val() || 'ai';
         }
-        $('#cd-multi-audience-value').on('change', function() { cdSyncFixedFieldCheck('cd-multi-audience-value', 'audience'); });
-        $('#cd-multi-type-value').on('change', function() { cdSyncFixedFieldCheck('cd-multi-type-value', 'document_type'); });
+        function cdMultiAudienceMode() { return cdMultiFieldMode('cd-multi-audience-mode'); }
+        function cdMultiTypeMode()     { return cdMultiFieldMode('cd-multi-type-mode'); }
+
+        function cdBindModeSwitch(name, wrapId, select) {
+            $('input[name="' + name + '"]').on('change', function() {
+                var manual = cdMultiFieldMode(name) === 'manual';
+                $('#' + wrapId).prop('hidden', !manual);
+                if (!manual) select.clearTags();
+            });
+        }
+        cdBindModeSwitch('cd-multi-audience-mode', 'cd-multi-audience-wrap', cdMultiAudienceSelect);
+        cdBindModeSwitch('cd-multi-type-mode',     'cd-multi-type-wrap',     cdMultiTypeSelect);
 
         // ── PDF Text Extraction ───────────────────────
         // Declared ahead of the upload-mode block below: cdApplyMode() calls
@@ -2502,17 +2556,18 @@ function aidocs_meta_box_html( $post ) {
             $('#cd-split-result-list').empty();
             $('#cd-split-result').prop('hidden', true);
 
-            // A manually picked Audience/Document Type applies to every entry
-            // as-is — nothing left for the AI to decide for that field, so it
-            // is dropped from the per-policy AI request rather than asking a
-            // question whose answer is then thrown away.
-            var fixedAudience = $('#cd-multi-audience-value').val() || '';
-            var fixedType     = $('#cd-multi-type-value').val() || '';
-            var aiFields = cdSplitAiFields().filter(function(id) {
-                if (id === 'audience'      && fixedAudience) return false;
-                if (id === 'document_type' && fixedType)     return false;
-                return true;
-            });
+            // Audience and Document Type each follow their own "By AI" /
+            // "Manually" switch: manual fixes one value for every entry —
+            // nothing left for the AI to decide there, so that field is kept
+            // out of the per-policy AI request rather than asking a question
+            // whose answer is then thrown away — while AI asks per policy.
+            var audienceIsManual = cdMultiAudienceMode() === 'manual';
+            var typeIsManual     = cdMultiTypeMode()     === 'manual';
+            var fixedAudience = audienceIsManual ? ( $('#cd-multi-audience-value').val() || '' ) : '';
+            var fixedType     = typeIsManual     ? ( $('#cd-multi-type-value').val()     || '' ) : '';
+            var aiFields = cdSplitAiFields();
+            if (!audienceIsManual) aiFields.push('audience');
+            if (!typeIsManual)     aiFields.push('document_type');
 
             cdImportBatch(selection, aiFields, 0, fixedAudience, fixedType);
         });
@@ -4666,6 +4721,12 @@ jQuery(function($){
 
     \$wrap.find('.cd-fs-search-btn').on('click',function(){doSearch(1);});
     \$wrap.find('.cd-fs-keyword').on('keydown',function(e){if(e.key==='Enter')doSearch(1);});
+    \$wrap.find('.cd-fs-type-tab').on('click',function(){
+        \$wrap.find('.cd-fs-type-tab').removeClass('is-active').attr('aria-selected','false');
+        \$(this).addClass('is-active').attr('aria-selected','true');
+        \$wrap.find('.cd-fs-type').val(\$(this).data('type')||'');
+        doSearch(1);
+    });
     doSearch(1);
 
     if(!showChat)return;
@@ -4747,6 +4808,16 @@ ENDSCRIPT;
     /* Search button */
     .cd-fs-search-btn{height:46px;padding:0 22px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;}
     .cd-fs-search-btn:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
+    /* Document Type tabs — replaces the plain dropdown as the way to switch
+       between Policies / Guidelines / Good Practices / Position Statements
+       (and whichever other types are configured). The <select> with the
+       same values stays in the markup, just hidden, so every existing
+       .cd-fs-type read/write in the JS below keeps working untouched. */
+    .cd-fs-type-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;}
+    .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
+    .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--wp--preset--color--contrast,#1a2744);}
+    .cd-fs-type-tab.is-active{background:var(--wp--preset--color--primary,#1e3a5f);border-color:var(--wp--preset--color--primary,#1e3a5f);color:#fff;}
+    .cd-fs-type-select-hidden{display:none;}
     /* Results */
     .cd-fs-results{margin-top:24px;}
     .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
@@ -4894,7 +4965,21 @@ ENDSCRIPT;
                 <?php esc_html_e( 'Ask in any language and the AI will point you to what answers it.' ); ?>
             </p>
 
-            <!-- Single-row controls: keyword + audience + type + search -->
+            <!-- Document Type tabs — one per configured type, plus "All". -->
+            <div class="cd-fs-type-tabs" role="tablist">
+                <button type="button" class="cd-fs-type-tab <?php echo $matched_type === '' ? 'is-active' : ''; ?>" data-type="" role="tab" aria-selected="<?php echo $matched_type === '' ? 'true' : 'false'; ?>">
+                    <?php esc_html_e( 'All' ); ?>
+                </button>
+                <?php foreach ( $types as $t ) : ?>
+                <button type="button" class="cd-fs-type-tab <?php echo $matched_type === $t ? 'is-active' : ''; ?>" data-type="<?php echo esc_attr( $t ); ?>" role="tab" aria-selected="<?php echo $matched_type === $t ? 'true' : 'false'; ?>">
+                    <?php echo esc_html( $t ); ?>
+                </button>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- Single-row controls: keyword + audience + search. Type is
+                 chosen via the tabs above; this select keeps the same
+                 value/options so the JS below reads it exactly as before. -->
             <div class="cd-fs-controls">
                 <div class="cd-fs-keyword-wrap">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -4909,14 +4994,12 @@ ENDSCRIPT;
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="cd-fs-select-wrap">
-                    <select class="cd-fs-type">
-                        <option value=""><?php esc_html_e( 'Any Type' ); ?></option>
-                        <?php foreach ( $types as $t ) : ?>
-                        <option value="<?php echo esc_attr( $t ); ?>" <?php selected( $t, $matched_type ); ?>><?php echo esc_html( $t ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <select class="cd-fs-type cd-fs-type-select-hidden" aria-hidden="true">
+                    <option value=""><?php esc_html_e( 'Any Type' ); ?></option>
+                    <?php foreach ( $types as $t ) : ?>
+                    <option value="<?php echo esc_attr( $t ); ?>" <?php selected( $t, $matched_type ); ?>><?php echo esc_html( $t ); ?></option>
+                    <?php endforeach; ?>
+                </select>
                 <button class="cd-fs-search-btn">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <?php esc_html_e( 'Search' ); ?>
