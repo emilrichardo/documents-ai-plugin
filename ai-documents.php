@@ -24,9 +24,17 @@ require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
 require_once AIDOCS_DIR . 'includes/aidocs-documentation.php';
 
 define( 'AIDOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
+
+// Fixed by Cirlot: these four and only these four. Unlike Audience (still
+// admin-configurable — see aidocs_get_audiences()), Document Type is not a
+// free-text list any more. It used to be, which is exactly how the wrong
+// terms below got created — a typo'd or AI-proposed value typed into the
+// old Settings textarea became a permanent, selectable term. Every place
+// that needs "the allowed types" reads aidocs_get_types(), which no longer
+// has an option to fall back to, so there is nowhere left for a fifth type
+// to be reintroduced from.
 define( 'AIDOCS_TYPES', [
     'Policies', 'Guidelines', 'Good Practices', 'Position Statements',
-    'Handbooks', 'Interpretation', 'Guides', 'Rules of the Organization', 'Forms and Templates',
 ] );
 
 // ──────────────────────────────────────────────
@@ -113,6 +121,59 @@ function aidocs_maybe_cleanup_removed_options() {
     }
 }
 
+// ──────────────────────────────────────────────
+// 0c. One-time cleanup: lock Document Type down to the 4 confirmed values
+// ──────────────────────────────────────────────
+// Document Type used to be a free-text list (aidocs_types_list) that any
+// admin, or a settings-page paste, could add to — that is how "Handbooks",
+// "Interpretation", "Guides", "Rules of the Organization", "Forms and
+// Templates" and the typo'd "Policy Statements" ended up as real, selectable
+// taxonomy terms. aidocs_get_types() no longer reads that option (see its
+// definition), so nothing can add a fifth type going forward; this cleans up
+// what is already there.
+//
+// A term still attached to at least one document is NOT deleted — silently
+// stripping a real document's classification is worse than leaving a stray
+// term around, and those documents need a human decision about which of the
+// 4 types they actually belong to (see docs/DOCUMENTATION.md and the plugin
+// audit). Deletion only happens for a disallowed term nothing uses.
+// Hooked to 'init' (after aidocs_register_taxonomies(), which runs on the
+// same hook at the default priority) rather than 'plugins_loaded' — the
+// document_type taxonomy does not exist yet at 'plugins_loaded', so
+// get_terms()/taxonomy_exists() below would silently see nothing to do.
+add_action( 'init', 'aidocs_maybe_lock_document_types', 20 );
+function aidocs_maybe_lock_document_types() {
+    if ( get_option( 'aidocs_types_locked' ) ) return;
+    update_option( 'aidocs_types_locked', AIDOCS_VERSION, false );
+
+    delete_option( 'aidocs_types_list' );
+
+    if ( ! function_exists( 'get_terms' ) || ! taxonomy_exists( 'document_type' ) ) return;
+
+    $terms = get_terms( [ 'taxonomy' => 'document_type', 'hide_empty' => false ] );
+    if ( is_wp_error( $terms ) || ! $terms ) return;
+
+    $allowed        = AIDOCS_TYPES;
+    $flagged_in_use = [];
+
+    foreach ( $terms as $term ) {
+        if ( in_array( $term->name, $allowed, true ) ) continue;
+
+        if ( (int) $term->count === 0 ) {
+            wp_delete_term( $term->term_id, 'document_type' );
+        } else {
+            $flagged_in_use[] = [ 'term_id' => $term->term_id, 'name' => $term->name, 'count' => (int) $term->count ];
+        }
+    }
+
+    // Surfaced on the Settings screen (see aidocs_settings_page()) rather than
+    // acted on automatically — reassigning those documents' Document Type is
+    // a per-document editorial decision, not something safe to guess here.
+    if ( $flagged_in_use ) {
+        update_option( 'aidocs_invalid_type_terms', $flagged_in_use, false );
+    }
+}
+
 function aidocs_get_audiences() {
     $saved = get_option( 'aidocs_audiences_list', '' );
     if ( $saved !== '' ) {
@@ -121,11 +182,11 @@ function aidocs_get_audiences() {
     return AIDOCS_AUDIENCES;
 }
 
+/**
+ * The only allowed Document Type values. Fixed, not admin-configurable —
+ * see the comment on AIDOCS_TYPES above.
+ */
 function aidocs_get_types() {
-    $saved = get_option( 'aidocs_types_list', '' );
-    if ( $saved !== '' ) {
-        return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
-    }
     return AIDOCS_TYPES;
 }
 
@@ -1043,6 +1104,7 @@ function aidocs_meta_box_html( $post ) {
                     </ul>
                 </div>
                 <input type="hidden" name="document_audience_terms" id="cd-audience-value" value="<?php echo esc_attr( $audience_val ); ?>">
+                <input type="hidden" name="document_audience_touched" id="cd-audience-touched" value="0">
             </div>
             <div class="cd-col">
                 <label><?php esc_html_e( 'Document Type' ); ?></label>
@@ -1060,6 +1122,7 @@ function aidocs_meta_box_html( $post ) {
                     </ul>
                 </div>
                 <input type="hidden" name="document_type_terms" id="cd-type-value" value="<?php echo esc_attr( $type_val ); ?>">
+                <input type="hidden" name="document_type_touched" id="cd-type-touched" value="0">
             </div>
         </div>
 
@@ -1276,6 +1339,7 @@ function aidocs_meta_box_html( $post ) {
         <div style="margin-bottom:16px;" class="cd-mode-single-only">
             <label for="cd-history"><?php esc_html_e( 'Document History' ); ?></label>
             <textarea id="cd-history" name="document_history" rows="2"><?php echo esc_textarea( get_post_meta( $post->ID, '_document_history', true ) ); ?></textarea>
+            <input type="hidden" name="document_history_touched" id="cd-history-touched" value="0">
         </div>
 
         <!-- Step 2 — AI, opt-in, and only ever proposes values. It proposes them
@@ -1554,10 +1618,30 @@ function aidocs_meta_box_html( $post ) {
                 $dropdown.toggleClass('open', shown > 0);
             }
 
+            // Only a value that is actually one of this dropdown's own <li>
+            // options can become a tag — matched case-insensitively so an AI
+            // proposal or a manual paste in a different case still lands on
+            // the one real option, but text that names no configured value at
+            // all (a hallucinated Document Type, a typo) is silently refused
+            // here rather than becoming a brand-new taxonomy term the moment
+            // the post is saved. This is the client-side half of the same
+            // rule aidocs_save_meta() enforces server-side.
+            function knownValue(val) {
+                var match = null;
+                $dropdown.find('li').each(function() {
+                    if ($(this).data('value').toString().toLowerCase() === String(val).toLowerCase()) {
+                        match = $(this).data('value').toString();
+                        return false;
+                    }
+                });
+                return match;
+            }
+
             function addTag(val) {
-                if (!val || selectedValues().indexOf(val) !== -1) return;
+                var known = knownValue(val);
+                if (!known || selectedValues().indexOf(known) !== -1) return;
                 $input.before(
-                    '<span class="cd-tag">' + $('<span>').text(val).html() +
+                    '<span class="cd-tag">' + $('<span>').text(known).html() +
                     '<button type="button" class="remove-tag" aria-label="Remove">×</button></span>'
                 );
                 $input.val('');
@@ -1632,6 +1716,21 @@ function aidocs_meta_box_html( $post ) {
         var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
         var cdMultiAudienceSelect = initDropdownSelect('cd-multi-audience-box', 'cd-multi-audience-dropdown', 'cd-multi-audience-value');
         var cdMultiTypeSelect     = initDropdownSelect('cd-multi-type-box',     'cd-multi-type-dropdown',     'cd-multi-type-value');
+
+        // Marks a field "touched" the moment something — the editor or a
+        // legitimate programmatic fill (AI apply, import sync) — actually
+        // sets it, as opposed to it merely sitting at whatever it loaded
+        // with. aidocs_save_meta() only lets an empty value through (i.e.
+        // clears the stored data) when this flag came back set: an empty
+        // field that was never touched is left alone, so a hidden/inactive
+        // control can never be read as "please delete this metadata".
+        // initDropdownSelect's updateHidden() always fires 'change' on its
+        // hidden input — on a real edit and on a scripted addTag/clearTags
+        // alike — so binding here covers every path that can set audience
+        // or document type.
+        $('#cd-audience-value').on('change', function() { $('#cd-audience-touched').val('1'); });
+        $('#cd-type-value').on('change', function() { $('#cd-type-touched').val('1'); });
+        $('#cd-history').on('input change', function() { $('#cd-history-touched').val('1'); });
 
         // "By AI" / "Manually" switches for the multi-policy Audience and
         // Document Type — manual shows that field's picker (whose value is
@@ -1792,11 +1891,26 @@ function aidocs_meta_box_html( $post ) {
             });
         }
 
-        /** The extracted pages as one document, in page order. */
+        /**
+         * The extracted pages as one document, in page order — but only when
+         * a file was actually (re-)loaded into the browser this page view.
+         * Opening an existing document without re-uploading anything leaves
+         * cdPageTexts empty, which used to mean every AI action ("Propose
+         * with AI", Restructure) either failed outright or, worse, fell back
+         * to whatever file this session happened to load into memory: for a
+         * policy split out of a 49-policy compilation, that could be the
+         * *file_id still pointing at the whole compilation* — meaning the AI
+         * silently analysed all 49 policies instead of just this one. The
+         * fallback here is the same value #cd-raw-text-edit already loaded
+         * from aidocs_get_raw_text() on page render — this document's own
+         * stored text, never a sibling's or the original upload's.
+         */
         function cdRawText() {
-            return Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
+            var fromPages = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
                 return cdPageTexts[p];
             }).join('\n');
+            if (fromPages) return fromPages;
+            return $('#cd-raw-text-edit').val() || '';
         }
 
         /**
@@ -2067,9 +2181,7 @@ function aidocs_meta_box_html( $post ) {
 
         // ── Propose field values with AI ──────────────
         $('#cd-ai-process-btn').on('click', function() {
-            var rawText = Object.keys(cdPageTexts).sort(function(a, b) { return a - b; }).map(function(p) {
-                return '--- Page ' + p + ' ---\n' + cdPageTexts[p];
-            }).join('\n\n');
+            var rawText = cdRawText();
 
             if (!rawText) {
                 $('#cd-ai-status').text('<?php esc_html_e( 'No text extracted yet — load a PDF or Word file and wait for extraction.' ); ?>');
@@ -2316,6 +2428,12 @@ function aidocs_meta_box_html( $post ) {
                 $('#cd-content-badge').removeClass('is-off').addClass('is-ok').html('✓ ' + res.data.total + ' blocks');
                 $('#cd-content-tabs').prop('hidden', false);
                 $('#cd-content-preview-body').html(res.data.html || '');
+                // The "Edit content" textarea has to move with what was just
+                // applied — otherwise it keeps showing the pre-restructure
+                // text, and editing it (or running Restructure again) would
+                // silently discard the approved result. cdSetRawText() keeps
+                // the EasyMDE editor and the underlying textarea in step.
+                if (res.data.raw_text !== undefined) cdSetRawText(res.data.raw_text);
                 if (res.data.indexed !== undefined) cdSetEmbeddingBadge(res.data.indexed);
                 $status.text('<?php echo esc_js( __( 'Applied — content replaced.' ) ); ?>');
             })
@@ -2616,12 +2734,30 @@ function aidocs_meta_box_html( $post ) {
 
                     // The first policy was written over the post this form is
                     // open on, so the form has to show that — otherwise clicking
-                    // Update would put the stale values straight back.
+                    // Update would put the stale values straight back, or (before
+                    // this was fixed) wipe out the Type/Audience/History the
+                    // import just wrote, since those hidden fields were never
+                    // touched by this page and still held whatever they loaded
+                    // with (usually nothing, for a brand-new upload).
                     if (doc.current) {
                         cdHasContent = true;
                         $('#title').val(doc.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
                         if (doc.fields.description) $('#cd-description').val(doc.fields.description);
                         if (doc.fields.pub_date)    $('#cd-pub-date').val(doc.fields.pub_date);
+                        if (doc.fields.history) {
+                            $('#cd-history').val(doc.fields.history);
+                            $('#cd-history-touched').val('1');
+                        }
+                        cdAudienceSelect.clearTags();
+                        (doc.audience || []).forEach(function(v) { cdAudienceSelect.addTag(v); });
+                        cdTypeSelect.clearTags();
+                        (doc.type || []).forEach(function(v) { cdTypeSelect.addTag(v); });
+                        // This entry is now a single policy in its own right —
+                        // not the compilation upload it started as — so the form
+                        // has to stop hiding its own Audience/Type/History row
+                        // and stop offering "Create the selected entries" again.
+                        $('input[name="document_source_mode"][value="single"]').prop('checked', true);
+                        cdApplyMode();
                         cdSuppressLeaveWarning();
                     }
                 });
@@ -2728,20 +2864,47 @@ function aidocs_save_meta( $post_id ) {
     }
 
     // Document History
+    //
+    // A blank value is only ever written when the field's own "touched" flag
+    // confirms the editor (or a legitimate scripted fill — AI apply, the
+    // multi-import sync) actually set it. Without that, an empty submission
+    // is indistinguishable from a field that simply never got synced onto a
+    // page still holding stale state — e.g. right after a multi-document
+    // import, before that bug was fixed, when this textarea kept whatever it
+    // loaded with (usually nothing) while the real history was written
+    // straight to the newly created post. Treating "empty" as "delete" there
+    // silently erased history a moment after it was correctly extracted.
     if ( isset( $_POST['document_history'] ) ) {
-        update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $_POST['document_history'] ) );
+        $history = sanitize_textarea_field( $_POST['document_history'] );
+        $touched = ! empty( $_POST['document_history_touched'] );
+        if ( $history !== '' || $touched ) {
+            update_post_meta( $post_id, '_document_history', $history );
+        }
     }
 
-    // Audience taxonomy
+    // Audience taxonomy — same "touched" guard as Document History above:
+    // an empty list only clears the taxonomy when the field was actually
+    // touched, so a stale/unsynced empty value can't silently wipe it.
     if ( isset( $_POST['document_audience_terms'] ) ) {
-        $terms = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_audience_terms'] ) ) ) );
-        wp_set_post_terms( $post_id, $terms, 'document_audience' );
+        $terms   = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_audience_terms'] ) ) ) );
+        $touched = ! empty( $_POST['document_audience_touched'] );
+        if ( $terms || $touched ) {
+            wp_set_post_terms( $post_id, $terms, 'document_audience' );
+        }
     }
 
-    // Document Type taxonomy
+    // Document Type taxonomy — same "touched" guard, plus the vocabulary
+    // check every Document Type value goes through no matter where it came
+    // from (typed by hand, an AI proposal applied in the review panel, or a
+    // raw request someone crafted by hand): only the 4 confirmed types can
+    // ever reach wp_set_post_terms(), so nothing here can create a 5th term.
     if ( isset( $_POST['document_type_terms'] ) ) {
-        $terms = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_type_terms'] ) ) ) );
-        wp_set_post_terms( $post_id, $terms, 'document_type' );
+        $terms   = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_type_terms'] ) ) ) );
+        $terms   = aidocs_sanitize_ai_terms( $terms, aidocs_get_types() );
+        $touched = ! empty( $_POST['document_type_touched'] );
+        if ( $terms || $touched ) {
+            wp_set_post_terms( $post_id, $terms, 'document_type' );
+        }
     }
 
     // Whatever changed above — title, description, audience, type — is what
@@ -3124,8 +3287,13 @@ function aidocs_write_policy( $post_id, array $fields, array $terms ) {
         update_post_meta( $post_id, '_document_history', sanitize_textarea_field( $fields['history'] ) );
     }
 
+    // The final gate before Document Type reaches the taxonomy, regardless
+    // of which of this function's two callers (AI-filled or manually fixed)
+    // the value came from — see aidocs_sanitize_ai_terms().
+    $type = aidocs_sanitize_ai_terms( $terms['type'], aidocs_get_types() );
+
     if ( $terms['audience'] ) wp_set_post_terms( $post_id, $terms['audience'], 'document_audience' );
-    if ( $terms['type'] )     wp_set_post_terms( $post_id, $terms['type'],     'document_type' );
+    if ( $type )              wp_set_post_terms( $post_id, $type,              'document_type' );
 
     return aidocs_maybe_reindex( $post_id );
 }
@@ -3296,6 +3464,10 @@ function aidocs_import_policies_ajax() {
     // for the AI to guess per policy.
     $fixed_audience = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_audience'] ?? '' ) ) ) ) );
     $fixed_type     = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_type'] ?? '' ) ) ) ) );
+    // Same vocabulary check as everywhere else Document Type is written —
+    // this is a manually picked value, but the request itself could still be
+    // crafted by hand, so it goes through the same filter as an AI proposal.
+    $fixed_type     = aidocs_sanitize_ai_terms( $fixed_type, aidocs_get_types() );
 
     $created = [];
     foreach ( $batch as $position => $index ) {
@@ -3330,6 +3502,14 @@ function aidocs_import_policies_ajax() {
             // the upload's own filename would describe none of it. An empty
             // post_name has WordPress build a fresh one from the new title.
             wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '', 'post_status' => 'publish' ] );
+            // This entry is one policy now, not the compilation it started as:
+            // it needs to stop behaving like a multi-document upload (offering
+            // "Create the selected entries" again, hiding its own Audience/
+            // Type/History) and stop pointing at the 49-policy source file —
+            // reopening the editor later would otherwise reload and re-detect
+            // policies from that whole file instead of showing this one policy.
+            update_post_meta( $post_id, '_document_source_mode', 'single' );
+            delete_post_meta( $post_id, '_document_file_id' );
         } else {
             $target = wp_insert_post( [
                 'post_type'   => 'aidoc',
@@ -3355,6 +3535,7 @@ function aidocs_import_policies_ajax() {
             'fields'   => [
                 'description' => $fields['description'],
                 'pub_date'    => $fields['pub_date'],
+                'history'     => $fields['history'],
             ],
         ];
     }
@@ -3578,13 +3759,25 @@ function aidocs_ai_restructure_apply_ajax() {
     update_post_meta( $post_id, '_document_content', wp_slash( wp_json_encode( $blocks ) ) );
     delete_post_meta( $post_id, '_document_content_ai' );
 
+    // _document_raw_text backs the "Edit content" textarea (see
+    // aidocs_get_raw_text()) and is what cdRawText() falls back to for the
+    // next AI action. Leaving it at its pre-restructure value would mean:
+    // (a) the textarea shows text that no longer matches the blocks just
+    // written, and (b) clicking "Apply edited content" — or running
+    // Restructure again — would silently revert to that stale text instead
+    // of building on what was just approved. Regenerating it from the exact
+    // blocks just saved keeps both in step.
+    $raw_text = aidocs_blocks_to_canonical_text( $blocks );
+    update_post_meta( $post_id, '_document_raw_text', wp_slash( $raw_text ) );
+
     $indexed = aidocs_maybe_reindex( $post_id );
 
     wp_send_json_success( [
-        'applied' => true,
-        'total'   => count( $blocks ),
-        'indexed' => $indexed,
-        'html'    => aidocs_render_content_blocks( $blocks ),
+        'applied'  => true,
+        'total'    => count( $blocks ),
+        'indexed'  => $indexed,
+        'html'     => aidocs_render_content_blocks( $blocks ),
+        'raw_text' => $raw_text,
     ] );
 }
 
@@ -3896,11 +4089,7 @@ function aidocs_settings_page() { // phpcs:ignore
         foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_audiences ) ) ) as $term ) {
             if ( ! term_exists( $term, 'document_audience' ) ) wp_insert_term( $term, 'document_audience' );
         }
-        $raw_types = sanitize_textarea_field( $_POST['aidocs_types_list'] ?? '' );
-        update_option( 'aidocs_types_list', $raw_types );
-        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
-            if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
-        }
+        // Document Type has no textarea any more — see aidocs_get_types().
 
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.' ) . '</p></div>';
     }
@@ -3909,9 +4098,8 @@ function aidocs_settings_page() { // phpcs:ignore
     $gemini_model      = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     $gemini_api_key    = get_option( 'aidocs_gemini_api_key', '' );
     $audiences_list    = get_option( 'aidocs_audiences_list', implode( "\n", AIDOCS_AUDIENCES ) );
-    $types_list        = get_option( 'aidocs_types_list',     implode( "\n", AIDOCS_TYPES ) );
+    $types_arr         = aidocs_get_types();
 
-    $types_arr     = array_filter( array_map( 'trim', explode( "\n", $types_list ) ) );
     $audiences_arr = array_filter( array_map( 'trim', explode( "\n", $audiences_list ) ) );
     $first_type    = reset( $types_arr )     ?: 'Policies';
     $first_aud     = reset( $audiences_arr ) ?: 'Institution';
@@ -3920,6 +4108,18 @@ function aidocs_settings_page() { // phpcs:ignore
     ?>
     <div class="wrap">
     <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
+    <?php $invalid_type_terms = get_option( 'aidocs_invalid_type_terms', [] ); ?>
+    <?php if ( $invalid_type_terms ) : ?>
+    <div class="notice notice-warning">
+        <p>
+            <strong><?php esc_html_e( 'Document Type terms outside the 4 confirmed types are still in use:' ); ?></strong>
+            <?php foreach ( $invalid_type_terms as $t ) : ?>
+                <?php echo esc_html( $t['name'] ); ?> (<?php echo (int) $t['count']; ?>)<?php echo $t !== end( $invalid_type_terms ) ? ', ' : ''; ?>
+            <?php endforeach; ?>
+            <?php esc_html_e( 'These were left alone rather than reassigned automatically — open each document and pick the correct one of the 4 types.' ); ?>
+        </p>
+    </div>
+    <?php endif; ?>
     <style>
     .cd-settings-section{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:20px 24px;margin-bottom:24px;}
     .cd-settings-section h2{margin-top:0;font-size:16px;}
@@ -3986,8 +4186,11 @@ function aidocs_settings_page() { // phpcs:ignore
                 <td><textarea id="cd-audiences-list" name="aidocs_audiences_list" rows="6" class="large-text"><?php echo esc_textarea( $audiences_list ); ?></textarea></td>
             </tr>
             <tr>
-                <th><label for="cd-types-list"><?php esc_html_e( 'Document Types' ); ?></label></th>
-                <td><textarea id="cd-types-list" name="aidocs_types_list" rows="10" class="large-text"><?php echo esc_textarea( $types_list ); ?></textarea></td>
+                <th><?php esc_html_e( 'Document Types' ); ?></th>
+                <td>
+                    <p><?php echo esc_html( implode( ', ', $types_arr ) ); ?></p>
+                    <p class="description"><?php esc_html_e( 'Fixed by Cirlot — not editable here. Every document, whether entered manually or by AI, can only be one of these.' ); ?></p>
+                </td>
             </tr>
         </table>
     </div>
