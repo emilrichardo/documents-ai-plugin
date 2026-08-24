@@ -128,20 +128,22 @@ re-saving other settings never clears it.
 
 ### Taxonomy
 
-Two lists, one term per line.
+**Audiences** — who an entry is written for, one per line. Ships with
+`Institution`, `Evaluator`, `Public`. Saving creates any term that does not
+exist yet. Removing a line from the list takes the audience out of the
+pickers and the admin menu, but does not delete the term or unassign it from
+entries that already carry it.
 
-**Audiences** — who an entry is written for. Ships with `Institution`,
-`Evaluator`, `Public`.
+**Document Types** — what kind of document it is. Fixed to exactly four
+values: `Policies`, `Guidelines`, `Good Practices`, `Position Statements`.
+Unlike Audience, this list is not editable here or anywhere else in the
+plugin — every place a Document Type can be set (the document editor, the
+multi-document import, an AI proposal) only ever offers these four, and
+nothing in the plugin can create a fifth. This is deliberate: earlier
+versions allowed free-text types, which is how mistyped and AI-hallucinated
+terms ended up as real, selectable values.
 
-**Document Types** — what kind of document it is. Ships with `Policies`,
-`Guidelines`, `Good Practices`, `Position Statements`, `Handbooks`,
-`Interpretation`, `Guides`, `Rules of the Organization`, `Forms and Templates`.
-
-![The Taxonomy section, with the Audiences and Document Types lists](assets/screenshots/settings-taxonomy.png)
-
-Saving creates any term that does not exist yet. Removing a line from the list
-takes the type out of the pickers and the admin menu, but does not delete the
-term or unassign it from entries that already carry it.
+![The Taxonomy section, with the Audiences list and the fixed Document Types](assets/screenshots/settings-taxonomy.png)
 
 Each Document Type also becomes its own shortcut in the admin sidebar — see
 [Find entries in the admin](#find-entries-in-the-admin).

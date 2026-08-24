@@ -4189,7 +4189,6 @@ function aidocs_settings_page() { // phpcs:ignore
                 <th><?php esc_html_e( 'Document Types' ); ?></th>
                 <td>
                     <p><?php echo esc_html( implode( ', ', $types_arr ) ); ?></p>
-                    <p class="description"><?php esc_html_e( 'Fixed by Cirlot — not editable here. Every document, whether entered manually or by AI, can only be one of these.' ); ?></p>
                 </td>
             </tr>
         </table>
