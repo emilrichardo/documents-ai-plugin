@@ -112,7 +112,7 @@ Google's model-listing endpoint mixes every product line together, and nothing
 but the id itself distinguishes them.
 
 A Flash model is the right default. Pro costs more per request and the gain on
-these tasks — reading labels, proposing an audience, re-typing block
+these tasks — reading labels, proposing a document type, re-typing block
 structure — is small.
 
 ## Settings
@@ -128,22 +128,16 @@ re-saving other settings never clears it.
 
 ### Taxonomy
 
-**Audiences** — who an entry is written for, one per line. Ships with
-`Institution`, `Evaluator`, `Public`. Saving creates any term that does not
-exist yet. Removing a line from the list takes the audience out of the
-pickers and the admin menu, but does not delete the term or unassign it from
-entries that already carry it.
+**Document Types** — what kind of document it is, one per line. Ships with
+`Policies`, `Guidelines`, `Good Practices`, `Position Statements`. Saving
+creates any term that does not exist yet. Removing a line from the list
+takes the type out of the pickers and the admin menu, but does not delete
+the term or unassign it from entries that already carry it. Every place a
+Document Type can be set (the document editor, the multi-document import,
+an AI proposal) reads this same configured list, and the AI is validated
+against it — it never creates a type on its own.
 
-**Document Types** — what kind of document it is. Fixed to exactly four
-values: `Policies`, `Guidelines`, `Good Practices`, `Position Statements`.
-Unlike Audience, this list is not editable here or anywhere else in the
-plugin — every place a Document Type can be set (the document editor, the
-multi-document import, an AI proposal) only ever offers these four, and
-nothing in the plugin can create a fifth. This is deliberate: earlier
-versions allowed free-text types, which is how mistyped and AI-hallucinated
-terms ended up as real, selectable values.
-
-![The Taxonomy section, with the Audiences list and the fixed Document Types](assets/screenshots/settings-taxonomy.png)
+![The Taxonomy section, with the configured Document Types](assets/screenshots/settings-taxonomy.png)
 
 Each Document Type also becomes its own shortcut in the admin sidebar — see
 [Find entries in the admin](#find-entries-in-the-admin).
@@ -151,7 +145,7 @@ Each Document Type also becomes its own shortcut in the admin sidebar — see
 ### Shortcodes
 
 A copy-to-clipboard reference of every shortcode and parameter, generated
-against your own configured types and audiences. The full reference is in
+against your own configured types. The full reference is in
 [Shortcode reference](#shortcode-reference) below.
 
 ![The Shortcodes section of the settings screen, with copy buttons on each example](assets/screenshots/settings-shortcodes.png)
@@ -182,9 +176,9 @@ than a guess, and fills several fields at once.
 | **Document History** | Its `Document History:` label, shown at the foot of the published content |
 | **Content** | Everything under `Body:`, parsed into blocks |
 
-**Audience** and **Document Type** are never filled automatically. The label
-schema has no section for either, so there is nothing deterministic to read them
-from — pick them by hand, or have the AI propose them (see [Complete fields with
+**Document Type** is never filled automatically. The label schema has no
+section for it, so there is nothing deterministic to read it from — pick it
+by hand, or have the AI propose it (see [Complete fields with
 AI](#complete-fields-with-ai)).
 
 > The description and the date are **never overwritten** once they hold a value.
@@ -225,7 +219,7 @@ of standalone policies, and each of those has to become an entry of its own.
 1. Go to **Documents → Add New Document**.
 2. Set **What are you uploading?** to **A document holding several policies**.
 3. Upload the PDF or Word file. The policies are found on their own — no AI, no API key.
-4. Under **Complete fields with AI, per policy**, tick which fields the AI should fill for each policy. **Audience** and **Document Type** are ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
+4. Under **Complete fields with AI, per policy**, tick which fields the AI should fill for each policy. **Document Type** is ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
 5. Review **Policies in this document**. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.
 6. In the **Publish** box in the sidebar, click **Create N entries** — the button counts what is still ticked.
 
@@ -271,7 +265,7 @@ contents — is left out.
 
 ### Fields that disappear in this mode
 
-Description, Last Updated, Audience, Document Type and the *Complete fields with
+Description, Last Updated, Document Type and the *Complete fields with
 AI (optional)* panel are all hidden while the upload is a compilation. None of
 them could hold one value that fits every policy in the file — which is precisely
 why the per-policy checkboxes exist instead.
@@ -280,10 +274,10 @@ why the per-policy checkboxes exist instead.
 
 Below extraction, the collapsible **Complete fields with AI (optional)** panel
 proposes values for the fields the label schema does not cover — in practice
-Audience and Document Type — or offers a second opinion on the ones it does.
+Document Type — or offers a second opinion on the ones it does.
 
 1. Open the panel and confirm it shows **✓ API key saved**.
-2. Tick the fields to propose: Title, Description, Audience, Document Type.
+2. Tick the fields to propose: Title, Description, Document Type.
 3. Click **Propose with AI**.
 4. Each proposal appears as its own card, next to the current value, editable before you accept it.
 5. Click **Apply** on a card, **Apply all**, or **Discard** to drop a proposal.
@@ -327,7 +321,7 @@ Once an entry has content, its editor looks different from the Add New screen.
 The upload-mode question, the source-file card and the compilation panel are all
 gone — they only ever applied while the entry was being set up.
 
-What is left is everything editable directly: Title, Last Updated, Audience,
+What is left is everything editable directly: Title, Last Updated,
 Document Type, Description, Document History, and the content itself through the
 same **Document content** panel described above.
 
@@ -353,8 +347,6 @@ the same way WordPress's own date filter does.
 
 ![The Documents list, with the Type dropdown beside the status tabs](assets/screenshots/documents-list.png)
 
-Audience has no equivalent shortcut or dropdown yet.
-
 ## What readers see
 
 ### The entry page
@@ -362,7 +354,7 @@ Audience has no equivalent shortcut or dropdown yet.
 Every entry has its own URL, `/documents/{entry}/`, rendered inside your theme's
 header and footer:
 
-- audience and type tags, and the description
+- a type tag, and the description
 - a metadata grid
 - a table of contents, when the content has more than one section
 - the content itself, as collapsible sections
@@ -379,7 +371,7 @@ what a reader is offered.
 The catalogue lives wherever you place the `[aidocs_search]` shortcode.
 
 - **Keyword field** — type in any language. After roughly 600 ms of no typing, and only with a Gemini key configured, the AI answers in that same language and surfaces the one to three entries that address the question, each with a **View details** button. Without a key, the field still runs a plain WordPress keyword search.
-- **Audience** and **Document Type** dropdowns narrow the results.
+- A **Document Type** tab bar narrows the results.
 - **×** clears the field and reloads the full catalogue.
 - **Search** runs a keyword search and shows the full results list.
 - Pagination, 20 results per page by default.
@@ -418,20 +410,18 @@ pre-selected filters, for instance.
 | Parameter | Default | Accepts | What it does |
 |---|---|---|---|
 | `type` | *(empty)* | A Document Type name | Pre-selects that type in the filter. Matched case-insensitively against the configured types; an unknown value is ignored rather than showing nothing. |
-| `audience` | *(empty)* | An Audience name | Pre-selects that audience, same matching rules. |
 | `per_page` | `20` | `1`–`50` | Results per page. Values outside the range are clamped, not rejected. |
 | `show_ai` | `true` | `true` / `false` | `false` turns off the inline AI recommendation in the keyword field. Keyword search and filters still work. |
 | `show_chat` | `false` | `true` / `false` | `true` brings back the floating AI chat bubble. Off by default: every result card already links to its entry, so the bubble duplicates that with a second way to get there. |
 
 #### Reading filters from the URL
 
-`type` and `audience` are also read from the query string, and the URL wins over
-the attribute. So a single page carrying a plain `[aidocs_search]` can be linked
+`type` is also read from the query string, and the URL wins over the
+attribute. So a single page carrying a plain `[aidocs_search]` can be linked
 as a pre-filtered view:
 
 ```
 /policies/?type=Guidelines
-/policies/?type=Policies&audience=Evaluator
 ```
 
 That is what makes one search page enough for every "show me only X" link in a
@@ -439,10 +429,10 @@ menu or a sidebar.
 
 #### Recipes
 
-An evaluator-facing page, no AI, ten at a time:
+A no-AI page, ten at a time:
 
 ```
-[aidocs_search audience="Evaluator" show_ai="false" per_page="10"]
+[aidocs_search show_ai="false" per_page="10"]
 ```
 
 Policies only, with the chat bubble on:

@@ -86,8 +86,7 @@ The model list ships with the current Gemini lineup (3.6/3.5/3.1 Flash and Pro, 
 - **Gemini API Key** and **Gemini Model** — see the previous section.
 
 ### Taxonomy
-- **Audiences** — one per line. Defaults to `Institution`, `Evaluator`, `Public`.
-- **Document Types** — one per line. Defaults to `Policies`, `Guidelines`, `Good Practices`, and others.
+- **Document Types** — one per line. Defaults to `Policies`, `Guidelines`, `Good Practices`, `Position Statements`. Add a line to make a new type available everywhere Document Type is used — the AI is validated against this same list and never creates a type on its own.
 
 ### Shortcodes
 A reference of every shortcode parameter with copy-to-clipboard examples.
@@ -107,7 +106,6 @@ A reference of every shortcode parameter with copy-to-clipboard examples.
 | **Source file** | Upload a file (PDF, Word, Excel) through the media picker. It is read for its text only, and is never published, linked or offered for download. Text and structure are extracted from PDF and Word (`.docx`) files automatically; Excel is accepted but only for reference — it is not parsed. |
 | **Title** | Entry name |
 | **Last Updated** | Read from the document's own `Last Updated` label when it has one |
-| **Audience** | One or more audiences |
 | **Document Type** | One or more types |
 | **Description** | Read from the document's own `Teaser` label when it has one |
 
@@ -119,7 +117,7 @@ Once a document has content, its editor screen looks different from the Add New
 screen: the "what are you uploading?" question, the source-file upload card, and (for
 a compilation) the policy-splitting panel are all gone — they only ever apply while a
 document is being set up for the first time. What's left is every field editable
-directly: Title, Last Updated, Audience, Document Type, Description, Document
+directly: Title, Last Updated, Document Type, Description, Document
 History (the source document's own provenance line), and the content itself (see
 [Extracting structured content](#extracting-structured-content-default-no-ai)).
 
@@ -164,15 +162,15 @@ the mode by hand.
 
 1. Upload the PDF or Word file — the policies are found on their own, with no AI and no API key.
 2. **"Complete fields with AI, per policy"** — tick which of Title, Description,
-   Audience or Document Type the AI should fill for each policy. Audience and
-   Document Type are ticked by default: the label schema has no section for
-   either, so there is nothing deterministic to read them from. Title and
-   Description are usually already read from the labels, so leave them unticked
-   unless a particular upload is missing them.
+   or Document Type the AI should fill for each policy. Document Type is
+   ticked by default: the label schema has no section for it, so there is
+   nothing deterministic to read it from. Title and Description are usually
+   already read from the labels, so leave them unticked unless a particular
+   upload is missing them.
 3. **"Policies in this document"** lists each one with the title, date, description and block count read from it. Untick anything that should not be imported.
 4. **"Create N entries"** writes them. The first policy is written over the entry you are editing, keeping whatever post status it already had; the rest are inserted as new, published entries. The import runs a few at a time — fewer when AI fields are ticked, since each one is then an extra Gemini call alongside the embedding every entry already gets. Publish/Update is hidden in this mode — `Create N entries` is the save action — so the entry the form was open on has to be published from the Documents list afterwards.
 
-The single-policy fields — Description, Last Updated, Audience, Document Type
+The single-policy fields — Description, Last Updated, Document Type
 — and the "Complete fields with AI (optional)" panel below extraction are all
 hidden in this mode: none of them can hold one value that fits every policy in
 the upload, which is exactly why the fields are completed per policy above
@@ -194,9 +192,9 @@ them is it.
 
 ### Completing fields with AI (optional)
 
-Below extraction, the collapsible **"Complete fields with AI (optional)"** panel proposes values for the fields the label schema doesn't cover — typically `Audience` and `Document Type` — or offers a second opinion on the others:
+Below extraction, the collapsible **"Complete fields with AI (optional)"** panel proposes values for the fields the label schema doesn't cover — typically `Document Type` — or offers a second opinion on the others:
 
-1. Tick the fields to propose (`Title`, `Description`, `Audience`, `Document Type`).
+1. Tick the fields to propose (`Title`, `Description`, `Document Type`).
 2. Click **"Propose with AI"**.
 3. Each proposed field appears as its own card, alongside the current value, editable before applying. **Nothing is written into the form until you click "Apply"** (or "Apply all") — "Discard" drops a proposal without touching anything.
 
@@ -220,8 +218,7 @@ pre-filtered to that type.
 The list itself also has a **Type** dropdown next to the Published/Draft/Trash tabs
 and the search box — an independent filter, not a replacement for those: picking a
 type narrows whichever status tab (or search) is already active, the same way the
-built-in date filter does. Audience has no equivalent yet — it stays exactly as it
-is, unchanged, pending a decision on whether it's still needed.
+built-in date filter does.
 
 ---
 
@@ -238,7 +235,7 @@ By default, `/{slug}/` (see Settings → Display) already shows this same search
 ### What the search does
 
 - **Keyword field** — type in any language. After roughly 600ms of no typing, the AI reads the query and surfaces the one to three documents that address it, with a short explanation (requires a configured API key; the field still does a plain WordPress keyword search without one).
-- **Filters** — Audience and Document Type dropdowns to narrow results.
+- **Filters** — a Document Type tab bar to narrow results.
 - **Clear button (×)** — empties the field and reloads the full catalog.
 - **Search button** — runs a plain WordPress keyword search and shows the full results list.
 - **Pagination** — 20 results per page by default.
@@ -247,7 +244,7 @@ Clicking a result card goes straight to that entry's own page. Results carry no 
 
 ### The single entry page
 
-Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: audience and type tags, the description, a metadata grid, a table of contents when the content has more than one section, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
+Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: a type tag, the description, a metadata grid, a table of contents when the content has more than one section, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
 
 ---
 
@@ -269,7 +266,7 @@ Pass either `id` (the entry's post ID) or `slug` (its URL slug). If neither reso
 | Feature | Where | Description |
 |---|---|---|
 | Inline recommendation | Search field | The one to three documents that address the question, explained, in whatever language you typed |
-| Complete fields with AI | Document editor | Proposes values for Title/Description/Audience/Document Type from the extracted text, reviewed before applying |
+| Complete fields with AI | Document editor | Proposes values for Title/Description/Document Type from the extracted text, reviewed before applying |
 | Restructure content with AI | Document editor | Re-types a misread PDF's extracted text into the right block types, verified word-for-word before applying |
 | Ask AI (single document) | Document page | Answers questions about that one document |
 
@@ -282,7 +279,6 @@ All of these use the Gemini model configured in **Settings → AI**, and answer 
 ```
 [aidocs_search
   type="..."
-  audience="..."
   per_page="20"
   show_ai="true"
 ]
@@ -291,7 +287,6 @@ All of these use the Gemini model configured in **Settings → AI**, and answer 
 | Parameter | Default | Description |
 |---|---|---|
 | `type` | *(empty)* | Pre-selects a document type. Also reads `?type=` from the URL. |
-| `audience` | *(empty)* | Pre-selects an audience. Also reads `?audience=` from the URL. |
 | `per_page` | `20` | Results per page (max 50). |
 | `show_ai` | `true` | Set `"false"` to disable the inline AI recommendation in the search field. |
 
@@ -300,7 +295,7 @@ All of these use the Gemini model configured in **Settings → AI**, and answer 
 ```
 [aidocs_search]
 
-[aidocs_search type="Policies" audience="Institution"]
+[aidocs_search type="Policies"]
 
 [aidocs_search per_page="10"]
 

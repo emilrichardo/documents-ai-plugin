@@ -65,7 +65,7 @@
 <h3 id="choosing-a-model">Choosing a model</h3>
 <p>The picker ships with the current Gemini line-up — 3.6, 3.5 and 3.1 Flash and Pro, down to 2.5. <strong>Refresh from API</strong> (settings) or <strong>Check key &amp; list models</strong> (document editor) replaces that list with exactly what your key can reach.</p>
 <p>Image, text-to-speech and other non-chat models are filtered out automatically: Google&#039;s model-listing endpoint mixes every product line together, and nothing but the id itself distinguishes them.</p>
-<p>A Flash model is the right default. Pro costs more per request and the gain on these tasks — reading labels, proposing an audience, re-typing block structure — is small.</p>
+<p>A Flash model is the right default. Pro costs more per request and the gain on these tasks — reading labels, proposing a document type, re-typing block structure — is small.</p>
 </section>
 <section class="aidoc-section" id="settings">
 <h2>Settings</h2>
@@ -73,12 +73,11 @@
 <h3 id="ai">AI</h3>
 <p>The Gemini API key and the model, covered above. The key is stored as a WordPress option; the field shows <em>Saved — leave blank to keep it</em> once set, so re-saving other settings never clears it.</p>
 <h3 id="taxonomy">Taxonomy</h3>
-<p><strong>Audiences</strong> — who an entry is written for, one per line. Ships with <code>Institution</code>, <code>Evaluator</code>, <code>Public</code>. Saving creates any term that does not exist yet. Removing a line from the list takes the audience out of the pickers and the admin menu, but does not delete the term or unassign it from entries that already carry it.</p>
-<p><strong>Document Types</strong> — what kind of document it is. Fixed to exactly four values: <code>Policies</code>, <code>Guidelines</code>, <code>Good Practices</code>, <code>Position Statements</code>. Unlike Audience, this list is not editable here or anywhere else in the plugin — every place a Document Type can be set (the document editor, the multi-document import, an AI proposal) only ever offers these four, and nothing in the plugin can create a fifth. This is deliberate: earlier versions allowed free-text types, which is how mistyped and AI-hallucinated terms ended up as real, selectable values.</p>
-<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-taxonomy.png" alt="The Taxonomy section, with the Audiences list and the fixed Document Types" loading="lazy"><figcaption>The Taxonomy section, with the Audiences list and the fixed Document Types</figcaption></figure>
+<p><strong>Document Types</strong> — what kind of document it is, one per line. Ships with <code>Policies</code>, <code>Guidelines</code>, <code>Good Practices</code>, <code>Position Statements</code>. Saving creates any term that does not exist yet. Removing a line from the list takes the type out of the pickers and the admin menu, but does not delete the term or unassign it from entries that already carry it. Every place a Document Type can be set (the document editor, the multi-document import, an AI proposal) reads this same configured list, and the AI is validated against it — it never creates a type on its own.</p>
+<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-taxonomy.png" alt="The Taxonomy section, with the configured Document Types" loading="lazy"><figcaption>The Taxonomy section, with the configured Document Types</figcaption></figure>
 <p>Each Document Type also becomes its own shortcut in the admin sidebar — see <a href="#find-entries-in-the-admin">Find entries in the admin</a>.</p>
 <h3 id="shortcodes">Shortcodes</h3>
-<p>A copy-to-clipboard reference of every shortcode and parameter, generated against your own configured types and audiences. The full reference is in <a href="#shortcode-reference">Shortcode reference</a> below.</p>
+<p>A copy-to-clipboard reference of every shortcode and parameter, generated against your own configured types. The full reference is in <a href="#shortcode-reference">Shortcode reference</a> below.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-shortcodes.png" alt="The Shortcodes section of the settings screen, with copy buttons on each example" loading="lazy"><figcaption>The Shortcodes section of the settings screen, with copy buttons on each example</figcaption></figure>
 </section>
 <section class="aidoc-section" id="upload-one-document">
@@ -103,7 +102,7 @@
 <tr><td><strong>Document History</strong></td><td>Its <code>Document History:</code> label, shown at the foot of the published content</td></tr>
 <tr><td><strong>Content</strong></td><td>Everything under <code>Body:</code>, parsed into blocks</td></tr>
 </tbody></table></div>
-<p><strong>Audience</strong> and <strong>Document Type</strong> are never filled automatically. The label schema has no section for either, so there is nothing deterministic to read them from — pick them by hand, or have the AI propose them (see <a href="#complete-fields-with-ai">Complete fields with AI</a>).</p>
+<p><strong>Document Type</strong> is never filled automatically. The label schema has no section for it, so there is nothing deterministic to read it from — pick it by hand, or have the AI propose it (see <a href="#complete-fields-with-ai">Complete fields with AI</a>).</p>
 <blockquote class="aidoc-note"><p>The description and the date are <strong>never overwritten</strong> once they hold a value. A manual correction always outranks the parser, including when you re-run extraction.</p>
 </blockquote>
 <h3 id="reviewing-what-was-extracted">Reviewing what was extracted</h3>
@@ -127,7 +126,7 @@
 <li>Go to <strong>Documents → Add New Document</strong>.</li>
 <li>Set <strong>What are you uploading?</strong> to <strong>A document holding several policies</strong>.</li>
 <li>Upload the PDF or Word file. The policies are found on their own — no AI, no API key.</li>
-<li>Under <strong>Complete fields with AI, per policy</strong>, tick which fields the AI should fill for each policy. <strong>Audience</strong> and <strong>Document Type</strong> are ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
+<li>Under <strong>Complete fields with AI, per policy</strong>, tick which fields the AI should fill for each policy. <strong>Document Type</strong> is ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
 <li>Review <strong>Policies in this document</strong>. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.</li>
 <li>In the <strong>Publish</strong> box in the sidebar, click <strong>Create N entries</strong> — the button counts what is still ticked.</li>
 </ol>
@@ -145,14 +144,14 @@
 <blockquote class="aidoc-note"><p>Uploading a PDF that turns out to hold more than one policy switches the mode <strong>automatically</strong>. There is no need to notice that ahead of time and pick it by hand; the plugin says so on screen when it happens.</p>
 </blockquote>
 <h3 id="fields-that-disappear-in-this-mode">Fields that disappear in this mode</h3>
-<p>Description, Last Updated, Audience, Document Type and the <em>Complete fields with AI (optional)</em> panel are all hidden while the upload is a compilation. None of them could hold one value that fits every policy in the file — which is precisely why the per-policy checkboxes exist instead.</p>
+<p>Description, Last Updated, Document Type and the <em>Complete fields with AI (optional)</em> panel are all hidden while the upload is a compilation. None of them could hold one value that fits every policy in the file — which is precisely why the per-policy checkboxes exist instead.</p>
 </section>
 <section class="aidoc-section" id="complete-fields-with-ai">
 <h2>Complete fields with AI</h2>
-<p>Below extraction, the collapsible <strong>Complete fields with AI (optional)</strong> panel proposes values for the fields the label schema does not cover — in practice Audience and Document Type — or offers a second opinion on the ones it does.</p>
+<p>Below extraction, the collapsible <strong>Complete fields with AI (optional)</strong> panel proposes values for the fields the label schema does not cover — in practice Document Type — or offers a second opinion on the ones it does.</p>
 <ol class="aidoc-steps">
 <li>Open the panel and confirm it shows <strong>✓ API key saved</strong>.</li>
-<li>Tick the fields to propose: Title, Description, Audience, Document Type.</li>
+<li>Tick the fields to propose: Title, Description, Document Type.</li>
 <li>Click <strong>Propose with AI</strong>.</li>
 <li>Each proposal appears as its own card, next to the current value, editable before you accept it.</li>
 <li>Click <strong>Apply</strong> on a card, <strong>Apply all</strong>, or <strong>Discard</strong> to drop a proposal.</li>
@@ -180,7 +179,7 @@
 <section class="aidoc-section" id="edit-a-published-entry">
 <h2>Edit a published entry</h2>
 <p>Once an entry has content, its editor looks different from the Add New screen. The upload-mode question, the source-file card and the compilation panel are all gone — they only ever applied while the entry was being set up.</p>
-<p>What is left is everything editable directly: Title, Last Updated, Audience, Document Type, Description, Document History, and the content itself through the same <strong>Document content</strong> panel described above.</p>
+<p>What is left is everything editable directly: Title, Last Updated, Document Type, Description, Document History, and the content itself through the same <strong>Document content</strong> panel described above.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/edit-existing.png" alt="An existing entry open for editing, with every field directly editable" loading="lazy"><figcaption>An existing entry open for editing, with every field directly editable</figcaption></figure>
 <p>To change the content of a published entry, use <strong>Edit content</strong> → <strong>Apply edited content</strong>. To rebuild it from a corrected source file, replace the file and use <strong>Extract content again</strong>.</p>
 </section>
@@ -190,14 +189,13 @@
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/admin-menu.png" alt="The Documents submenu, with the Browse by Type group between Add New and Settings" loading="lazy"><figcaption>The Documents submenu, with the Browse by Type group between Add New and Settings</figcaption></figure>
 <p>The list itself also carries a <strong>Type</strong> dropdown next to the Published/Draft/Trash tabs and the search box. It is an independent filter, not a replacement for those: picking a type narrows whichever status tab or search is already active, the same way WordPress&#039;s own date filter does.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/documents-list.png" alt="The Documents list, with the Type dropdown beside the status tabs" loading="lazy"><figcaption>The Documents list, with the Type dropdown beside the status tabs</figcaption></figure>
-<p>Audience has no equivalent shortcut or dropdown yet.</p>
 </section>
 <section class="aidoc-section" id="what-readers-see">
 <h2>What readers see</h2>
 <h3 id="the-entry-page">The entry page</h3>
 <p>Every entry has its own URL, <code>/documents/{entry}/</code>, rendered inside your theme&#039;s header and footer:</p>
 <ul>
-<li>audience and type tags, and the description</li>
+<li>a type tag, and the description</li>
 <li>a metadata grid</li>
 <li>a table of contents, when the content has more than one section</li>
 <li>the content itself, as collapsible sections</li>
@@ -210,7 +208,7 @@
 <p>The catalogue lives wherever you place the <code>[aidocs_search]</code> shortcode.</p>
 <ul>
 <li><strong>Keyword field</strong> — type in any language. After roughly 600 ms of no typing, and only with a Gemini key configured, the AI answers in that same language and surfaces the one to three entries that address the question, each with a <strong>View details</strong> button. Without a key, the field still runs a plain WordPress keyword search.</li>
-<li><strong>Audience</strong> and <strong>Document Type</strong> dropdowns narrow the results.</li>
+<li>A <strong>Document Type</strong> tab bar narrows the results.</li>
 <li><strong>×</strong> clears the field and reloads the full catalogue.</li>
 <li><strong>Search</strong> runs a keyword search and shows the full results list.</li>
 <li>Pagination, 20 results per page by default.</li>
@@ -232,19 +230,17 @@
 <thead><tr><th>Parameter</th><th>Default</th><th>Accepts</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td><code>type</code></td><td><em>(empty)</em></td><td>A Document Type name</td><td>Pre-selects that type in the filter. Matched case-insensitively against the configured types; an unknown value is ignored rather than showing nothing.</td></tr>
-<tr><td><code>audience</code></td><td><em>(empty)</em></td><td>An Audience name</td><td>Pre-selects that audience, same matching rules.</td></tr>
 <tr><td><code>per_page</code></td><td><code>20</code></td><td><code>1</code>–<code>50</code></td><td>Results per page. Values outside the range are clamped, not rejected.</td></tr>
 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><code>true</code> / <code>false</code></td><td><code>false</code> turns off the inline AI recommendation in the keyword field. Keyword search and filters still work.</td></tr>
 <tr><td><code>show_chat</code></td><td><code>false</code></td><td><code>true</code> / <code>false</code></td><td><code>true</code> brings back the floating AI chat bubble. Off by default: every result card already links to its entry, so the bubble duplicates that with a second way to get there.</td></tr>
 </tbody></table></div>
 <h4 id="reading-filters-from-the-url">Reading filters from the URL</h4>
-<p><code>type</code> and <code>audience</code> are also read from the query string, and the URL wins over the attribute. So a single page carrying a plain <code>[aidocs_search]</code> can be linked as a pre-filtered view:</p>
-<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>/policies/?type=Guidelines
-/policies/?type=Policies&amp;audience=Evaluator</code></pre></div>
+<p><code>type</code> is also read from the query string, and the URL wins over the attribute. So a single page carrying a plain <code>[aidocs_search]</code> can be linked as a pre-filtered view:</p>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>/policies/?type=Guidelines</code></pre></div>
 <p>That is what makes one search page enough for every &quot;show me only X&quot; link in a menu or a sidebar.</p>
 <h4 id="recipes">Recipes</h4>
-<p>An evaluator-facing page, no AI, ten at a time:</p>
-<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_search audience=&quot;Evaluator&quot; show_ai=&quot;false&quot; per_page=&quot;10&quot;]</code></pre></div>
+<p>A no-AI page, ten at a time:</p>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_search show_ai=&quot;false&quot; per_page=&quot;10&quot;]</code></pre></div>
 <p>Policies only, with the chat bubble on:</p>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_search type=&quot;Policies&quot; show_chat=&quot;true&quot;]</code></pre></div>
 <p>A compact embed inside a wider page:</p>

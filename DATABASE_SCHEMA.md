@@ -90,17 +90,12 @@ This fails **silently and only on non-ASCII content** — a document of plain AS
 
 ## 3. Taxonomies
 
-### `document_audience`
-**Tables:** `wp_terms`, `wp_term_taxonomy`, `wp_term_relationships`
-
-Stores audience labels (e.g. `Institution`, `Evaluator`, `Public`). Terms are created automatically when the taxonomy list is saved in Settings → Taxonomy.
-
 ### `document_type`
 **Tables:** `wp_terms`, `wp_term_taxonomy`, `wp_term_relationships`
 
-Stores document type labels (e.g. `Policies`, `Guidelines`, `Handbooks`). Terms are created automatically when the type list is saved in Settings → Taxonomy.
+Stores document type labels (e.g. `Policies`, `Guidelines`, `Good Practices`, `Position Statements`). Terms are created automatically when the type list is saved in Settings → Taxonomy.
 
-Both taxonomies are registered with `show_ui = false` — they are managed exclusively through the document editor meta box and the Settings panel, not through the default WordPress taxonomy screens.
+Registered with `show_ui = false` — managed exclusively through the document editor meta box and the Settings panel, not through the default WordPress taxonomy screens.
 
 ---
 
@@ -112,7 +107,6 @@ One row per option. All keys are prefixed with `aidocs_`.
 |---|---|---|---|
 | `aidocs_gemini_api_key` | `string` | *(empty)* | Google Gemini API key |
 | `aidocs_gemini_model` | `string` | `gemini-2.5-flash` | Gemini model used for text generation. `aidocs_model_catalog()` is the built-in starting list shown in Settings; "Refresh from API" replaces it with exactly what the saved key can reach. |
-| `aidocs_audiences_list` | `string` | newline-separated defaults | One audience label per line. Used by `aidocs_get_audiences()`. |
 | `aidocs_types_list` | `string` | newline-separated defaults | One document type per line. Used by `aidocs_get_types()`. |
 | `aidocs_archive_slug` | `string` | `documents` | The URL segment documents live under — `/{slug}/` for the listing, `/{slug}/{document}/` for each one. Read by `aidocs_get_archive_slug()` and fed to both `has_archive` and `rewrite.slug` in `register_post_type()`, so the two never drift apart. Changing it re-registers the post type and flushes rewrite rules immediately (see Settings → Display). |
 | `aidocs_archive_template` | `string` | `search` | `search` serves `templates/archive-aidoc.php` (the `[aidocs_search]` UI) at `/{slug}/`, via the `template_include` filter (`aidocs_archive_template_include()`). Any other value — `theme` in the Settings UI — leaves that filter a no-op, so the active theme's own archive template renders exactly as it would without this plugin. |
@@ -149,13 +143,17 @@ Version 1.1.0 renamed the plugin's namespace from `cirlot_*` to `aidocs_*`. `aid
 | `_transient_cirlot_docs_embed_model` | deleted (rediscovered on next embedding call) |
 | `[cirlot_document_search …]` in `post_content` | rewritten to `[aidocs_search …]` |
 
-Post meta (`_document_*`) and both taxonomies (`document_audience`, `document_type`) were never prefixed and are left untouched. After the run, `aidocs_legacy_migrated` is set and `rewrite_rules` is dropped so permalinks rebuild against the new post type.
+Post meta (`_document_*`) and the `document_type` taxonomy were never prefixed and are left untouched. After the run, `aidocs_legacy_migrated` is set and `rewrite_rules` is dropped so permalinks rebuild against the new post type.
 
 ### Removed-features cleanup (v1.2.0)
 
 v1.2.0 removed the General settings tab and the configurable Custom Fields system (see the plugin `README.md`). `aidocs_maybe_cleanup_removed_options()` runs once on `plugins_loaded` and deletes the now-orphaned option rows: `aidocs_menu_name`, `aidocs_menu_icon`, `aidocs_archive_slug`, `aidocs_default_audience`, `aidocs_default_type`, `aidocs_allowed_formats`, `aidocs_global_fields`. Any values saved in `_document_cf_*` post meta from custom fields created before the upgrade are left in place (harmless, simply no longer read or written) rather than deleted, since deleting post meta in bulk based on a key pattern is riskier than leaving orphaned rows behind.
 
 `aidocs_archive_slug` — deleted here as an orphan of the removed General tab — was reintroduced in a later version alongside `aidocs_archive_template` and `aidocs_single_template` (see §4), this time read directly by `register_post_type()` and the Settings → Display section rather than by the removed tab. This one-time cleanup function does not run again for it; a site upgrading straight from before v1.2.0 to the current version deletes and then immediately recreates the option with its default the first time Settings → Display is saved, or the moment `register_post_type()` runs on `init` if the option is simply absent (`get_option()`'s own default parameter covers that either way).
+
+### Audience removal (v1.3.0)
+
+v1.3.0 removed the Audience feature entirely — the `document_audience` taxonomy is no longer registered, and nothing in the plugin reads or writes it. `aidocs_maybe_cleanup_audience_options()` runs once on `plugins_loaded` and deletes the now-orphaned `aidocs_audiences_list` option, along with `aidocs_types_locked` and `aidocs_invalid_type_terms` (leftover from the since-reverted Document Type lock — Document Type is admin-configurable again, see §3 and §4). Existing `document_audience` terms and term relationships in `wp_terms`/`wp_term_taxonomy`/`wp_term_relationships` are left in the database untouched — orphaned, but harmless, since nothing queries that taxonomy any more.
 
 ---
 
@@ -178,8 +176,7 @@ wp_posts
                   └── _document_embedding       (JSON float[768])
 
 wp_term_relationships
-└── post_id → document_audience terms (wp_terms)
-└── post_id → document_type terms     (wp_terms)
+└── post_id → document_type terms (wp_terms)
 
 wp_options
 ├── aidocs_*          (plugin settings)

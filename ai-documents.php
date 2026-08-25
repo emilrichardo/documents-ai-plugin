@@ -2,14 +2,14 @@
 /**
  * Plugin Name: AI Documents
  * Description: Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.2.0' );
+define( 'AIDOCS_VERSION', '1.3.0' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -23,16 +23,9 @@ require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
 // by tools/build-docs.sh so it never drifts from the version it ships with.
 require_once AIDOCS_DIR . 'includes/aidocs-documentation.php';
 
-define( 'AIDOCS_AUDIENCES', [ 'Institution', 'Evaluator', 'Public' ] );
-
-// Fixed by Cirlot: these four and only these four. Unlike Audience (still
-// admin-configurable — see aidocs_get_audiences()), Document Type is not a
-// free-text list any more. It used to be, which is exactly how the wrong
-// terms below got created — a typo'd or AI-proposed value typed into the
-// old Settings textarea became a permanent, selectable term. Every place
-// that needs "the allowed types" reads aidocs_get_types(), which no longer
-// has an option to fall back to, so there is nowhere left for a fifth type
-// to be reintroduced from.
+// Default Document Types — seeded once and then admin-configurable from
+// Settings (see aidocs_get_types()). Adding a new type there does not
+// change this list; it only changes what a fresh install starts with.
 define( 'AIDOCS_TYPES', [
     'Policies', 'Guidelines', 'Good Practices', 'Position Statements',
 ] );
@@ -122,71 +115,36 @@ function aidocs_maybe_cleanup_removed_options() {
 }
 
 // ──────────────────────────────────────────────
-// 0c. One-time cleanup: lock Document Type down to the 4 confirmed values
+// 0c. One-time cleanup: remove the Audience feature's settings
 // ──────────────────────────────────────────────
-// Document Type used to be a free-text list (aidocs_types_list) that any
-// admin, or a settings-page paste, could add to — that is how "Handbooks",
-// "Interpretation", "Guides", "Rules of the Organization", "Forms and
-// Templates" and the typo'd "Policy Statements" ended up as real, selectable
-// taxonomy terms. aidocs_get_types() no longer reads that option (see its
-// definition), so nothing can add a fifth type going forward; this cleans up
-// what is already there.
-//
-// A term still attached to at least one document is NOT deleted — silently
-// stripping a real document's classification is worse than leaving a stray
-// term around, and those documents need a human decision about which of the
-// 4 types they actually belong to (see docs/DOCUMENTATION.md and the plugin
-// audit). Deletion only happens for a disallowed term nothing uses.
-// Hooked to 'init' (after aidocs_register_taxonomies(), which runs on the
-// same hook at the default priority) rather than 'plugins_loaded' — the
-// document_type taxonomy does not exist yet at 'plugins_loaded', so
-// get_terms()/taxonomy_exists() below would silently see nothing to do.
-add_action( 'init', 'aidocs_maybe_lock_document_types', 20 );
-function aidocs_maybe_lock_document_types() {
-    if ( get_option( 'aidocs_types_locked' ) ) return;
-    update_option( 'aidocs_types_locked', AIDOCS_VERSION, false );
+// Audience (taxonomy, settings list, AI field) has been removed entirely.
+// Existing `document_audience` terms and post associations are left in the
+// database untouched — they cause no errors since nothing registers or
+// queries that taxonomy any more — but the options that drove its Settings
+// UI and the old type-locking mechanism are dead weight now.
+add_action( 'plugins_loaded', 'aidocs_maybe_cleanup_audience_options' );
+function aidocs_maybe_cleanup_audience_options() {
+    if ( get_option( 'aidocs_audience_removed' ) ) return;
+    update_option( 'aidocs_audience_removed', AIDOCS_VERSION, false );
 
-    delete_option( 'aidocs_types_list' );
-
-    if ( ! function_exists( 'get_terms' ) || ! taxonomy_exists( 'document_type' ) ) return;
-
-    $terms = get_terms( [ 'taxonomy' => 'document_type', 'hide_empty' => false ] );
-    if ( is_wp_error( $terms ) || ! $terms ) return;
-
-    $allowed        = AIDOCS_TYPES;
-    $flagged_in_use = [];
-
-    foreach ( $terms as $term ) {
-        if ( in_array( $term->name, $allowed, true ) ) continue;
-
-        if ( (int) $term->count === 0 ) {
-            wp_delete_term( $term->term_id, 'document_type' );
-        } else {
-            $flagged_in_use[] = [ 'term_id' => $term->term_id, 'name' => $term->name, 'count' => (int) $term->count ];
-        }
+    foreach ( [
+        'aidocs_audiences_list',
+        'aidocs_types_locked',
+        'aidocs_invalid_type_terms',
+    ] as $obsolete ) {
+        delete_option( $obsolete );
     }
-
-    // Surfaced on the Settings screen (see aidocs_settings_page()) rather than
-    // acted on automatically — reassigning those documents' Document Type is
-    // a per-document editorial decision, not something safe to guess here.
-    if ( $flagged_in_use ) {
-        update_option( 'aidocs_invalid_type_terms', $flagged_in_use, false );
-    }
-}
-
-function aidocs_get_audiences() {
-    $saved = get_option( 'aidocs_audiences_list', '' );
-    if ( $saved !== '' ) {
-        return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
-    }
-    return AIDOCS_AUDIENCES;
 }
 
 /**
- * The only allowed Document Type values. Fixed, not admin-configurable —
- * see the comment on AIDOCS_TYPES above.
+ * The allowed Document Type values — admin-configurable from Settings,
+ * seeded with AIDOCS_TYPES on a fresh install.
  */
 function aidocs_get_types() {
+    $saved = get_option( 'aidocs_types_list', '' );
+    if ( $saved !== '' ) {
+        return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
+    }
     return AIDOCS_TYPES;
 }
 
@@ -337,8 +295,6 @@ function aidocs_doc_index_text( $pid ) {
     $parts[] = get_the_title( $pid );
     $description = get_post_meta( $pid, '_document_description', true );
     if ( $description ) $parts[] = 'Document Description: ' . $description;
-    $audience = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
-    if ( $audience && ! is_wp_error( $audience ) ) $parts[] = 'Audience: ' . implode( ', ', $audience );
     $types = wp_get_post_terms( $pid, 'document_type', [ 'fields' => 'names' ] );
     if ( $types && ! is_wp_error( $types ) ) $parts[] = 'Type: ' . implode( ', ', $types );
     $summary = get_post_meta( $pid, '_document_summary', true );
@@ -664,19 +620,6 @@ function aidocs_document_footer() {
 // ──────────────────────────────────────────────
 add_action( 'init', 'aidocs_register_taxonomies' );
 function aidocs_register_taxonomies() {
-    // Audience
-    register_taxonomy( 'document_audience', 'aidoc', [
-        'labels' => [
-            'name'          => __( 'Audiences' ),
-            'singular_name' => __( 'Audience' ),
-            'add_new_item'  => __( 'Add New Audience' ),
-        ],
-        'hierarchical'      => false,
-        'show_ui'           => false, // managed via meta box
-        'show_in_rest'      => false,
-        'rewrite'           => [ 'slug' => 'document-audience' ],
-    ] );
-
     // Document Type
     register_taxonomy( 'document_type', 'aidoc', [
         'labels' => [
@@ -792,11 +735,9 @@ function aidocs_meta_box_html( $post ) {
     $source_mode = get_post_meta( $post->ID, '_document_source_mode', true ) === 'multi' ? 'multi' : 'single';
 
     // Taxonomy terms
-    $audience_terms = wp_get_post_terms( $post->ID, 'document_audience', [ 'fields' => 'names' ] );
-    $type_terms     = wp_get_post_terms( $post->ID, 'document_type',     [ 'fields' => 'names' ] );
+    $type_terms = wp_get_post_terms( $post->ID, 'document_type', [ 'fields' => 'names' ] );
 
-    $audience_val = implode( ', ', (array) $audience_terms );
-    $type_val     = implode( ', ', (array) $type_terms );
+    $type_val = implode( ', ', (array) $type_terms );
 
     // File info
     $file_name = $file_url = $file_size = '';
@@ -1083,29 +1024,11 @@ function aidocs_meta_box_html( $post ) {
             <div class="cd-col"></div>
         </div>
 
-        <!-- Audience + Document Type — this document's own. In a multi-policy
-             upload there is no single value that fits every policy inside it,
-             so this row does not apply there: the split panel below completes
-             them per policy with AI instead. -->
+        <!-- Document Type — this document's own. In a multi-policy upload
+             there is no single value that fits every policy inside it, so
+             this row does not apply there: the split panel below completes
+             it per policy with AI instead. -->
         <div class="cd-row cd-mode-single-only">
-            <div class="cd-col">
-                <label><?php esc_html_e( 'Audience' ); ?></label>
-                <div class="cd-select-wrap">
-                    <div class="cd-select-box" id="cd-audience-box">
-                        <?php foreach ( (array) $audience_terms as $term ) : ?>
-                        <span class="cd-tag"><?php echo esc_html( $term ); ?><button type="button" class="remove-tag" aria-label="Remove">×</button></span>
-                        <?php endforeach; ?>
-                        <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
-                    </div>
-                    <ul class="cd-dropdown" id="cd-audience-dropdown">
-                        <?php foreach ( aidocs_get_audiences() as $opt ) : ?>
-                        <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </div>
-                <input type="hidden" name="document_audience_terms" id="cd-audience-value" value="<?php echo esc_attr( $audience_val ); ?>">
-                <input type="hidden" name="document_audience_touched" id="cd-audience-touched" value="0">
-            </div>
             <div class="cd-col">
                 <label><?php esc_html_e( 'Document Type' ); ?></label>
                 <div class="cd-select-wrap">
@@ -1124,6 +1047,7 @@ function aidocs_meta_box_html( $post ) {
                 <input type="hidden" name="document_type_terms" id="cd-type-value" value="<?php echo esc_attr( $type_val ); ?>">
                 <input type="hidden" name="document_type_touched" id="cd-type-touched" value="0">
             </div>
+            <div class="cd-col"></div>
         </div>
 
         <!-- Description -->
@@ -1161,37 +1085,12 @@ function aidocs_meta_box_html( $post ) {
                 </button>
             </div>
 
-            <!-- Audience and Document Type, decided once here rather than per
-                 policy. Each is its own "By AI" / "Manually" choice: manual
-                 shows a picker whose value is applied to every entry this
-                 upload creates (the common case — a compilation usually
-                 shares one audience and type, and it skips an AI call per
-                 policy); by AI asks per policy instead. -->
+            <!-- Document Type, decided once here rather than per policy. Its
+                 own "By AI" / "Manually" choice: manual shows a picker whose
+                 value is applied to every entry this upload creates (the
+                 common case — a compilation usually shares one type, and it
+                 skips an AI call per policy); by AI asks per policy instead. -->
             <div class="cd-row">
-                <div class="cd-col">
-                    <label><?php esc_html_e( 'Audience' ); ?></label>
-                    <div class="cd-mode-switch">
-                        <label class="cd-mode-option">
-                            <input type="radio" name="cd-multi-audience-mode" value="ai" checked>
-                            <span>&#9889; <?php esc_html_e( 'By AI' ); ?></span>
-                        </label>
-                        <label class="cd-mode-option">
-                            <input type="radio" name="cd-multi-audience-mode" value="manual">
-                            <span>&#9998; <?php esc_html_e( 'Manually' ); ?></span>
-                        </label>
-                    </div>
-                    <div class="cd-select-wrap" id="cd-multi-audience-wrap" hidden>
-                        <div class="cd-select-box" id="cd-multi-audience-box">
-                            <input type="text" class="cd-select-input" placeholder="<?php esc_attr_e( 'Select audience…' ); ?>" autocomplete="off">
-                        </div>
-                        <ul class="cd-dropdown" id="cd-multi-audience-dropdown">
-                            <?php foreach ( aidocs_get_audiences() as $opt ) : ?>
-                            <li data-value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
-                    <input type="hidden" id="cd-multi-audience-value" value="">
-                </div>
                 <div class="cd-col">
                     <label><?php esc_html_e( 'Document Type' ); ?></label>
                     <div class="cd-mode-switch">
@@ -1216,18 +1115,18 @@ function aidocs_meta_box_html( $post ) {
                     </div>
                     <input type="hidden" id="cd-multi-type-value" value="">
                 </div>
+                <div class="cd-col"></div>
             </div>
             <p class="cd-step-hint">
                 <?php esc_html_e( '"By AI" reads each policy on its own and picks its own value for it; "Manually" applies the one value chosen here to every entry this upload creates.' ); ?>
             </p>
 
-            <!-- Audience and Document Type have no label of their own in the
-                 source, so — same as the single-policy panel below — the AI
-                 fills whichever of these are ticked, for whichever of the two
-                 above was left empty. It runs once per policy when the
-                 entries are created, with no review step in between:
-                 reviewing forty-nine proposals one at a time is exactly what
-                 this batch flow exists to avoid. -->
+            <!-- Document Type has no label of its own in the source, so —
+                 same as the single-policy panel below — the AI fills it when
+                 ticked, if the mode above was left as "By AI". It runs once
+                 per policy when the entries are created, with no review step
+                 in between: reviewing forty-nine proposals one at a time is
+                 exactly what this batch flow exists to avoid. -->
             <div id="cd-split-ai">
                 <strong style="font-size:13px;display:block;margin:14px 0 6px;"><?php esc_html_e( 'Complete fields with AI, per policy:' ); ?></strong>
                 <div id="cd-split-ai-fields">
@@ -1241,7 +1140,7 @@ function aidocs_meta_box_html( $post ) {
                     </label>
                 </div>
                 <p class="cd-step-hint">
-                    <?php esc_html_e( 'Audience and Document Type are decided by their own "By AI" / "Manually" switches above, not by a checkbox here.' ); ?>
+                    <?php esc_html_e( 'Document Type is decided by its own "By AI" / "Manually" switch above, not by a checkbox here.' ); ?>
                 </p>
                 <p class="cd-step-hint">
                     <?php if ( $ai_key_set ) : ?>
@@ -1417,10 +1316,6 @@ function aidocs_meta_box_html( $post ) {
                             <?php esc_html_e( 'Description' ); ?>
                         </label>
                         <label class="cd-ai-field-option">
-                            <input type="checkbox" class="cd-ai-field-check" data-field-id="audience">
-                            <?php esc_html_e( 'Audience' ); ?>
-                        </label>
-                        <label class="cd-ai-field-option">
                             <input type="checkbox" class="cd-ai-field-check" data-field-id="document_type">
                             <?php esc_html_e( 'Document Type' ); ?>
                         </label>
@@ -1496,7 +1391,6 @@ function aidocs_meta_box_html( $post ) {
     (function($) {
         var cdAjaxUrl         = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
         var cdAjaxNonce       = <?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai' ) ); ?>;
-        var cdAudienceOptions = <?php echo wp_json_encode( aidocs_get_audiences() ); ?>;
         var cdTypeOptions     = <?php echo wp_json_encode( aidocs_get_types() ); ?>;
         var cdDocId           = <?php echo (int) $post->ID; ?>;
 
@@ -1575,7 +1469,7 @@ function aidocs_meta_box_html( $post ) {
             var $hidden   = $('#' + hiddenId);
 
             // On an existing document the multi-policy split panel (and its
-            // own audience/type boxes) isn't rendered at all — initializing
+            // own type box) isn't rendered at all — initializing
             // this for an element that doesn't exist would still register a
             // document-level click handler below that dereferences it, and
             // throwing from a jQuery-synthesized click (like "Apply all"'s
@@ -1712,9 +1606,7 @@ function aidocs_meta_box_html( $post ) {
             return { addTag: addTag, clearTags: clearTags };
         }
 
-        var cdAudienceSelect = initDropdownSelect('cd-audience-box', 'cd-audience-dropdown', 'cd-audience-value');
         var cdTypeSelect     = initDropdownSelect('cd-type-box',     'cd-type-dropdown',     'cd-type-value');
-        var cdMultiAudienceSelect = initDropdownSelect('cd-multi-audience-box', 'cd-multi-audience-dropdown', 'cd-multi-audience-value');
         var cdMultiTypeSelect     = initDropdownSelect('cd-multi-type-box',     'cd-multi-type-dropdown',     'cd-multi-type-value');
 
         // Marks a field "touched" the moment something — the editor or a
@@ -1726,21 +1618,19 @@ function aidocs_meta_box_html( $post ) {
         // control can never be read as "please delete this metadata".
         // initDropdownSelect's updateHidden() always fires 'change' on its
         // hidden input — on a real edit and on a scripted addTag/clearTags
-        // alike — so binding here covers every path that can set audience
-        // or document type.
-        $('#cd-audience-value').on('change', function() { $('#cd-audience-touched').val('1'); });
+        // alike — so binding here covers every path that can set document
+        // type.
         $('#cd-type-value').on('change', function() { $('#cd-type-touched').val('1'); });
         $('#cd-history').on('input change', function() { $('#cd-history-touched').val('1'); });
 
-        // "By AI" / "Manually" switches for the multi-policy Audience and
-        // Document Type — manual shows that field's picker (whose value is
-        // then fixed on every entry); AI hides it and clears any leftover
-        // value, so the batch import reads it as "let the AI decide" the
-        // same way an empty picker always has.
+        // "By AI" / "Manually" switch for the multi-policy Document Type —
+        // manual shows that field's picker (whose value is then fixed on
+        // every entry); AI hides it and clears any leftover value, so the
+        // batch import reads it as "let the AI decide" the same way an
+        // empty picker always has.
         function cdMultiFieldMode(name) {
             return $('input[name="' + name + '"]:checked').val() || 'ai';
         }
-        function cdMultiAudienceMode() { return cdMultiFieldMode('cd-multi-audience-mode'); }
         function cdMultiTypeMode()     { return cdMultiFieldMode('cd-multi-type-mode'); }
 
         function cdBindModeSwitch(name, wrapId, select) {
@@ -1750,7 +1640,6 @@ function aidocs_meta_box_html( $post ) {
                 if (!manual) select.clearTags();
             });
         }
-        cdBindModeSwitch('cd-multi-audience-mode', 'cd-multi-audience-wrap', cdMultiAudienceSelect);
         cdBindModeSwitch('cd-multi-type-mode',     'cd-multi-type-wrap',     cdMultiTypeSelect);
 
         // ── PDF Text Extraction ───────────────────────
@@ -2198,7 +2087,6 @@ function aidocs_meta_box_html( $post ) {
             var staticDefs = {
                 title:         { id: 'title',         label: '<?php echo esc_js( __( 'Document Title' ) ); ?>',       type: 'text' },
                 description:   { id: 'description',   label: '<?php echo esc_js( __( 'Description' ) ); ?>',          type: 'textarea' },
-                audience:      { id: 'audience',      label: '<?php echo esc_js( __( 'Audience' ) ); ?>',              type: 'multiselect', options: cdAudienceOptions },
                 document_type: { id: 'document_type', label: '<?php echo esc_js( __( 'Document Type' ) ); ?>',         type: 'multiselect', options: cdTypeOptions }
             };
 
@@ -2248,14 +2136,12 @@ function aidocs_meta_box_html( $post ) {
         var cdFieldLabels = {
             title:         '<?php echo esc_js( __( 'Title' ) ); ?>',
             description:   '<?php echo esc_js( __( 'Description' ) ); ?>',
-            audience:      '<?php echo esc_js( __( 'Audience' ) ); ?>',
             document_type: '<?php echo esc_js( __( 'Document Type' ) ); ?>'
         };
 
         function cdCurrentValue(fieldId) {
             if (fieldId === 'title')         return $('#title').val() || '';
             if (fieldId === 'description')   return $('#cd-description').val() || '';
-            if (fieldId === 'audience')      return $('#cd-audience-value').val() || '';
             if (fieldId === 'document_type') return $('#cd-type-value').val() || '';
             return '';
         }
@@ -2265,12 +2151,11 @@ function aidocs_meta_box_html( $post ) {
                 $('#title').val(value).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
             } else if (fieldId === 'description') {
                 $('#cd-description').val(value);
-            } else if (fieldId === 'audience' || fieldId === 'document_type') {
-                var select = fieldId === 'audience' ? cdAudienceSelect : cdTypeSelect;
-                select.clearTags();
+            } else if (fieldId === 'document_type') {
+                cdTypeSelect.clearTags();
                 String(value).split(',').forEach(function(term) {
                     var t = term.trim();
-                    if (t) select.addTag(t);
+                    if (t) cdTypeSelect.addTag(t);
                 });
             }
         }
@@ -2674,23 +2559,20 @@ function aidocs_meta_box_html( $post ) {
             $('#cd-split-result-list').empty();
             $('#cd-split-result').prop('hidden', true);
 
-            // Audience and Document Type each follow their own "By AI" /
-            // "Manually" switch: manual fixes one value for every entry —
-            // nothing left for the AI to decide there, so that field is kept
-            // out of the per-policy AI request rather than asking a question
-            // whose answer is then thrown away — while AI asks per policy.
-            var audienceIsManual = cdMultiAudienceMode() === 'manual';
+            // Document Type follows its own "By AI" / "Manually" switch:
+            // manual fixes one value for every entry — nothing left for the
+            // AI to decide there, so that field is kept out of the
+            // per-policy AI request rather than asking a question whose
+            // answer is then thrown away — while AI asks per policy.
             var typeIsManual     = cdMultiTypeMode()     === 'manual';
-            var fixedAudience = audienceIsManual ? ( $('#cd-multi-audience-value').val() || '' ) : '';
             var fixedType     = typeIsManual     ? ( $('#cd-multi-type-value').val()     || '' ) : '';
             var aiFields = cdSplitAiFields();
-            if (!audienceIsManual) aiFields.push('audience');
             if (!typeIsManual)     aiFields.push('document_type');
 
-            cdImportBatch(selection, aiFields, 0, fixedAudience, fixedType);
+            cdImportBatch(selection, aiFields, 0, fixedType);
         });
 
-        function cdImportBatch(selection, aiFields, offset, fixedAudience, fixedType) {
+        function cdImportBatch(selection, aiFields, offset, fixedType) {
             var $status = $('#cd-split-status');
             $status.text(offset + ' / ' + selection.length);
 
@@ -2706,7 +2588,6 @@ function aidocs_meta_box_html( $post ) {
                 // inside a reasonable time.
                 limit:         aiFields.length ? 2 : 4,
                 ai_fields:     JSON.stringify(aiFields),
-                fixed_audience: fixedAudience,
                 fixed_type:     fixedType
             })
             .done(function(res) {
@@ -2727,7 +2608,6 @@ function aidocs_meta_box_html( $post ) {
                         $li.append($('<a target="_blank"></a>').attr('href', doc.edit).text(doc.title));
                     }
                     var meta = [doc.blocks + ' <?php echo esc_js( __( 'blocks' ) ); ?>'];
-                    if ((doc.audience || []).length) meta.push(doc.audience.join(', '));
                     if ((doc.type || []).length)     meta.push(doc.type.join(', '));
                     $li.append(document.createTextNode(' (' + meta.join(' · ') + ')'));
                     $('#cd-split-result-list').append($li);
@@ -2735,10 +2615,10 @@ function aidocs_meta_box_html( $post ) {
                     // The first policy was written over the post this form is
                     // open on, so the form has to show that — otherwise clicking
                     // Update would put the stale values straight back, or (before
-                    // this was fixed) wipe out the Type/Audience/History the
-                    // import just wrote, since those hidden fields were never
-                    // touched by this page and still held whatever they loaded
-                    // with (usually nothing, for a brand-new upload).
+                    // this was fixed) wipe out the Type/History the import just
+                    // wrote, since those hidden fields were never touched by
+                    // this page and still held whatever they loaded with
+                    // (usually nothing, for a brand-new upload).
                     if (doc.current) {
                         cdHasContent = true;
                         $('#title').val(doc.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
@@ -2748,14 +2628,12 @@ function aidocs_meta_box_html( $post ) {
                             $('#cd-history').val(doc.fields.history);
                             $('#cd-history-touched').val('1');
                         }
-                        cdAudienceSelect.clearTags();
-                        (doc.audience || []).forEach(function(v) { cdAudienceSelect.addTag(v); });
                         cdTypeSelect.clearTags();
                         (doc.type || []).forEach(function(v) { cdTypeSelect.addTag(v); });
                         // This entry is now a single policy in its own right —
                         // not the compilation upload it started as — so the form
-                        // has to stop hiding its own Audience/Type/History row
-                        // and stop offering "Create the selected entries" again.
+                        // has to stop hiding its own Type/History row and stop
+                        // offering "Create the selected entries" again.
                         $('input[name="document_source_mode"][value="single"]').prop('checked', true);
                         cdApplyMode();
                         cdSuppressLeaveWarning();
@@ -2772,7 +2650,7 @@ function aidocs_meta_box_html( $post ) {
                     if (index > -1 && index < done) $(this).closest('.cd-split-item').addClass('is-done');
                 });
 
-                if (!d.done) { cdImportBatch(selection, aiFields, done, fixedAudience, fixedType); return; }
+                if (!d.done) { cdImportBatch(selection, aiFields, done, fixedType); return; }
 
                 $('#cd-split-status').text('');
                 $('#cd-split-result-head').text(
@@ -2882,22 +2760,13 @@ function aidocs_save_meta( $post_id ) {
         }
     }
 
-    // Audience taxonomy — same "touched" guard as Document History above:
-    // an empty list only clears the taxonomy when the field was actually
-    // touched, so a stale/unsynced empty value can't silently wipe it.
-    if ( isset( $_POST['document_audience_terms'] ) ) {
-        $terms   = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_audience_terms'] ) ) ) );
-        $touched = ! empty( $_POST['document_audience_touched'] );
-        if ( $terms || $touched ) {
-            wp_set_post_terms( $post_id, $terms, 'document_audience' );
-        }
-    }
-
-    // Document Type taxonomy — same "touched" guard, plus the vocabulary
-    // check every Document Type value goes through no matter where it came
-    // from (typed by hand, an AI proposal applied in the review panel, or a
-    // raw request someone crafted by hand): only the 4 confirmed types can
-    // ever reach wp_set_post_terms(), so nothing here can create a 5th term.
+    // Document Type taxonomy — same "touched" guard as Document History
+    // above, plus the vocabulary check every Document Type value goes
+    // through no matter where it came from (typed by hand, an AI proposal
+    // applied in the review panel, or a raw request someone crafted by
+    // hand): only the configured types (aidocs_get_types()) can ever reach
+    // wp_set_post_terms(), so a value outside that list can't create a new
+    // term here — new types are only ever added deliberately, from Settings.
     if ( isset( $_POST['document_type_terms'] ) ) {
         $terms   = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( $_POST['document_type_terms'] ) ) ) );
         $terms   = aidocs_sanitize_ai_terms( $terms, aidocs_get_types() );
@@ -2907,8 +2776,8 @@ function aidocs_save_meta( $post_id ) {
         }
     }
 
-    // Whatever changed above — title, description, audience, type — is what
-    // the embedding is built from, so every save is what keeps it current.
+    // Whatever changed above — title, description, type — is what the
+    // embedding is built from, so every save is what keeps it current.
     aidocs_maybe_reindex( $post_id );
 }
 
@@ -2923,7 +2792,6 @@ function aidocs_save_meta( $post_id ) {
  * same way to the model regardless of which flow is asking.
  */
 function aidocs_ai_fields_desc( array $fields ) {
-    $available_audiences = implode( ', ', aidocs_get_audiences() );
     $available_types     = implode( ', ', aidocs_get_types() );
 
     $fields_desc = '';
@@ -2932,9 +2800,7 @@ function aidocs_ai_fields_desc( array $fields ) {
         $label = $f['label'] ?? '';
         $type  = $f['type']  ?? 'text';
 
-        if ( $id === 'audience' ) {
-            $fields_desc .= '- id: "audience", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_audiences . ')' . "\n";
-        } elseif ( $id === 'document_type' ) {
+        if ( $id === 'document_type' ) {
             $fields_desc .= '- id: "document_type", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_types . ')' . "\n";
         } else {
             $type_hint    = $type === 'list' ? 'list (one item per line)' : $type;
@@ -3262,16 +3128,16 @@ function aidocs_policy_fields( array $parsed ) {
  * Unlike the single-document path, the deterministic fields here — content,
  * description, date, history — are written unconditionally: the entry either did
  * not exist a moment ago, or is the one the editor pointed at this compilation, so
- * there is no manual correction to outrank. Audience and Document Type are not
- * deterministic at all — the label schema has no section for them — so they come
- * from wherever aidocs_ai_fill_policy_fields() found them, one policy at a time,
- * the same as the interactive "Complete fields with AI" panel would for a single
+ * there is no manual correction to outrank. Document Type is not deterministic
+ * at all — the label schema has no section for it — so it comes from wherever
+ * aidocs_ai_fill_policy_fields() found it, one policy at a time, the same as
+ * the interactive "Complete fields with AI" panel would for a single
  * document, just applied without a manual review step: reviewing forty-nine of
  * them one by one is the batching this whole flow exists to avoid.
  *
  * @param int   $post_id Target document.
  * @param array $fields  Output of aidocs_policy_fields().
- * @param array $terms   [ 'audience' => string[], 'type' => string[] ]
+ * @param array $terms   [ 'type' => string[] ]
  */
 function aidocs_write_policy( $post_id, array $fields, array $terms ) {
     // See aidocs_extract_content_ajax() on why the JSON is slashed.
@@ -3292,8 +3158,7 @@ function aidocs_write_policy( $post_id, array $fields, array $terms ) {
     // the value came from — see aidocs_sanitize_ai_terms().
     $type = aidocs_sanitize_ai_terms( $terms['type'], aidocs_get_types() );
 
-    if ( $terms['audience'] ) wp_set_post_terms( $post_id, $terms['audience'], 'document_audience' );
-    if ( $type )              wp_set_post_terms( $post_id, $type,              'document_type' );
+    if ( $type ) wp_set_post_terms( $post_id, $type, 'document_type' );
 
     return aidocs_maybe_reindex( $post_id );
 }
@@ -3303,7 +3168,6 @@ function aidocs_policy_ai_field_labels() {
     return [
         'title'         => __( 'Title' ),
         'description'   => __( 'Description' ),
-        'audience'      => __( 'Audience' ),
         'document_type' => __( 'Document Type' ),
     ];
 }
@@ -3356,9 +3220,6 @@ function aidocs_ai_fill_policy_fields( $raw_text, array $field_ids, $api_key, $m
     }
     if ( isset( $result['description'] ) && is_string( $result['description'] ) ) {
         $out['description'] = sanitize_textarea_field( $result['description'] );
-    }
-    if ( isset( $result['audience'] ) ) {
-        $out['audience'] = aidocs_sanitize_ai_terms( $result['audience'], aidocs_get_audiences() );
     }
     if ( isset( $result['document_type'] ) ) {
         $out['document_type'] = aidocs_sanitize_ai_terms( $result['document_type'], aidocs_get_types() );
@@ -3459,10 +3320,9 @@ function aidocs_import_policies_ajax() {
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
     $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
 
-    // A manually picked Audience/Document Type is the same for every entry
-    // this upload creates — set once above the policy list rather than left
-    // for the AI to guess per policy.
-    $fixed_audience = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_audience'] ?? '' ) ) ) ) );
+    // A manually picked Document Type is the same for every entry this
+    // upload creates — set once above the policy list rather than left for
+    // the AI to guess per policy.
     $fixed_type     = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_type'] ?? '' ) ) ) ) );
     // Same vocabulary check as everywhere else Document Type is written —
     // this is a manually picked value, but the request itself could still be
@@ -3477,13 +3337,12 @@ function aidocs_import_policies_ajax() {
         // label schema does not cover — one call per policy, same as the
         // interactive panel would make for a single document. A title or
         // description the parser already found still wins; there is nothing
-        // for the parser to have found for Audience or Document Type at all, so
-        // those come from the AI whenever it was asked to fill them.
+        // for the parser to have found for Document Type at all, so that
+        // comes from the AI whenever it was asked to fill it.
         $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $ai_field_ids, $api_key, $model );
         if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
         if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
         $terms = [
-            'audience' => $fixed_audience ?: ( $ai['audience']      ?? [] ),
             'type'     => $fixed_type     ?: ( $ai['document_type'] ?? [] ),
         ];
 
@@ -3504,8 +3363,8 @@ function aidocs_import_policies_ajax() {
             wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '', 'post_status' => 'publish' ] );
             // This entry is one policy now, not the compilation it started as:
             // it needs to stop behaving like a multi-document upload (offering
-            // "Create the selected entries" again, hiding its own Audience/
-            // Type/History) and stop pointing at the 49-policy source file —
+            // "Create the selected entries" again, hiding its own Type/
+            // History) and stop pointing at the 49-policy source file —
             // reopening the editor later would otherwise reload and re-detect
             // policies from that whole file instead of showing this one policy.
             update_post_meta( $post_id, '_document_source_mode', 'single' );
@@ -3530,7 +3389,6 @@ function aidocs_import_policies_ajax() {
             'blocks'   => count( $fields['blocks'] ),
             'edit'     => get_edit_post_link( $target, 'raw' ),
             'link'     => get_permalink( $target ),
-            'audience' => $terms['audience'],
             'type'     => $terms['type'],
             'fields'   => [
                 'description' => $fields['description'],
@@ -3550,7 +3408,7 @@ function aidocs_import_policies_ajax() {
         'total'      => count( $selection ),
         // The fields were requested but there is nothing to fill them with —
         // worth one warning up front rather than forty-nine silently empty
-        // Audience/Document Type columns the editor has to notice on their own.
+        // Document Type columns the editor has to notice on their own.
         'ai_warning' => ( $ai_field_ids && ! $api_key )
             ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Documents → Settings.' )
             : '',
@@ -3838,10 +3696,9 @@ function aidocs_search_response_schema() {
                 'type'       => 'OBJECT',
                 'properties' => [
                     'keyword'  => [ 'type' => 'STRING' ],
-                    'audience' => [ 'type' => 'STRING' ],
                     'type'     => [ 'type' => 'STRING' ],
                 ],
-                'required' => [ 'keyword', 'audience', 'type' ],
+                'required' => [ 'keyword', 'type' ],
             ],
         ],
         'required' => [ 'message', 'filters' ],
@@ -4084,12 +3941,11 @@ function aidocs_settings_page() { // phpcs:ignore
             update_option( 'aidocs_gemini_api_key', sanitize_text_field( $_POST['aidocs_gemini_api_key'] ) );
         }
 
-        $raw_audiences = sanitize_textarea_field( $_POST['aidocs_audiences_list'] ?? '' );
-        update_option( 'aidocs_audiences_list', $raw_audiences );
-        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_audiences ) ) ) as $term ) {
-            if ( ! term_exists( $term, 'document_audience' ) ) wp_insert_term( $term, 'document_audience' );
+        $raw_types = sanitize_textarea_field( $_POST['aidocs_types_list'] ?? '' );
+        update_option( 'aidocs_types_list', $raw_types );
+        foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
+            if ( ! term_exists( $term, 'document_type' ) ) wp_insert_term( $term, 'document_type' );
         }
-        // Document Type has no textarea any more — see aidocs_get_types().
 
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.' ) . '</p></div>';
     }
@@ -4097,29 +3953,15 @@ function aidocs_settings_page() { // phpcs:ignore
     /* ---- data ---- */
     $gemini_model      = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
     $gemini_api_key    = get_option( 'aidocs_gemini_api_key', '' );
-    $audiences_list    = get_option( 'aidocs_audiences_list', implode( "\n", AIDOCS_AUDIENCES ) );
-    $types_arr         = aidocs_get_types();
+    $types_list        = get_option( 'aidocs_types_list', implode( "\n", AIDOCS_TYPES ) );
 
-    $audiences_arr = array_filter( array_map( 'trim', explode( "\n", $audiences_list ) ) );
-    $first_type    = reset( $types_arr )     ?: 'Policies';
-    $first_aud     = reset( $audiences_arr ) ?: 'Institution';
+    $types_arr     = array_filter( array_map( 'trim', explode( "\n", $types_list ) ) );
+    $first_type    = reset( $types_arr ) ?: 'Policies';
     $sample_doc    = get_posts( [ 'post_type' => 'aidoc', 'post_status' => 'publish', 'numberposts' => 1 ] );
     $sample_doc_id = $sample_doc ? $sample_doc[0]->ID : 123;
     ?>
     <div class="wrap">
     <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
-    <?php $invalid_type_terms = get_option( 'aidocs_invalid_type_terms', [] ); ?>
-    <?php if ( $invalid_type_terms ) : ?>
-    <div class="notice notice-warning">
-        <p>
-            <strong><?php esc_html_e( 'Document Type terms outside the 4 confirmed types are still in use:' ); ?></strong>
-            <?php foreach ( $invalid_type_terms as $t ) : ?>
-                <?php echo esc_html( $t['name'] ); ?> (<?php echo (int) $t['count']; ?>)<?php echo $t !== end( $invalid_type_terms ) ? ', ' : ''; ?>
-            <?php endforeach; ?>
-            <?php esc_html_e( 'These were left alone rather than reassigned automatically — open each document and pick the correct one of the 4 types.' ); ?>
-        </p>
-    </div>
-    <?php endif; ?>
     <style>
     .cd-settings-section{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:20px 24px;margin-bottom:24px;}
     .cd-settings-section h2{margin-top:0;font-size:16px;}
@@ -4182,14 +4024,8 @@ function aidocs_settings_page() { // phpcs:ignore
         <p class="description" style="margin-bottom:16px;"><?php esc_html_e( 'One item per line. New items are registered as taxonomy terms automatically.' ); ?></p>
         <table class="form-table" role="presentation">
             <tr>
-                <th><label for="cd-audiences-list"><?php esc_html_e( 'Audiences' ); ?></label></th>
-                <td><textarea id="cd-audiences-list" name="aidocs_audiences_list" rows="6" class="large-text"><?php echo esc_textarea( $audiences_list ); ?></textarea></td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Document Types' ); ?></th>
-                <td>
-                    <p><?php echo esc_html( implode( ', ', $types_arr ) ); ?></p>
-                </td>
+                <th><label for="cd-types-list"><?php esc_html_e( 'Document Types' ); ?></label></th>
+                <td><textarea id="cd-types-list" name="aidocs_types_list" rows="6" class="large-text"><?php echo esc_textarea( $types_list ); ?></textarea></td>
             </tr>
         </table>
     </div>
@@ -4209,13 +4045,8 @@ function aidocs_settings_page() { // phpcs:ignore
             <p class="cd-sc-desc"><?php esc_html_e( 'Available:' ); ?> <?php foreach ( $types_arr as $t ) echo '<code>' . esc_html( $t ) . '</code> '; ?></p>
         </div>
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Pre-filtered by Audience' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-3">[aidocs_search audience="<?php echo esc_html( $first_aud ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-3"><?php esc_html_e( 'Copy' ); ?></button></div>
-            <p class="cd-sc-desc"><?php esc_html_e( 'Available:' ); ?> <?php foreach ( $audiences_arr as $a ) echo '<code>' . esc_html( $a ) . '</code> '; ?></p>
-        </div>
-        <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Combined + custom per_page' ); ?></h3>
-            <div class="cd-sc-code"><code id="cd-sc-4">[aidocs_search type="<?php echo esc_html( $first_type ); ?>" audience="<?php echo esc_html( $first_aud ); ?>" per_page="5"]</code><button class="cd-sc-copy" data-target="cd-sc-4"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <h3><?php esc_html_e( 'Custom per_page' ); ?></h3>
+            <div class="cd-sc-code"><code id="cd-sc-4">[aidocs_search type="<?php echo esc_html( $first_type ); ?>" per_page="5"]</code><button class="cd-sc-copy" data-target="cd-sc-4"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Without AI inline suggestions' ); ?></h3>
@@ -4247,7 +4078,6 @@ function aidocs_settings_page() { // phpcs:ignore
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
             <tbody>
                 <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from URL.' ); ?></td></tr>
-                <tr><td><code>audience</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select an audience. Also reads ?audience= from URL.' ); ?></td></tr>
                 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to disable inline AI suggestions in the search bar.' ); ?></td></tr>
                 <tr><td><code>show_chat</code></td><td><code>false</code></td><td><?php esc_html_e( 'Set "true" to show the floating AI chat bubble.' ); ?></td></tr>
                 <tr><td><code>per_page</code></td><td><code>20</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
@@ -4360,9 +4190,7 @@ function aidocs_settings_page() { // phpcs:ignore
 // ──────────────────────────────────────────────
 // One submenu item per configured Document Type, each just a link to the
 // standard Documents list pre-filtered by that type — same list table, same
-// columns, same bulk actions, nothing duplicated. Audience gets none of
-// this: it stays exactly as it is until Cirlot confirms whether it is still
-// needed at all, so nothing here assumes it will still exist.
+// columns, same bulk actions, nothing duplicated.
 add_action( 'admin_menu', 'aidocs_admin_menu_type_shortcuts', 20 );
 function aidocs_admin_menu_type_shortcuts() {
     $parent = 'edit.php?post_type=aidoc';
@@ -4540,7 +4368,6 @@ add_filter( 'manage_aidoc_posts_columns', 'aidocs_admin_columns' );
 function aidocs_admin_columns( $cols ) {
     $new = [ 'cb' => $cols['cb'], 'title' => $cols['title'] ];
     $new['_document_pub_date'] = __( 'Last Updated' );
-    $new['document_audience']  = __( 'Audience' );
     $new['document_type']      = __( 'Type' );
     $new['date']               = $cols['date'];
     return $new;
@@ -4551,10 +4378,6 @@ function aidocs_admin_column_values( $col, $post_id ) {
     switch ( $col ) {
         case '_document_pub_date':
             echo esc_html( get_post_meta( $post_id, '_document_pub_date', true ) );
-            break;
-        case 'document_audience':
-            $terms = get_the_terms( $post_id, 'document_audience' );
-            echo $terms && ! is_wp_error( $terms ) ? esc_html( implode( ', ', wp_list_pluck( $terms, 'name' ) ) ) : '—';
             break;
         case 'document_type':
             $terms = get_the_terms( $post_id, 'document_type' );
@@ -4572,11 +4395,6 @@ register_activation_hook( __FILE__, function() {
     aidocs_register_taxonomies();
 
     // Seed predefined terms
-    foreach ( AIDOCS_AUDIENCES as $term ) {
-        if ( ! term_exists( $term, 'document_audience' ) ) {
-            wp_insert_term( $term, 'document_audience' );
-        }
-    }
     foreach ( AIDOCS_TYPES as $term ) {
         if ( ! term_exists( $term, 'document_type' ) ) {
             wp_insert_term( $term, 'document_type' );
@@ -4595,7 +4413,6 @@ add_shortcode( 'aidocs_search', 'aidocs_search_shortcode' );
 function aidocs_search_shortcode( $atts ) {
     $atts = shortcode_atts( [
         'type'      => '',
-        'audience'  => '',
         'per_page'  => 20,
         'show_ai'   => 'true',
         // Off by default: every document card already links straight to its
@@ -4605,21 +4422,14 @@ function aidocs_search_shortcode( $atts ) {
     ], $atts );
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );
-    $url_audience = sanitize_text_field( $_GET['audience'] ?? '' );
 
     $default_type     = $url_type     ?: $atts['type'];
-    $default_audience = $url_audience ?: $atts['audience'];
 
-    $audiences = aidocs_get_audiences();
     $types     = aidocs_get_types();
 
     $matched_type = '';
     foreach ( $types as $t ) {
         if ( strtolower( $t ) === strtolower( $default_type ) ) { $matched_type = $t; break; }
-    }
-    $matched_audience = '';
-    foreach ( $audiences as $a ) {
-        if ( strtolower( $a ) === strtolower( $default_audience ) ) { $matched_audience = $a; break; }
     }
 
     $show_ai   = $atts['show_ai']   !== 'false';
@@ -4699,9 +4509,8 @@ jQuery(function($){
             if(val.length<2){\$aiExplain.empty();return;}
             \$aiExplain.empty();
             _aiTimer=setTimeout(function(){
-                var aud=\$wrap.find('.cd-fs-audience').val();
                 var typ=\$wrap.find('.cd-fs-type').val();
-                fetchAiRecommend(val,aud,typ);
+                fetchAiRecommend(val,typ);
             },600);
         }
     });
@@ -4733,14 +4542,12 @@ jQuery(function($){
     function openModal(doc){
         \$modalTitle.text(doc.title||'');
         var tags='';
-        \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
         \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
         \$modalTags.html(tags);
         /* Extracted fields first (the AI-filled metadata), structured body after */
         var body='';
         if(doc.description) body+='<div class="cd-doc-modal-desc">'+\$('<span>').text(doc.description).html()+'</div>';
         var grid='';
-        if((doc.audience||[]).length) grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Audience</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.audience.join(', ')).html()+'</div></div>';
         if((doc.type||[]).length)     grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Document Type</div><div class="cd-doc-modal-value">'+\$('<span>').text(doc.type.join(', ')).html()+'</div></div>';
         if(doc.pub_date)              grid+='<div class="cd-doc-modal-field"><div class="cd-doc-modal-label">Last Updated</div><div class="cd-doc-modal-value">'+formatDate(doc.pub_date)+'</div></div>';
         if(grid) body+='<div class="cd-doc-modal-grid">'+grid+'</div>';
@@ -4842,7 +4649,6 @@ jQuery(function($){
         \$results.append(hdr);
         \$.each(data.results,function(i,doc){
             var tags='';
-            \$.each(doc.audience||[],function(_,a){tags+='<span class="cd-fs-doc-tag audience">'+\$('<span>').text(a).html()+'</span>';});
             \$.each(doc.type||[],function(_,t){tags+='<span class="cd-fs-doc-tag type">'+\$('<span>').text(t).html()+'</span>';});
             if(doc.pub_date)tags+='<span class="cd-fs-doc-tag date">'+formatDate(doc.pub_date)+'</span>';
             /* A reading glyph, not a file one: what a card leads to is the
@@ -4872,9 +4678,9 @@ jQuery(function($){
         }
     }
 
-    function fetchAiRecommend(kw,aud,typ){
+    function fetchAiRecommend(kw,typ){
         if(_explainXhr)_explainXhr.abort();
-        var query=[kw,aud,typ].filter(Boolean).join(' ');
+        var query=[kw,typ].filter(Boolean).join(' ');
         if(!query){\$aiExplain.empty();return;}
         \$aiExplain.html('<div class="cd-fs-ai-thinking"><div class="cd-fs-ai-thinking-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><span class="cd-fs-ai-thinking-text">{$js_ai_thinking}<span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></span></div>');
         _explainXhr=\$.post(ajaxUrl,{
@@ -4906,12 +4712,11 @@ jQuery(function($){
         page=page||1;currentPage=page;
         \$results.html('<div class="cd-fs-loading">{$js_loading}</div>');
         var kw=\$wrap.find('.cd-fs-keyword').val();
-        var aud=\$wrap.find('.cd-fs-audience').val();
         var typ=\$wrap.find('.cd-fs-type').val();
         \$suggestions.hide().empty();
         \$.post(ajaxUrl,{
             action:'aidocs_search',nonce:nonce,
-            keyword:kw,audience:aud,type:typ,
+            keyword:kw,type:typ,
             page:page,per_page:perPage
         }).done(function(res){
             if(res.success)renderResults(res.data);
@@ -5035,7 +4840,7 @@ ENDSCRIPT;
     .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
     .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}.cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
+    .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
     .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
     .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
     .cd-fs-page-btn{height:34px;min-width:34px;padding:0 10px;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px);font-size:13px;cursor:pointer;transition:background .15s,border-color .15s;}
@@ -5179,22 +4984,14 @@ ENDSCRIPT;
                 <?php endforeach; ?>
             </div>
 
-            <!-- Single-row controls: keyword + audience + search. Type is
-                 chosen via the tabs above; this select keeps the same
-                 value/options so the JS below reads it exactly as before. -->
+            <!-- Single-row controls: keyword + search. Type is chosen via the
+                 tabs above; this select keeps the same value/options so the
+                 JS below reads it exactly as before. -->
             <div class="cd-fs-controls">
                 <div class="cd-fs-keyword-wrap">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <input type="text" class="cd-fs-keyword" placeholder="<?php esc_attr_e( 'e.g. reduced credit for undergraduate degree…' ); ?>" value="<?php echo esc_attr( sanitize_text_field( $_GET['q'] ?? '' ) ); ?>">
                     <button type="button" class="cd-fs-kw-clear" aria-label="<?php esc_attr_e( 'Clear' ); ?>">&times;</button>
-                </div>
-                <div class="cd-fs-select-wrap">
-                    <select class="cd-fs-audience">
-                        <option value=""><?php esc_html_e( 'Any Audience' ); ?></option>
-                        <?php foreach ( $audiences as $a ) : ?>
-                        <option value="<?php echo esc_attr( $a ); ?>" <?php selected( $a, $matched_audience ); ?>><?php echo esc_html( $a ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
                 </div>
                 <select class="cd-fs-type cd-fs-type-select-hidden" aria-hidden="true">
                     <option value=""><?php esc_html_e( 'Any Type' ); ?></option>
@@ -5318,9 +5115,7 @@ function aidocs_document_shortcode( $atts ) {
 function aidocs_render_single_document( $pid, $standalone = true ) {
     $pub_date  = get_post_meta( $pid, '_document_pub_date', true );
     $desc      = get_post_meta( $pid, '_document_description', true );
-    $audience  = wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] );
     $types     = wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] );
-    $audience  = is_wp_error( $audience ) ? [] : $audience;
     $types     = is_wp_error( $types ) ? [] : $types;
     $blocks    = aidocs_get_content_blocks( $pid );
 
@@ -5339,9 +5134,6 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
             <h1 class="aidocs-single-title"><?php echo esc_html( get_the_title( $pid ) ); ?></h1>
             <div class="aidocs-single-heading">
                 <div class="aidocs-single-tags">
-                    <?php foreach ( $audience as $a ) : ?>
-                        <span class="cd-fs-doc-tag audience"><?php echo esc_html( $a ); ?></span>
-                    <?php endforeach; ?>
                     <?php foreach ( $types as $t ) : ?>
                         <span class="cd-fs-doc-tag type"><?php echo esc_html( $t ); ?></span>
                     <?php endforeach; ?>
@@ -5353,12 +5145,8 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
         <div class="aidocs-single-desc"><?php echo esc_html( $desc ); ?></div>
         <?php endif; ?>
 
-        <?php if ( $audience || $types || $pub_date ) : ?>
+        <?php if ( $types || $pub_date ) : ?>
         <div class="aidocs-single-grid">
-            <?php if ( $audience ) : ?>
-            <div><div class="aidocs-single-label"><?php esc_html_e( 'Audience' ); ?></div>
-                 <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $audience ) ); ?></div></div>
-            <?php endif; ?>
             <?php if ( $types ) : ?>
             <div><div class="aidocs-single-label"><?php esc_html_e( 'Document Type' ); ?></div>
                  <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $types ) ); ?></div></div>
@@ -5518,7 +5306,6 @@ function aidocs_single_view_styles() {
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
     .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}
-    .cd-fs-doc-tag.audience{background:#f0faf4;color:#1e6e45;}
     .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
     .aidocs-single-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-bottom:4px;}
     .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
@@ -5570,7 +5357,6 @@ function aidocs_search_ajax() {
     check_ajax_referer( 'aidocs_search', 'nonce' );
 
     $keyword  = sanitize_text_field( $_POST['keyword']  ?? '' );
-    $audience = sanitize_text_field( $_POST['audience'] ?? '' );
     $type     = sanitize_text_field( $_POST['type']     ?? '' );
     $page     = max( 1, absint( $_POST['page']     ?? 1 ) );
     $per_page = max( 1, min( 50, absint( $_POST['per_page'] ?? 10 ) ) );
@@ -5617,9 +5403,6 @@ function aidocs_search_ajax() {
     }
 
     $tax_query = [];
-    if ( $audience ) {
-        $tax_query[] = [ 'taxonomy' => 'document_audience', 'field' => 'name', 'terms' => [ $audience ] ];
-    }
     if ( $type ) {
         $tax_query[] = [ 'taxonomy' => 'document_type', 'field' => 'name', 'terms' => [ $type ] ];
     }
@@ -5643,7 +5426,6 @@ function aidocs_search_ajax() {
             'description' => get_post_meta( $pid, '_document_description', true ),
             'permalink'   => get_permalink( $pid ),
             'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
-            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
             'snippet'     => $keyword ? aidocs_search_snippet( $pid, $keyword ) : '',
         ];
@@ -5665,7 +5447,6 @@ function aidocs_ai_explain_ajax() {
     check_ajax_referer( 'aidocs_ai_search', 'nonce' );
 
     $keyword  = sanitize_text_field( $_POST['keyword']  ?? '' );
-    $audience = sanitize_text_field( $_POST['audience'] ?? '' );
     $type     = sanitize_text_field( $_POST['type']     ?? '' );
     $titles   = json_decode( stripslashes( $_POST['titles'] ?? '[]' ), true );
     if ( ! is_array( $titles ) ) $titles = [];
@@ -5679,7 +5460,6 @@ function aidocs_ai_explain_ajax() {
 
     $query_parts = [];
     if ( $keyword )  $query_parts[] = 'keyword: "' . $keyword . '"';
-    if ( $audience ) $query_parts[] = 'audience: "' . $audience . '"';
     if ( $type )     $query_parts[] = 'type: "' . $type . '"';
     $query_desc = $query_parts ? implode( ', ', $query_parts ) : 'no specific filters';
 
@@ -5817,13 +5597,12 @@ function aidocs_ai_recommend_ajax() {
             'description' => get_post_meta( $pid, '_document_description', true ),
             // The embedding that got this doc shortlisted is built from the full
             // extracted body text, but Gemini's final pick was only ever shown
-            // title/type/audience/description — nothing from the actual content.
+            // title/type/description — nothing from the actual content.
             // A short manually-written description is frequently empty, so Gemini
             // had no real text to confirm relevance against, and rejected docs
             // that merely used *different wording* than the query. Give it an
             // actual body excerpt to judge from.
             'excerpt'     => aidocs_candidate_excerpt( $pid, $excerpt_len ),
-            'audience'    => wp_get_post_terms( $pid, 'document_audience', [ 'fields' => 'names' ] ),
             'type'        => wp_get_post_terms( $pid, 'document_type',     [ 'fields' => 'names' ] ),
             'pub_date'    => get_post_meta( $pid, '_document_pub_date', true ),
             'permalink'   => get_permalink( $pid ),
@@ -5835,7 +5614,6 @@ function aidocs_ai_recommend_ajax() {
     foreach ( $candidates as $i => $doc ) {
         $line  = ( $i + 1 ) . ". [ID:{$doc['id']}] {$doc['title']}";
         if ( $doc['type'] )        $line .= ' | ' . implode( ', ', (array) $doc['type'] );
-        if ( $doc['audience'] )    $line .= ' | Audience: ' . implode( ', ', (array) $doc['audience'] );
         if ( $doc['description'] ) $line .= ' | ' . mb_substr( $doc['description'], 0, 160 );
         if ( $doc['excerpt'] )     $line .= ' | Excerpt: ' . $doc['excerpt'];
         $catalog .= $line . "\n";
@@ -5945,9 +5723,6 @@ function aidocs_ai_doc_chat_ajax() {
     $desc = get_post_meta( $doc_id, '_document_description', true );
     if ( $desc ) $ctx .= "Description: {$desc}\n";
 
-    $audiences = wp_get_post_terms( $doc_id, 'document_audience', [ 'fields' => 'names' ] );
-    if ( $audiences && ! is_wp_error( $audiences ) ) $ctx .= 'Audience: ' . implode( ', ', $audiences ) . "\n";
-
     $types = wp_get_post_terms( $doc_id, 'document_type', [ 'fields' => 'names' ] );
     if ( $types && ! is_wp_error( $types ) ) $ctx .= 'Type: ' . implode( ', ', $types ) . "\n";
 
@@ -6004,17 +5779,15 @@ function aidocs_ai_search_ajax() {
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $types     = aidocs_get_types();
-    $audiences = aidocs_get_audiences();
     $site      = get_bloginfo( 'name' );
 
     $system  = "You are a helpful document search assistant for {$site}. ";
     $system .= 'Available document types: ' . implode( ', ', $types ) . '. ';
-    $system .= 'Available audiences: ' . implode( ', ', $audiences ) . '. ';
     $system .= 'Help users find documents by understanding their natural language requests. ';
     $system .= 'Respond ONLY with a valid JSON object with two keys: ';
     $system .= '"message" (your friendly, concise response in the same language the user wrote in) and ';
-    $system .= '"filters" (object with keys: keyword (string), audience (string, must match one of available audiences or empty), type (string, must match one of available document types or empty)). ';
-    $system .= 'Only suggest audience/type values from the available lists. No markdown, no fences.';
+    $system .= '"filters" (object with keys: keyword (string), type (string, must match one of available document types or empty)). ';
+    $system .= 'Only suggest type values from the available list. No markdown, no fences.';
 
     $contents = [ [ 'role' => 'user', 'parts' => [ [ 'text' => $system . "\n\nUser: " . $message ] ] ] ];
 
@@ -6055,12 +5828,12 @@ function aidocs_ai_search_ajax() {
     if ( ! is_array( $result ) || ! isset( $result['message'] ) ) {
         $result = [
             'message' => trim( $text ) ?: __( 'I couldn\'t process that. Please try again.' ),
-            'filters' => [ 'keyword' => '', 'audience' => '', 'type' => '' ],
+            'filters' => [ 'keyword' => '', 'type' => '' ],
         ];
     }
 
     if ( ! isset( $result['filters'] ) ) {
-        $result['filters'] = [ 'keyword' => '', 'audience' => '', 'type' => '' ];
+        $result['filters'] = [ 'keyword' => '', 'type' => '' ];
     }
 
     wp_send_json_success( $result );
