@@ -2717,7 +2717,10 @@ function aidocs_meta_box_html( $post ) {
                 // on the server either way, so this keeps asking rather than
                 // reporting a failure that has not happened.
                 .fail(function() { cdPollImport(selection); });
-            }, 2000);
+                // Short: the request itself is where the work happens and takes
+                // seconds, so this is only the gap between one slice and the
+                // next, and every second of it is a second the import is idle.
+            }, 600);
         }
 
         function cdRenderImportProgress(d, selection) {
@@ -2732,7 +2735,8 @@ function aidocs_meta_box_html( $post ) {
             // where the empty columns would otherwise be the only clue.
             if (d.ai_error && !$('#cd-split-ai-error').length) {
                 $('<div id="cd-split-ai-error" class="cd-ai-fidelity is-warn"></div>')
-                    .text('<?php echo esc_js( __( 'The AI could not fill the requested fields:' ) ); ?> ' + d.ai_error)
+                    .text('<?php echo esc_js( __( 'The AI could not fill the requested fields:' ) ); ?> ' + d.ai_error
+                        + (d.ai_gave_up ? ' <?php echo esc_js( __( 'It failed three times running, so the rest of this import is not waiting on it — the entries are still being created, without those fields.' ) ); ?>' : ''))
                     .insertBefore('#cd-split-progress');
             }
 
@@ -3727,7 +3731,21 @@ function aidocs_work_import( $post_id, array $job, $seconds ) {
         // description the parser already found still wins; there is nothing
         // for the parser to have found for Document Type at all, so that
         // comes from the AI whenever it was asked to fill it.
-        $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $job['ai_fields'], $api_key, $model, $ai_error );
+        //
+        // Once the AI has failed three times running, it is not asked again for
+        // the rest of this import. A failing call is not free: it is retried
+        // twice with a wait between, so roughly twelve seconds per article are
+        // spent to arrive at the same empty answer. An overloaded model or an
+        // exhausted quota fails for every article alike, which turned a
+        // forty-nine article import into ten minutes of waiting for nothing.
+        // The entries are written either way; what is skipped is the asking.
+        $ai       = [];
+        $ai_error = '';
+        if ( ( $job['ai_failures'] ?? 0 ) < 3 ) {
+            $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $job['ai_fields'], $api_key, $model, $ai_error );
+            $job['ai_failures'] = $ai_error ? ( $job['ai_failures'] ?? 0 ) + 1 : 0;
+        }
+
         if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
         if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
 
@@ -3880,6 +3898,9 @@ function aidocs_import_policies_ajax() {
         'created'    => [],
         'message'    => '',
         'ai_error'   => '',
+        // Consecutive AI failures. Three in a row and the rest of the import
+        // stops asking — see the worker for why that is worth several minutes.
+        'ai_failures' => 0,
         'redirect'   => admin_url( 'edit.php?post_type=aidoc' ),
         // Worth saying up front rather than leaving forty-nine silently empty
         // Document Type columns for the editor to notice on their own.
@@ -3916,6 +3937,9 @@ function aidocs_import_job_status( $post_id, array $job ) {
         'created'    => $job['created'],
         'message'    => $job['message'],
         'ai_error'   => $job['ai_error'],
+        // Said only once the breaker has actually tripped, so an import that
+        // recovered after one bad call does not claim it gave up.
+        'ai_gave_up' => ( $job['ai_failures'] ?? 0 ) >= 3,
         'ai_warning' => $job['ai_warning'],
         'redirect'   => $job['status'] === 'done' ? $job['redirect'] : '',
     ];

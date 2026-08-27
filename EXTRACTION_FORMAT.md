@@ -177,6 +177,14 @@ all, so its own canonical text read as a raw PDF text layer on the way back in â
 which is what made the editor's Preview tab, which re-parses exactly that text,
 disagree with the published page about the whole document.
 
+### Collapsible sections
+
+Every level-2 or level-3 heading that is not a note opens a collapsible section
+(`aidocs_render_sections()`), so a long document shows its outline first. A
+document that yields exactly **one** section renders it open: there is no
+outline to show, and the page would otherwise be a single closed bar hiding
+everything behind one click.
+
 ### Title echo
 
 Almost every document repeats its own title inside the body, in all caps and

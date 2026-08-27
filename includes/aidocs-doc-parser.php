@@ -1633,8 +1633,21 @@ function aidocs_render_content_blocks( array $blocks ) {
 
 /** Group blocks by their section headings and render each as an accordion item. */
 function aidocs_render_sections( array $blocks ) {
+    $sections = aidocs_group_sections( $blocks );
+
+    // A document with exactly one collapsible section opens it. Collapsing is
+    // there so a long document shows its outline first and the reader opens
+    // what they need; with one section there is no outline to show, and the
+    // page renders as a single closed bar hiding the entire document behind
+    // one click.
+    $collapsible = 0;
+    foreach ( $sections as $section ) {
+        if ( $section['heading'] && $section['blocks'] ) $collapsible++;
+    }
+    $open = $collapsible === 1 ? ' open' : '';
+
     $html = '';
-    foreach ( aidocs_group_sections( $blocks ) as $section ) {
+    foreach ( $sections as $section ) {
         if ( ! $section['heading'] ) {
             $html .= aidocs_render_blocks( $section['blocks'] );
             continue;
@@ -1656,7 +1669,7 @@ function aidocs_render_sections( array $blocks ) {
         $id    = ! empty( $heading['id'] ) ? ' id="' . esc_attr( $heading['id'] ) . '"' : '';
         $level = max( 2, min( 3, (int) ( $heading['level'] ?? 3 ) ) );
 
-        $html .= '<details class="aidocs-accordion-item"' . $id . '>'
+        $html .= '<details class="aidocs-accordion-item"' . $id . $open . '>'
                . '<summary class="aidocs-accordion-summary aidocs-content-h' . $level . '">'
                . aidocs_render_runs( $heading )
                . '</summary>'

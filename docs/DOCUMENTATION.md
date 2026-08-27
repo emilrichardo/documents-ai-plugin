@@ -221,7 +221,9 @@ Preview could publish as flat paragraphs. They now produce the same blocks from
 the same text.
 
 > **A line set entirely in bold is read as a section heading**, and each section
-> becomes a collapsible panel on the published page. This is how Word marks most
+> becomes a collapsible panel on the published page. A document with only one
+> section renders it open — there is no outline to show, and collapsing it would
+> hide the whole document behind a single click. This is how Word marks most
 > headings in these documents — as bold body text rather than with a heading
 > style — so entries that used to publish as one long run of paragraphs now
 > carry their own outline. Bold *inside* a sentence is still emphasis, and a
@@ -289,9 +291,17 @@ none of them is it.
 > forty-nine proposals one at a time is exactly what this batch flow exists to
 > avoid. Everything remains editable on each entry afterwards.
 >
-> If the AI call fails — a missing key, an exhausted quota — the entries are
-> still created without those fields, and the panel says why in one line.
-> It used to swallow the failure and leave the columns silently empty.
+> If the AI call fails — a missing key, an exhausted quota, an overloaded
+> model — the entries are still created without those fields, and the panel
+> says why in one line. It used to swallow the failure and leave the columns
+> silently empty.
+>
+> **After three failures in a row the import stops asking.** A failed call is
+> retried twice with a wait in between, so about twelve seconds go by to arrive
+> at the same empty answer — and a model that is overloaded or out of quota
+> fails the same way for every article. Measured on eight articles: 48 seconds
+> of waiting became 18. The entries are written either way; what is skipped is
+> the asking, and the panel says so.
 
 ### What can and cannot be split
 
