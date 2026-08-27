@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Documents — user manual — AI Documents 1.3.0</title>
+<title>AI Documents — user manual — AI Documents 1.4.0</title>
 <meta name="description" content="Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.">
 <meta name="generator" content="tools/build-docs.php">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f6feb'/><path d='M9 8h9l5 5v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z' fill='white'/><path d='M18 8v5h5' fill='%23c7dbff'/></svg>">
@@ -20,11 +20,11 @@
       <h1>AI Documents</h1>
       <p class="aidoc-lede">Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.</p>
       <p class="aidoc-meta">
-        <span class="aidoc-chip">Version 1.3.0</span>
-        <span class="aidoc-chip aidoc-chip-quiet">Updated 25 August 2026</span>
+        <span class="aidoc-chip">Version 1.4.0</span>
+        <span class="aidoc-chip aidoc-chip-quiet">Updated 27 August 2026</span>
       </p>
       <div class="aidoc-hero-actions">
-        <a class="aidoc-btn aidoc-btn-primary" href="downloads/ai-documents-1.3.0.zip" download><span class="aidoc-btn-icon">↓</span> Download the plugin<small>ai-documents-1.3.0.zip · 2 MB</small></a>
+        <a class="aidoc-btn aidoc-btn-primary" href="downloads/ai-documents-1.4.0.zip" download><span class="aidoc-btn-icon">↓</span> Download the plugin<small>ai-documents-1.4.0.zip · 2 MB</small></a>
         <a class="aidoc-btn" href="#installation">Installation guide</a>
       </div>
     </div>
@@ -45,9 +45,9 @@
 <li><a href="#connect-google-gemini">Connect Google Gemini</a><ul><li><a href="#get-a-key">Get a key</a></li><li><a href="#save-it-in-the-plugin">Save it in the plugin</a></li><li><a href="#choosing-a-model">Choosing a model</a></li></ul></li>
 <li><a href="#settings">Settings</a><ul><li><a href="#ai">AI</a></li><li><a href="#taxonomy">Taxonomy</a></li><li><a href="#shortcodes">Shortcodes</a></li></ul></li>
 <li><a href="#upload-one-document">Upload one document</a><ul><li><a href="#what-gets-filled-in-automatically">What gets filled in automatically</a></li><li><a href="#reviewing-what-was-extracted">Reviewing what was extracted</a></li><li><a href="#the-source-file-is-never-published">The source file is never published</a></li></ul></li>
-<li><a href="#upload-a-compilation-of-several-policies">Upload a compilation of several policies</a><ul><li><a href="#what-happens-when-you-click-create">What happens when you click Create</a></li><li><a href="#what-can-and-cannot-be-split">What can and cannot be split</a></li><li><a href="#fields-that-disappear-in-this-mode">Fields that disappear in this mode</a></li></ul></li>
+<li><a href="#upload-a-compilation-of-several-articles">Upload a compilation of several articles</a><ul><li><a href="#what-happens-when-you-click-create">What happens when you click Create</a></li><li><a href="#you-can-close-the-page-while-it-runs">You can close the page while it runs</a></li><li><a href="#what-can-and-cannot-be-split">What can and cannot be split</a></li><li><a href="#fields-that-disappear-in-this-mode">Fields that disappear in this mode</a></li></ul></li>
 <li><a href="#complete-fields-with-ai">Complete fields with AI</a></li>
-<li><a href="#restructure-content-with-ai">Restructure content with AI</a></li>
+<li><a href="#restructure-content-with-ai">Restructure content with AI</a><ul><li><a href="#two-things-it-leaves-out-on-purpose">Two things it leaves out on purpose</a></li><li><a href="#why-it-finds-headings-the-extractor-cannot">Why it finds headings the extractor cannot</a></li></ul></li>
 <li><a href="#edit-a-published-entry">Edit a published entry</a></li>
 <li><a href="#find-entries-in-the-admin">Find entries in the admin</a></li>
 <li><a href="#what-readers-see">What readers see</a><ul><li><a href="#the-entry-page">The entry page</a></li><li><a href="#the-search-page">The search page</a></li></ul></li>
@@ -63,7 +63,7 @@
 <h2>What this plugin does</h2>
 <p>Three things, in this order.</p>
 <p><strong>1. It reads files.</strong> Upload a PDF or a Word (<code>.docx</code>) file and the plugin extracts its text and parses it into content blocks — three heading levels, paragraphs, notes, nested lists and tables. This runs with regular expressions, not AI: no API key, no request, no cost. Excel files are accepted for reference but are not parsed.</p>
-<p><strong>2. It splits compilations.</strong> A single upload often holds fifty standalone policies one after another. Tell the plugin the file is a compilation and each policy inside becomes an entry of its own, with its own title, date, description and content.</p>
+<p><strong>2. It splits compilations.</strong> A single upload often holds fifty standalone articles one after another. Tell the plugin the file is a compilation and each article inside becomes an entry of its own, with its own title, date, description and content.</p>
 <p><strong>3. It publishes and finds.</strong> Each entry gets its own page at <code>/documents/{entry}/</code>. A search shortcode puts a filterable catalogue on any page, and — when Gemini is configured — answers a question typed in any language with the one to three entries that address it, and a short explanation of why.</p>
 <div class="aidoc-table-wrap"><table>
 <thead><tr><th></th><th>Works without an API key</th><th>Needs a Gemini key</th></tr></thead>
@@ -71,7 +71,7 @@
 <tr><td>Text extraction from PDF and Word</td><td>✅</td><td></td></tr>
 <tr><td>Structuring into headings, lists, tables</td><td>✅</td><td></td></tr>
 <tr><td>Reading title, teaser, date and history from labels</td><td>✅</td><td></td></tr>
-<tr><td>Splitting a compilation into one entry per policy</td><td>✅</td><td></td></tr>
+<tr><td>Splitting a compilation into one entry per article</td><td>✅</td><td></td></tr>
 <tr><td>Keyword search and filters</td><td>✅</td><td></td></tr>
 <tr><td>Complete fields with AI</td><td></td><td>✅</td></tr>
 <tr><td>Restructure content with AI</td><td></td><td>✅</td></tr>
@@ -121,9 +121,11 @@
 <figure class="aidoc-shot"><img src="assets/screenshots/settings-ai.png" alt="The AI section of Documents → Settings, with the Gemini API key field, the model picker and the buttons that validate them" loading="lazy"><figcaption>The AI section of Documents → Settings, with the Gemini API key field, the model picker and the buttons that validate them</figcaption></figure>
 <p><strong>Any document&#039;s editor</strong>, in the <em>Complete fields with AI (optional)</em> panel — paste the key, click <strong>Check key &amp; list models</strong> to validate it and list what it can reach, choose a model, click <strong>Save</strong>. This form only appears to administrators. Anyone else editing a document without a key sees a note asking them to get one from an administrator; extraction above it works either way.</p>
 <h3 id="choosing-a-model">Choosing a model</h3>
-<p>The picker ships with the current Gemini line-up — 3.6, 3.5 and 3.1 Flash and Pro, down to 2.5. <strong>Refresh from API</strong> (settings) or <strong>Check key &amp; list models</strong> (document editor) replaces that list with exactly what your key can reach.</p>
+<p>The picker ships with the current Gemini line-up — 3.6 and 3.5 Flash, 3.1 and 3 Pro Preview, and the <code>-latest</code> aliases that always point at the newest of their family. <strong><code>gemini-3.6-flash</code> is the default.</strong> <strong>Refresh from API</strong> (settings) or <strong>Check key &amp; list models</strong> (document editor) replaces that list with exactly what your key can reach.</p>
 <p>Image, text-to-speech and other non-chat models are filtered out automatically: Google&#039;s model-listing endpoint mixes every product line together, and nothing but the id itself distinguishes them.</p>
-<p>A Flash model is the right default. Pro costs more per request and the gain on these tasks — reading labels, proposing a document type, re-typing block structure — is small.</p>
+<p><strong>Choose a Flash model unless billing is enabled on the Google account.</strong> This is not only about cost. Google&#039;s free tier grants <strong>no allowance at all</strong> for the Pro and preview models, however capable they look in the picker: every request comes back refused, with a quota whose limit is zero. Nothing works — not field proposals, not restructuring, not search indexing — until a Flash model is selected. The gain from Pro on these tasks, reading labels and re-typing block structure, is small in any case.</p>
+<blockquote class="aidoc-note"><p>The retired 2.x models were removed from the picker. Google no longer serves them to new users, and a site left configured with one had every AI feature fail at once with <em>&quot;this model is no longer available&quot;</em>.</p>
+</blockquote>
 </section>
 <section class="aidoc-section" id="settings">
 <h2>Settings</h2>
@@ -140,10 +142,10 @@
 </section>
 <section class="aidoc-section" id="upload-one-document">
 <h2>Upload one document</h2>
-<p>This is the ordinary case: one file, one policy, one entry.</p>
+<p>This is the ordinary case: one file, one article, one entry.</p>
 <ol class="aidoc-steps">
 <li>Go to <strong>Documents → Add New Document</strong>.</li>
-<li>Leave <strong>What are you uploading?</strong> on <strong>One policy</strong>.</li>
+<li>Leave <strong>What are you uploading?</strong> on <strong>One article</strong>.</li>
 <li>Click <strong>Upload source file</strong> and pick a PDF, Word (<code>.docx</code>) or Excel file through the media library.</li>
 <li>Wait a moment. Extraction runs on its own, with no button to press.</li>
 <li>Check the fields it filled in, correct anything that needs it, and click <strong>Publish</strong>.</li>
@@ -177,32 +179,43 @@
 <h3 id="the-source-file-is-never-published">The source file is never published</h3>
 <p>The file is read for its text and nothing else. It is not linked from the entry, not previewed, not offered for download, and readers are never told which file an entry came from. Replacing or removing the file after extraction does not change the published content — the blocks are already stored on the entry.</p>
 </section>
-<section class="aidoc-section" id="upload-a-compilation-of-several-policies">
-<h2>Upload a compilation of several policies</h2>
-<p>The files that arrive from a commission are usually one document carrying dozens of standalone policies, and each of those has to become an entry of its own.</p>
+<section class="aidoc-section" id="upload-a-compilation-of-several-articles">
+<h2>Upload a compilation of several articles</h2>
+<p>The files that arrive from a commission are usually one document carrying dozens of standalone articles, and each of those has to become an entry of its own.</p>
 <ol class="aidoc-steps">
 <li>Go to <strong>Documents → Add New Document</strong>.</li>
-<li>Set <strong>What are you uploading?</strong> to <strong>A document holding several policies</strong>.</li>
-<li>Upload the PDF or Word file. The policies are found on their own — no AI, no API key.</li>
-<li>Under <strong>Complete fields with AI, per policy</strong>, tick which fields the AI should fill for each policy. <strong>Document Type</strong> is ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
-<li>Review <strong>Policies in this document</strong>. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.</li>
-<li>In the <strong>Publish</strong> box in the sidebar, click <strong>Create N entries</strong> — the button counts what is still ticked.</li>
+<li>Set <strong>What are you uploading?</strong> to <strong>A document holding several articles</strong>.</li>
+<li>Upload the PDF or Word file. The articles are found on their own — no AI, no API key.</li>
+<li>Under <strong>Complete fields with AI, per article</strong>, tick whether the AI should fill Title or Description for each article. <strong>Document Type</strong> has its own <strong>By AI / Manually</strong> switch above the list — <em>Manually</em> applies one value to every entry the upload creates, <em>By AI</em> reads each article on its own. Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
+<li>Review <strong>Articles in this document</strong>. Each row shows the title, date, description and block count read from that article. Untick anything that should not be imported.</li>
+<li>In the <strong>Create Entries</strong> box in the sidebar, click <strong>Create N entries</strong> — the button counts what is still ticked.</li>
 </ol>
-<figure class="aidoc-shot"><img src="assets/screenshots/compilation-mode.png" alt="The upload-mode question, switched to a document holding several policies" loading="lazy"><figcaption>The upload-mode question, switched to a document holding several policies</figcaption></figure>
-<figure class="aidoc-shot"><img src="assets/screenshots/compilation-policies.png" alt="Forty-nine policies found in one file, each with the title, date, description and block count read from it" loading="lazy"><figcaption>Forty-nine policies found in one file, each with the title, date, description and block count read from it</figcaption></figure>
+<figure class="aidoc-shot"><img src="assets/screenshots/compilation-mode.png" alt="The upload-mode question, switched to a document holding several articles" loading="lazy"><figcaption>The upload-mode question, switched to a document holding several articles</figcaption></figure>
+<figure class="aidoc-shot"><img src="assets/screenshots/compilation-policies.png" alt="Forty-nine articles found in one file, each with the title, date, description and block count read from it" loading="lazy"><figcaption>Forty-nine articles found in one file, each with the title, date, description and block count read from it</figcaption></figure>
 <h3 id="what-happens-when-you-click-create">What happens when you click Create</h3>
-<p>Every policy — including the one you started from — is created or updated as a <strong>published</strong> entry. The import runs a few at a time — fewer when AI fields are ticked, because each one is then an extra Gemini call alongside the embedding every entry gets anyway.</p>
-<p>There is no Save Draft or Publish/Update button in this mode: both are hidden, and <em>Create N entries</em>, in its own <strong>Publish</strong> box in the sidebar, is this mode&#039;s only save action. It writes straight to the database — published, not draft — as each entry is made, so nothing is left half-saved when you leave the screen.</p>
-<p>The imported entries carry <strong>no source file</strong>. The file held fifty policies and none of them is it.</p>
-<blockquote class="aidoc-note"><p>Fields ticked under <em>Complete fields with AI, per policy</em> are written as soon as each entry is created — there is no per-policy review step. Reviewing forty-nine proposals one at a time is exactly what this batch flow exists to avoid. Everything remains editable on each entry afterwards.</p>
+<p>Each selected article becomes its own <strong>published</strong> entry.</p>
+<p><strong>The upload itself is not one of them.</strong> Its entry exists only to carry the file and the articles found in it, so once every entry has been created it is moved to the trash and you are taken to the Documents list — where the new entries are. Nothing named after the source file is left behind in the catalogue.</p>
+<p>There is no Save Draft or Publish/Update button in this mode: both are hidden, and <em>Create N entries</em>, in its own <strong>Create Entries</strong> box in the sidebar, is this mode&#039;s only save action.</p>
+<h3 id="you-can-close-the-page-while-it-runs">You can close the page while it runs</h3>
+<p>The import is a background job, not something this screen drives. Forty-nine articles, each with its own Gemini call and search index entry, is several minutes of work, and it used to stop the moment the tab was closed or one of the links it had just written was followed.</p>
+<p>Progress is saved after <strong>every</strong> article, so:</p>
+<ul>
+<li><strong>Closing the page is safe.</strong> Reopen the upload and the screen rejoins the run, showing where it has got to.</li>
+<li><strong>An interrupted run resumes.</strong> It picks up at the next article rather than starting over, so nothing is created twice.</li>
+<li>On most hosting the run also carries on with the page closed. On hosting that blocks WordPress&#039;s internal loopback requests it pauses instead and continues the next time you open the upload. The status line promises only the second, because the first is not ours to promise.</li>
+</ul>
+<p>The imported entries carry <strong>no source file</strong>. The file held fifty articles and none of them is it.</p>
+<blockquote class="aidoc-note"><p>Fields ticked under <em>Complete fields with AI, per article</em> are written as soon as each entry is created — there is no per-article review step. Reviewing forty-nine proposals one at a time is exactly what this batch flow exists to avoid. Everything remains editable on each entry afterwards.</p>
+<p>If the AI call fails — a missing key, an exhausted quota — the entries are still created without those fields, and the panel says why in one line. It used to swallow the failure and leave the columns silently empty.</p>
 </blockquote>
 <h3 id="what-can-and-cannot-be-split">What can and cannot be split</h3>
-<p><strong>PDF and Word (<code>.docx</code>) both split</strong>, because the splitter reads the same extracted text either format produces. <strong>Excel cannot</strong> — it is not parsed at all. Switch back to <em>One policy</em> and upload those one at a time.</p>
-<p>What delimits a policy is the label schema: a policy carries exactly one <code>Body:</code> label, so counting those counts the policies, and each one starts at the title printed above its own <code>Teaser:</code> / <code>Body:</code> pair. A file without the labels cannot be split. Anything before the first policy&#039;s title — a cover page, a table of contents — is left out.</p>
-<blockquote class="aidoc-note"><p>Uploading a PDF that turns out to hold more than one policy switches the mode <strong>automatically</strong>. There is no need to notice that ahead of time and pick it by hand; the plugin says so on screen when it happens.</p>
+<p><strong>PDF and Word (<code>.docx</code>) both split</strong>, because the splitter reads the same extracted text either format produces. <strong>Excel cannot</strong> — it is not parsed at all. Switch back to <em>One article</em> and upload those one at a time.</p>
+<p>What delimits an article is the label schema: an article carries exactly one <code>Body:</code> label, so counting those counts the articles, and each one starts at the title printed above its own <code>Teaser:</code> / <code>Body:</code> pair. A file without the labels cannot be split. Anything before the first article&#039;s title — a cover page, a table of contents — is left out.</p>
+<p>An <strong>editorial note</strong> written between the title and the labels — <code>Note on currency: …</code>, <code>Note: this guideline states …</code>, the kind of remark left for whoever republishes the document — does not cost the article its title. The search looks past a few such lines, stopping at the previous article&#039;s revision history so it can never wander into the article above.</p>
+<blockquote class="aidoc-note"><p>Uploading a PDF that turns out to hold more than one article switches the mode <strong>automatically</strong>. There is no need to notice that ahead of time and pick it by hand; the plugin says so on screen when it happens.</p>
 </blockquote>
 <h3 id="fields-that-disappear-in-this-mode">Fields that disappear in this mode</h3>
-<p>Description, Last Updated, Document Type and the <em>Complete fields with AI (optional)</em> panel are all hidden while the upload is a compilation. None of them could hold one value that fits every policy in the file — which is precisely why the per-policy checkboxes exist instead.</p>
+<p>Description, Last Updated, Document Type and the <em>Complete fields with AI (optional)</em> panel are all hidden while the upload is a compilation. None of them could hold one value that fits every article in the file — which is precisely why the per-article checkboxes exist instead.</p>
 </section>
 <section class="aidoc-section" id="complete-fields-with-ai">
 <h2>Complete fields with AI</h2>
@@ -217,19 +230,31 @@
 <figure class="aidoc-shot"><img src="assets/screenshots/ai-fields-panel.png" alt="The Complete fields with AI panel, with the field checkboxes and the Propose with AI button" loading="lazy"><figcaption>The Complete fields with AI panel, with the field checkboxes and the Propose with AI button</figcaption></figure>
 <figure class="aidoc-shot"><img src="assets/screenshots/ai-proposals.png" alt="Each proposal as its own card, next to the value it would replace, with Apply and Discard" loading="lazy"><figcaption>Each proposal as its own card, next to the value it would replace, with Apply and Discard</figcaption></figure>
 <p><strong>Nothing is written into the form until you click Apply.</strong> Applying only fills the form field — the entry itself is saved when you click Publish or Update, as usual.</p>
+<p>A proposed <strong>Title</strong> comes back in normal title case. Source headings are routinely set in ALL CAPS for print, and copying one across verbatim put a shouting title on the page.</p>
 <p>The AI reads the extracted text, so it needs a file to have been extracted first. On an entry with no content yet the panel says so rather than guessing.</p>
 </section>
 <section class="aidoc-section" id="restructure-content-with-ai">
 <h2>Restructure content with AI</h2>
-<p>A separate action in its own box, for a different problem: a PDF whose layout the extractor misread — a heading left as a paragraph, a list flattened into prose.</p>
+<p>A separate action in its own box, for a different problem: a <strong>PDF or Word (<code>.docx</code>)</strong> file whose layout the extractor misread — a heading left as a paragraph, a list flattened into prose.</p>
 <p>The AI <strong>does not write anything</strong>. It re-decides which structural role each piece of the already-extracted text has, reusing that text verbatim.</p>
 <ol class="aidoc-steps">
 <li>Click <strong>Restructure content with AI</strong>.</li>
-<li>The result is compared word-for-word against the current content, and a fidelity report says what — if anything — was added or dropped. A clean run reads <em>Text is verbatim — every word matches the extracted content.</em></li>
-<li>Review the result under <strong>Review the restructured content</strong>.</li>
-<li>Click <strong>Replace content with this</strong> to apply it, or <strong>Discard</strong> to keep the extracted version.</li>
+<li>Read the <strong>list of corrections</strong>. One row per piece the AI gave a different role than the extractor did, plus anything it added, left out or reworded — colour-coded, in the document&#039;s order. Lines both read the same way are counted at the foot instead of listed, so a fifty-page document corrected in three places shows you those three.</li>
+<li>Check the report above it. It answers a different question: whether the AI stayed with the document&#039;s own words. A clean run reads <em>Nothing was invented — every word comes from the document.</em></li>
+<li>Open <strong>Preview the full restructured content</strong> if you want to see the finished article rather than the changes.</li>
+<li>Click <strong>Apply these corrections</strong> to write it, or <strong>Discard</strong> to keep the extracted version.</li>
 </ol>
 <figure class="aidoc-shot"><img src="assets/screenshots/ai-restructure.png" alt="The Restructure content with AI box, flagged as whole document, higher cost" loading="lazy"><figcaption>The Restructure content with AI box, flagged as whole document, higher cost</figcaption></figure>
+<h3 id="two-things-it-leaves-out-on-purpose">Two things it leaves out on purpose</h3>
+<p>Both are metadata the plugin already stores in fields of its own, so repeating them inside the content would print them twice on the page:</p>
+<ul>
+<li><strong>The title echoed at the top of the body</strong>, usually in capitals and often broken over two lines, together with the line naming the kind of document that follows it — <em>A Position Statement</em>, <em>Guidelines</em>, <em>Good Practices</em>.</li>
+<li><strong>The revision history at the end</strong> — <em>Last Updated:</em>, <em>[Document History]</em>, and the dated <em>Approved: / Endorsed: / Revised: / Edited:</em> lines under it.</li>
+</ul>
+<p>Because of that, a correct run always reports some words left out, and the report says so. What it must never report is words <strong>added</strong> — that is the failure the verdict is watching for. The dropped rows in the list of corrections are there so you can confirm they were only those two things.</p>
+<h3 id="why-it-finds-headings-the-extractor-cannot">Why it finds headings the extractor cannot</h3>
+<p>In these documents Word sets most section headings as <strong>bold body text</strong> rather than as a Word heading, so nothing marks them structurally and the extractor has no way to tell one from a paragraph. The text sent to the AI keeps its bold markers for exactly this reason.</p>
+<p>Measured on the Commission&#039;s own compilations: an article the extractor returned with no headings at all came back with six sections and sixteen sub-sections, with nothing invented.</p>
 <blockquote class="aidoc-note"><p>This sends the <strong>entire</strong> document in one request, so it costs measurably more than the field proposals above. Use it when the structure is wrong, not as a routine step. The panel is flagged <em>Whole document · higher cost</em> for that reason.</p>
 </blockquote>
 <p>Nothing is written to the entry until you choose to apply it.</p>
@@ -343,20 +368,23 @@ Document History: &lt;provenance line&gt;</code></pre></div>
 <li>a line holding nothing but the label</li>
 </ul>
 <h3 id="for-a-compilation">For a compilation</h3>
-<p>Put one labelled policy after another in the same file. A policy is delimited by its own <code>Body:</code> label, and starts at the title line printed above its <code>Teaser:</code> / <code>Body:</code> pair. Cover pages and tables of contents before the first policy title are ignored.</p>
+<p>Put one labelled article after another in the same file. An article is delimited by its own <code>Body:</code> label, and starts at the title line printed above its <code>Teaser:</code> / <code>Body:</code> pair. Cover pages and tables of contents before the first article title are ignored.</p>
 <h3 id="how-reliable-this-is">How reliable this is</h3>
 <p>Validated against the 50 documents of the master compilation: <strong>50 of 50</strong> recover a title and a body, <strong>48 of 50</strong> a teaser and a date. The two that do not are fragments of a larger document and carry neither label.</p>
 <h3 id="without-the-labels">Without the labels</h3>
 <p>A file with no labels still extracts. A PDF is read through its own layout — bold weight, point size, left margin, line spacing — and a Word file through the styles already recorded in the <code>.docx</code>. Both produce the same canonical text, which the same parser then turns into blocks, so nothing downstream cares which kind of file it came from.</p>
-<p>That path is a heuristic, not a guarantee. Expect to correct a heading or two in <strong>Edit content</strong>, or to use <a href="#restructure-content-with-ai">Restructure content with AI</a> when the layout was misread wholesale. And a file without labels cannot be split into several policies at all.</p>
+<p>That path is a heuristic, not a guarantee. Expect to correct a heading or two in <strong>Edit content</strong>, or to use <a href="#restructure-content-with-ai">Restructure content with AI</a> when the layout was misread wholesale. And a file without labels cannot be split into several articles at all.</p>
 </section>
 <section class="aidoc-section" id="troubleshooting">
 <h2>Troubleshooting</h2>
 <p><strong>Nothing was extracted from the PDF.</strong> The file is probably a scan — an image of text, with no text layer. Run it through OCR first, or paste the text into <strong>Edit content</strong> and click <strong>Apply edited content</strong>.</p>
 <p><strong>The AI panel says no text was extracted.</strong> Extraction has not run or produced nothing. Load a file and wait for the block count to appear before using any AI action; the AI reads the extracted text, not the file.</p>
 <p><strong>The key was saved but nothing AI-related works.</strong> Open <strong>Documents → Settings → AI</strong> and click <strong>Test key</strong>. A failure there is a key or quota problem at Google, not a plugin problem. If it passes, click <strong>Refresh from API</strong> and re-pick the model: a model saved earlier may no longer be one your key can reach.</p>
-<p><strong>A compilation reports one policy, or none.</strong> The file does not carry the label schema, so there is nothing to split on. Check that each policy has its own <code>Body:</code> label. Otherwise upload the policies one at a time.</p>
-<p><strong>Headings came out as paragraphs.</strong> Fix them in <strong>Edit content</strong> with <code>##</code> markers, or use <strong>Restructure content with AI</strong> if there are too many to fix by hand.</p>
+<p><strong>The AI says the model has no quota on this plan.</strong> A Pro or preview model is selected and the Google account has no billing enabled — the free tier grants those models nothing at all, so every request is refused however few you make. Pick a Flash model in <strong>Settings → AI</strong>. This is not a rate limit and waiting will not clear it.</p>
+<p><strong>A compilation reports one article, or none.</strong> The file does not carry the label schema, so there is nothing to split on. Check that each article has its own <code>Body:</code> label. Otherwise upload the articles one at a time.</p>
+<p><strong>An article imported with no title.</strong> Its title is missing or was not recognised. Note that an editorial note between the title and the <code>Teaser:</code> label is handled and does not cause this. Fix the title on the entry itself — the rest of the import is unaffected.</p>
+<p><strong>The import stopped partway.</strong> Reopen the upload. The run resumes at the next article, and nothing already created is created again. Progress is saved after every article, so nothing is lost by closing the page.</p>
+<p><strong>Headings came out as paragraphs.</strong> Fix them in <strong>Edit content</strong> with <code>##</code> markers, or use <strong>Restructure content with AI</strong> if there are too many to fix by hand — it reads the source&#039;s bold formatting, which is how most section headings in these documents are marked, and recovers them wholesale.</p>
 <p>**An entry shows <em>Indexing…</em> and never changes.** The embedding call needs a working Gemini key. Without one, the entry is still published and still findable by keyword — only semantic matching is unavailable.</p>
 <p><strong>A type shortcut vanished from the sidebar.</strong> Its line was removed from <strong>Settings → Taxonomy</strong>. Adding the line back restores the shortcut; the term and its entries were never touched.</p>
 </section>
@@ -379,7 +407,7 @@ Document History: &lt;provenance line&gt;</code></pre></div>
 </div>
 
 <footer class="aidoc-footer">
-  <p><strong>AI Documents</strong> 1.3.0 · documentation generated 25 August 2026</p>
+  <p><strong>AI Documents</strong> 1.4.0 · documentation generated 27 August 2026</p>
   <p class="aidoc-footnote">This page is generated from <code>docs/DOCUMENTATION.md</code> by <code>tools/build-docs.php</code>. Edit the Markdown, re-run <code>bash tools/build-docs.sh</code>, and this page, the plugin&rsquo;s own Documentation screen and the download below it all update together.</p>
 </footer>
 

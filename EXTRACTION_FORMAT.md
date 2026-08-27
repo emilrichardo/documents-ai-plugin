@@ -165,6 +165,15 @@ split across two or three lines (`THE APPEALS PROCEDURES` / `OF THE COLLEGE
 DELEGATE ASSEMBLY`). Those lines are rejoined, compared against the title, and
 dropped — the page already shows it as a heading.
 
+`aidocs_drop_title_echo()` considers **paragraphs as well as caps headings** at
+the head of the body. The echo is authored as whatever the source made it, and
+Word sets it in bold body text, which is not a heading and never becomes one —
+so a rule that only looked at headings left every `.docx`-sourced document
+printing its title twice. Only a leading run whose joined text actually reads as
+the title (`aidocs_is_title_echo()`, which allows a trailing word or two such as
+`Policy Statement`) is dropped, so an opening paragraph that merely mentions the
+subject is not at risk.
+
 ## 4. Several policies in one file
 
 The files the Commission publishes are single documents carrying dozens of
@@ -184,6 +193,15 @@ What delimits a policy is the label schema itself:
   followed up and rejoined; `aidocs_is_trailer_text()` stops the run at the
   previous policy's dates and provenance lines, which a few documents set in a
   weight the extractor reads as a heading.
+- **An editorial note between the title and the labels does not cost the policy
+  its title.** `Note on currency: …`, `Note: this guideline states …` — annotations
+  left for whoever republishes the document — sit exactly where the title search
+  used to stop, and three of the sixteen policies in the Commission's own
+  compilations imported untitled because of it. `aidocs_policy_start_line()` now
+  looks past up to four such lines, still stopping at a label or at trailer text,
+  which in each of those documents is precisely what sits above the title.
+  `aidocs_promote_policy_title()` then takes only the opening run of same-level
+  headings, so the note is not folded into the title as a sentence of commentary.
 - **Anything before the first policy's title** — a cover page, a table of
   contents — is left out.
 
@@ -204,6 +222,16 @@ paragraphs separated by a blank line, bullets by glyph, and headings by
 `aidocs_detect_heading()` (all caps, or a short Title Case line with no
 trailing punctuation). The same block shape comes out either way, so
 rendering and storage never change.
+
+**That question is asked about the whole document, not about its body.** A body
+holding no heading, list or table — several policies in the Commission's own
+compilations are four plain paragraphs — has no marker in it to find, and was
+being read as a PDF text layer: its authored paragraphs merged into one and its
+bold lines promoted to headings by guesswork. The document's own `# Title` line
+and label schema are the evidence, and they sit outside the body, so
+`aidocs_parse_labeled_document()` runs the sniff over all of its lines and passes
+the answer down to `aidocs_parse_structured_content()`. Call that function
+directly with no third argument and it still sniffs the text it was handed.
 
 ## 6. Verification
 

@@ -2,14 +2,14 @@
 /**
  * Plugin Name: AI Documents
  * Description: Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.3.0' );
+define( 'AIDOCS_VERSION', '1.4.0' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 

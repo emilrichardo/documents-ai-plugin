@@ -28,7 +28,7 @@ One row per field per document (`post_id` = ID of the `aidoc` post).
 | `_document_source_mode` | `string` | `single` or `multi` — which question the editor answered about this upload, so re-opening the editor asks it the same way round. Presentational only; nothing on the frontend reads it. |
 | `_document_description` | `text` | Value of the built-in Description field |
 | `_document_content` | `text` (JSON) | Structured document body as a JSON array of blocks, produced by regex parsing of the extracted text (no AI). Written by "Extract content again", "Apply edited content", and the automatic extraction that runs when a PDF or Word file is first loaded. See *Content block shape* below. |
-| `_document_content_ai` | `text` (JSON) | A pending AI-restructured version of the content above, in the same block shape. Written by "Restructure content with AI"; only ever promoted to `_document_content` if the editor clicks "Replace content with this" (`aidocs_ai_restructure_apply_ajax()`), and deleted either way once a decision is made — so it never lingers as stale state. |
+| `_document_content_ai` | `text` (JSON) | A pending AI-restructured version of the content above, in the same block shape. Written by "Restructure content with AI"; only ever promoted to `_document_content` if the editor clicks "Apply these corrections" (`aidocs_ai_restructure_apply_ajax()`), and deleted either way once a decision is made — so it never lingers as stale state. The editor reviews it as a structural diff against the extractor's own reading (`aidocs_blocks_structure_diff()`), not as a wall of content; the blocks stored here are the whole proposal regardless. |
 | `_document_raw_text` | `text` | The canonical text (see `EXTRACTION_FORMAT.md`) that `_document_content` above was last parsed from — kept so the editor's "Edit extracted content" textarea can show and re-parse it without re-running extraction from the source file. |
 | `_document_history` | `text` | Provenance line from the source document's `Document History` section (approval and revision dates). Written by extraction when the document uses the labelled schema, editable afterwards like any other extracted field. |
 | `_document_summary` | `text` | 1–2 sentence AI-generated summary (written by "Process with AI"). Used to enrich semantic indexing. |
@@ -106,13 +106,26 @@ One row per option. All keys are prefixed with `aidocs_`.
 | `option_name` | Type | Default | Description |
 |---|---|---|---|
 | `aidocs_gemini_api_key` | `string` | *(empty)* | Google Gemini API key |
-| `aidocs_gemini_model` | `string` | `gemini-2.5-flash` | Gemini model used for text generation. `aidocs_model_catalog()` is the built-in starting list shown in Settings; "Refresh from API" replaces it with exactly what the saved key can reach. |
+| `aidocs_gemini_model` | `string` | `gemini-3.6-flash` | Gemini model used for text generation. `aidocs_model_catalog()` is the built-in starting list shown in Settings; "Refresh from API" replaces it with exactly what the saved key can reach. The retired 2.x models were removed from the catalog and from every hardcoded default in v1.4.0 — Google stopped serving them to new users, and each one left configured broke every AI feature at once. |
 | `aidocs_types_list` | `string` | newline-separated defaults | One document type per line. Used by `aidocs_get_types()`. |
 | `aidocs_archive_slug` | `string` | `documents` | The URL segment documents live under — `/{slug}/` for the listing, `/{slug}/{document}/` for each one. Read by `aidocs_get_archive_slug()` and fed to both `has_archive` and `rewrite.slug` in `register_post_type()`, so the two never drift apart. Changing it re-registers the post type and flushes rewrite rules immediately (see Settings → Display). |
 | `aidocs_archive_template` | `string` | `search` | `search` serves `templates/archive-aidoc.php` (the `[aidocs_search]` UI) at `/{slug}/`, via the `template_include` filter (`aidocs_archive_template_include()`). Any other value — `theme` in the Settings UI — leaves that filter a no-op, so the active theme's own archive template renders exactly as it would without this plugin. |
 | `aidocs_single_template` | `string` | `structured` | `structured` runs `aidocs_single_document_content()` on `the_content` for a single document. Any other value — `theme` in the Settings UI — makes that filter return the post's raw content untouched, for the theme's own single-post template to render however it does. |
 | `aidocs_legacy_migrated` | `string` | *(unset)* | Plugin version that ran the one-time rename migration (see §7). Not autoloaded. |
 | `aidocs_removed_options_cleaned` | `string` | *(unset)* | Plugin version that ran the one-time cleanup of options for removed features (see §7). Not autoloaded. |
+
+### Multi-article import job — three options per upload, none autoloaded
+
+A compilation's import runs as a background job rather than a loop the editor's
+page drives, so its state has to outlive the request that started it. All three
+are keyed by the upload's post ID and cleared together by
+`aidocs_clear_import_job()` when that post is permanently deleted.
+
+| `option_name` | Type | Description |
+|---|---|---|
+| `aidocs_import_job_<post_id>` | `array` | The job: `status` (`running`/`done`/`error`), the selected article indexes, the AI fields requested, a fixed Document Type, the `offset` reached, the entries `created` so far, and any `message`/`ai_error`. Rewritten **after every article**, not once per run — it is what the progress poll reads, and what a run killed mid-import resumes from instead of re-creating what it already wrote. |
+| `aidocs_import_segments_<post_id>` | `array` | One extracted text per detected article, copied here when the import starts. Deliberately not a transient: it is the one input the worker cannot do without, and a transient expires on a clock that knows nothing about how long an import takes and can be evicted outright by a persistent object cache. Kept apart from the job so the two-second progress poll is not re-reading a megabyte of article text to learn one number. Deleted once every entry is written. |
+| `aidocs_import_lock_<post_id>` | `int` (unix time) | Held for the duration of one run. Two things can drive the same import — the wp-cron event and the editor's polling request, which runs a slice itself where the host blocks loopbacks — and both walking the selection at once would create every entry twice. Taken with a raw `INSERT IGNORE` rather than `add_option()`, which reads before it writes and then upserts, so two runs racing it can both believe they hold it. A lock older than 180 seconds is assumed to belong to a run that was killed and is taken over by a compare-and-swap `UPDATE`. |
 
 The CPT's menu label/icon and allowed file formats remain hardcoded (`Documents`, `dashicons-media-document`, `pdf`/`word`/`excel`). The archive slug and both template choices, previously hardcoded too, are configurable again as of the three options above — see §7 for why an `aidocs_archive_slug` option was deleted as orphaned in an earlier version and has since been reintroduced.
 
@@ -123,6 +136,7 @@ The CPT's menu label/icon and allowed file formats remain hardcoded (`Documents`
 | Key | TTL | Value | Description |
 |---|---|---|---|
 | `aidocs_embed_model` | 1 hour | `{ "name": "models/text-embedding-004", "ver": "v1beta" }` | Cached result of the ListModels API call. Stores the first available Gemini embedding model and its API version. Avoids repeating the discovery request on every embedding call. |
+| `aidocs_policies_<post_id>` | 1 hour | `string[]` | The articles found in a compilation, held between "Read the articles again" and the import that follows so a file running to hundreds of kilobytes is only sent once. `aidocs_policy_batch_key()` builds the name. **Scoped to the post alone, not to the user who ran the detection** — the import worker runs from wp-cron, where there is no current user, so a key built from `get_current_user_id()` resolved to a different string there and the worker declared the articles gone a moment after they had been found. Once the import starts, its own copy in `aidocs_import_segments_<post_id>` is what the worker reads; this transient is only the handoff. |
 
 ---
 
@@ -179,6 +193,10 @@ wp_term_relationships
 └── post_id → document_type terms (wp_terms)
 
 wp_options
-├── aidocs_*          (plugin settings)
-└── _transient_aidocs_embed_model
+├── aidocs_*                          (plugin settings)
+├── aidocs_import_job_<post_id>       ┐ one multi-article import in flight,
+├── aidocs_import_segments_<post_id>  │ all three keyed by the upload's post
+├── aidocs_import_lock_<post_id>      ┘ and cleared together on its deletion
+├── _transient_aidocs_embed_model
+└── _transient_aidocs_policies_<post_id>   (detection → import handoff)
 ```

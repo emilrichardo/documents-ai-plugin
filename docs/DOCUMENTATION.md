@@ -22,8 +22,8 @@ not AI: no API key, no request, no cost. Excel files are accepted for reference
 but are not parsed.
 
 **2. It splits compilations.** A single upload often holds fifty standalone
-policies one after another. Tell the plugin the file is a compilation and each
-policy inside becomes an entry of its own, with its own title, date, description
+articles one after another. Tell the plugin the file is a compilation and each
+article inside becomes an entry of its own, with its own title, date, description
 and content.
 
 **3. It publishes and finds.** Each entry gets its own page at
@@ -36,7 +36,7 @@ with the one to three entries that address it, and a short explanation of why.
 | Text extraction from PDF and Word | ✅ | |
 | Structuring into headings, lists, tables | ✅ | |
 | Reading title, teaser, date and history from labels | ✅ | |
-| Splitting a compilation into one entry per policy | ✅ | |
+| Splitting a compilation into one entry per article | ✅ | |
 | Keyword search and filters | ✅ | |
 | Complete fields with AI | | ✅ |
 | Restructure content with AI | | ✅ |
@@ -103,17 +103,27 @@ them to get one from an administrator; extraction above it works either way.
 
 ### Choosing a model
 
-The picker ships with the current Gemini line-up — 3.6, 3.5 and 3.1 Flash and
-Pro, down to 2.5. **Refresh from API** (settings) or **Check key & list models**
-(document editor) replaces that list with exactly what your key can reach.
+The picker ships with the current Gemini line-up — 3.6 and 3.5 Flash, 3.1 and 3
+Pro Preview, and the `-latest` aliases that always point at the newest of their
+family. **`gemini-3.6-flash` is the default.** **Refresh from API** (settings) or
+**Check key & list models** (document editor) replaces that list with exactly
+what your key can reach.
 
 Image, text-to-speech and other non-chat models are filtered out automatically:
 Google's model-listing endpoint mixes every product line together, and nothing
 but the id itself distinguishes them.
 
-A Flash model is the right default. Pro costs more per request and the gain on
-these tasks — reading labels, proposing a document type, re-typing block
-structure — is small.
+**Choose a Flash model unless billing is enabled on the Google account.** This is
+not only about cost. Google's free tier grants **no allowance at all** for the
+Pro and preview models, however capable they look in the picker: every request
+comes back refused, with a quota whose limit is zero. Nothing works — not field
+proposals, not restructuring, not search indexing — until a Flash model is
+selected. The gain from Pro on these tasks, reading labels and re-typing block
+structure, is small in any case.
+
+> The retired 2.x models were removed from the picker. Google no longer serves
+> them to new users, and a site left configured with one had every AI feature
+> fail at once with *"this model is no longer available"*.
 
 ## Settings
 
@@ -152,10 +162,10 @@ against your own configured types. The full reference is in
 
 ## Upload one document
 
-This is the ordinary case: one file, one policy, one entry.
+This is the ordinary case: one file, one article, one entry.
 
 1. Go to **Documents → Add New Document**.
-2. Leave **What are you uploading?** on **One policy**.
+2. Leave **What are you uploading?** on **One article**.
 3. Click **Upload source file** and pick a PDF, Word (`.docx`) or Excel file through the media library.
 4. Wait a moment. Extraction runs on its own, with no button to press.
 5. Check the fields it filled in, correct anything that needs it, and click **Publish**.
@@ -211,55 +221,84 @@ not previewed, not offered for download, and readers are never told which file
 an entry came from. Replacing or removing the file after extraction does not
 change the published content — the blocks are already stored on the entry.
 
-## Upload a compilation of several policies
+## Upload a compilation of several articles
 
 The files that arrive from a commission are usually one document carrying dozens
-of standalone policies, and each of those has to become an entry of its own.
+of standalone articles, and each of those has to become an entry of its own.
 
 1. Go to **Documents → Add New Document**.
-2. Set **What are you uploading?** to **A document holding several policies**.
-3. Upload the PDF or Word file. The policies are found on their own — no AI, no API key.
-4. Under **Complete fields with AI, per policy**, tick which fields the AI should fill for each policy. **Document Type** is ticked by default; Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
-5. Review **Policies in this document**. Each row shows the title, date, description and block count read from that policy. Untick anything that should not be imported.
-6. In the **Publish** box in the sidebar, click **Create N entries** — the button counts what is still ticked.
+2. Set **What are you uploading?** to **A document holding several articles**.
+3. Upload the PDF or Word file. The articles are found on their own — no AI, no API key.
+4. Under **Complete fields with AI, per article**, tick whether the AI should fill Title or Description for each article. **Document Type** has its own **By AI / Manually** switch above the list — *Manually* applies one value to every entry the upload creates, *By AI* reads each article on its own. Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
+5. Review **Articles in this document**. Each row shows the title, date, description and block count read from that article. Untick anything that should not be imported.
+6. In the **Create Entries** box in the sidebar, click **Create N entries** — the button counts what is still ticked.
 
-![The upload-mode question, switched to a document holding several policies](assets/screenshots/compilation-mode.png)
+![The upload-mode question, switched to a document holding several articles](assets/screenshots/compilation-mode.png)
 
-![Forty-nine policies found in one file, each with the title, date, description and block count read from it](assets/screenshots/compilation-policies.png)
+![Forty-nine articles found in one file, each with the title, date, description and block count read from it](assets/screenshots/compilation-policies.png)
 
 ### What happens when you click Create
 
-Every policy — including the one you started from — is created or updated as a
-**published** entry. The import runs a few at a time — fewer when AI fields are
-ticked, because each one is then an extra Gemini call alongside the embedding
-every entry gets anyway.
+Each selected article becomes its own **published** entry.
+
+**The upload itself is not one of them.** Its entry exists only to carry the file
+and the articles found in it, so once every entry has been created it is moved to
+the trash and you are taken to the Documents list — where the new entries are.
+Nothing named after the source file is left behind in the catalogue.
 
 There is no Save Draft or Publish/Update button in this mode: both are hidden,
-and *Create N entries*, in its own **Publish** box in the sidebar, is this mode's
-only save action. It writes straight to the database — published, not draft — as
-each entry is made, so nothing is left half-saved when you leave the screen.
+and *Create N entries*, in its own **Create Entries** box in the sidebar, is this
+mode's only save action.
 
-The imported entries carry **no source file**. The file held fifty policies and
+### You can close the page while it runs
+
+The import is a background job, not something this screen drives. Forty-nine
+articles, each with its own Gemini call and search index entry, is several
+minutes of work, and it used to stop the moment the tab was closed or one of the
+links it had just written was followed.
+
+Progress is saved after **every** article, so:
+
+- **Closing the page is safe.** Reopen the upload and the screen rejoins the run,
+  showing where it has got to.
+- **An interrupted run resumes.** It picks up at the next article rather than
+  starting over, so nothing is created twice.
+- On most hosting the run also carries on with the page closed. On hosting that
+  blocks WordPress's internal loopback requests it pauses instead and continues
+  the next time you open the upload. The status line promises only the second,
+  because the first is not ours to promise.
+
+The imported entries carry **no source file**. The file held fifty articles and
 none of them is it.
 
-> Fields ticked under *Complete fields with AI, per policy* are written as soon
-> as each entry is created — there is no per-policy review step. Reviewing
+> Fields ticked under *Complete fields with AI, per article* are written as soon
+> as each entry is created — there is no per-article review step. Reviewing
 > forty-nine proposals one at a time is exactly what this batch flow exists to
 > avoid. Everything remains editable on each entry afterwards.
+>
+> If the AI call fails — a missing key, an exhausted quota — the entries are
+> still created without those fields, and the panel says why in one line.
+> It used to swallow the failure and leave the columns silently empty.
 
 ### What can and cannot be split
 
 **PDF and Word (`.docx`) both split**, because the splitter reads the same
 extracted text either format produces. **Excel cannot** — it is not parsed at
-all. Switch back to *One policy* and upload those one at a time.
+all. Switch back to *One article* and upload those one at a time.
 
-What delimits a policy is the label schema: a policy carries exactly one `Body:`
-label, so counting those counts the policies, and each one starts at the title
+What delimits an article is the label schema: an article carries exactly one `Body:`
+label, so counting those counts the articles, and each one starts at the title
 printed above its own `Teaser:` / `Body:` pair. A file without the labels cannot
-be split. Anything before the first policy's title — a cover page, a table of
+be split. Anything before the first article's title — a cover page, a table of
 contents — is left out.
 
-> Uploading a PDF that turns out to hold more than one policy switches the mode
+An **editorial note** written between the title and the labels — `Note on
+currency: …`, `Note: this guideline states …`, the kind of remark left for
+whoever republishes the document — does not cost the article its title. The
+search looks past a few such lines, stopping at the previous article's revision
+history so it can never wander into the article above.
+
+> Uploading a PDF that turns out to hold more than one article switches the mode
 > **automatically**. There is no need to notice that ahead of time and pick it by
 > hand; the plugin says so on screen when it happens.
 
@@ -267,8 +306,8 @@ contents — is left out.
 
 Description, Last Updated, Document Type and the *Complete fields with
 AI (optional)* panel are all hidden while the upload is a compilation. None of
-them could hold one value that fits every policy in the file — which is precisely
-why the per-policy checkboxes exist instead.
+them could hold one value that fits every article in the file — which is precisely
+why the per-article checkboxes exist instead.
 
 ## Complete fields with AI
 
@@ -290,23 +329,56 @@ Document Type — or offers a second opinion on the ones it does.
 the form field — the entry itself is saved when you click Publish or Update, as
 usual.
 
+A proposed **Title** comes back in normal title case. Source headings are
+routinely set in ALL CAPS for print, and copying one across verbatim put a
+shouting title on the page.
+
 The AI reads the extracted text, so it needs a file to have been extracted
 first. On an entry with no content yet the panel says so rather than guessing.
 
 ## Restructure content with AI
 
-A separate action in its own box, for a different problem: a PDF whose layout the
-extractor misread — a heading left as a paragraph, a list flattened into prose.
+A separate action in its own box, for a different problem: a **PDF or Word
+(`.docx`)** file whose layout the extractor misread — a heading left as a
+paragraph, a list flattened into prose.
 
 The AI **does not write anything**. It re-decides which structural role each
 piece of the already-extracted text has, reusing that text verbatim.
 
 1. Click **Restructure content with AI**.
-2. The result is compared word-for-word against the current content, and a fidelity report says what — if anything — was added or dropped. A clean run reads *Text is verbatim — every word matches the extracted content.*
-3. Review the result under **Review the restructured content**.
-4. Click **Replace content with this** to apply it, or **Discard** to keep the extracted version.
+2. Read the **list of corrections**. One row per piece the AI gave a different role than the extractor did, plus anything it added, left out or reworded — colour-coded, in the document's order. Lines both read the same way are counted at the foot instead of listed, so a fifty-page document corrected in three places shows you those three.
+3. Check the report above it. It answers a different question: whether the AI stayed with the document's own words. A clean run reads *Nothing was invented — every word comes from the document.*
+4. Open **Preview the full restructured content** if you want to see the finished article rather than the changes.
+5. Click **Apply these corrections** to write it, or **Discard** to keep the extracted version.
 
 ![The Restructure content with AI box, flagged as whole document, higher cost](assets/screenshots/ai-restructure.png)
+
+### Two things it leaves out on purpose
+
+Both are metadata the plugin already stores in fields of its own, so repeating
+them inside the content would print them twice on the page:
+
+- **The title echoed at the top of the body**, usually in capitals and often
+  broken over two lines, together with the line naming the kind of document that
+  follows it — *A Position Statement*, *Guidelines*, *Good Practices*.
+- **The revision history at the end** — *Last Updated:*, *[Document History]*,
+  and the dated *Approved: / Endorsed: / Revised: / Edited:* lines under it.
+
+Because of that, a correct run always reports some words left out, and the report
+says so. What it must never report is words **added** — that is the failure the
+verdict is watching for. The dropped rows in the list of corrections are there so
+you can confirm they were only those two things.
+
+### Why it finds headings the extractor cannot
+
+In these documents Word sets most section headings as **bold body text** rather
+than as a Word heading, so nothing marks them structurally and the extractor has
+no way to tell one from a paragraph. The text sent to the AI keeps its bold
+markers for exactly this reason.
+
+Measured on the Commission's own compilations: an article the extractor returned
+with no headings at all came back with six sections and sixteen sub-sections,
+with nothing invented.
 
 > This sends the **entire** document in one request, so it costs measurably more
 > than the field proposals above. Use it when the structure is wrong, not as a
@@ -511,10 +583,10 @@ to change:
 
 ### For a compilation
 
-Put one labelled policy after another in the same file. A policy is delimited by
+Put one labelled article after another in the same file. An article is delimited by
 its own `Body:` label, and starts at the title line printed above its
 `Teaser:` / `Body:` pair. Cover pages and tables of contents before the first
-policy title are ignored.
+article title are ignored.
 
 ### How reliable this is
 
@@ -533,7 +605,7 @@ kind of file it came from.
 That path is a heuristic, not a guarantee. Expect to correct a heading or two in
 **Edit content**, or to use [Restructure content with
 AI](#restructure-content-with-ai) when the layout was misread wholesale. And a
-file without labels cannot be split into several policies at all.
+file without labels cannot be split into several articles at all.
 
 ## Troubleshooting
 
@@ -550,13 +622,29 @@ AI** and click **Test key**. A failure there is a key or quota problem at Google
 not a plugin problem. If it passes, click **Refresh from API** and re-pick the
 model: a model saved earlier may no longer be one your key can reach.
 
-**A compilation reports one policy, or none.** The file does not carry the label
-schema, so there is nothing to split on. Check that each policy has its own
-`Body:` label. Otherwise upload the policies one at a time.
+**The AI says the model has no quota on this plan.** A Pro or preview model is
+selected and the Google account has no billing enabled — the free tier grants
+those models nothing at all, so every request is refused however few you make.
+Pick a Flash model in **Settings → AI**. This is not a rate limit and waiting
+will not clear it.
+
+**A compilation reports one article, or none.** The file does not carry the label
+schema, so there is nothing to split on. Check that each article has its own
+`Body:` label. Otherwise upload the articles one at a time.
+
+**An article imported with no title.** Its title is missing or was not
+recognised. Note that an editorial note between the title and the `Teaser:` label
+is handled and does not cause this. Fix the title on the entry itself — the rest
+of the import is unaffected.
+
+**The import stopped partway.** Reopen the upload. The run resumes at the next
+article, and nothing already created is created again. Progress is saved after
+every article, so nothing is lost by closing the page.
 
 **Headings came out as paragraphs.** Fix them in **Edit content** with `##`
 markers, or use **Restructure content with AI** if there are too many to fix by
-hand.
+hand — it reads the source's bold formatting, which is how most section headings
+in these documents are marked, and recovers them wholesale.
 
 **An entry shows *Indexing…* and never changes.** The embedding call needs a
 working Gemini key. Without one, the entry is still published and still findable
