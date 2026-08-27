@@ -293,10 +293,22 @@ function aidocs_promote_policy_title( array $lines ) {
 /**
  * Split a single policy document into its labelled parts.
  *
- * @param string $raw_text Text extracted from the document.
+ * @param string $raw_text     Text extracted from the document.
+ * @param string $known_title  The document's title, when the caller already
+ *                             knows it and the text may not carry one. Re-parsing
+ *                             stored content is the case that needs this: what is
+ *                             kept in `_document_raw_text` is the body alone, with
+ *                             no title line and no labels, so the fallback below
+ *                             would take the body's first section heading for a
+ *                             title and aidocs_drop_title_echo() would then
+ *                             remove it as an echo of itself — losing a heading
+ *                             the original parse had kept, and making the
+ *                             editor's Preview tab disagree with the published
+ *                             page. Passing the title the entry already has
+ *                             makes a re-parse produce what the first parse did.
  * @return array{title:string,teaser:string,last_updated:string,document_history:string,blocks:array,labeled:bool}
  */
-function aidocs_parse_labeled_document( $raw_text ) {
+function aidocs_parse_labeled_document( $raw_text, $known_title = '' ) {
     $lines   = aidocs_normalize_lines( $raw_text );
     $pattern = aidocs_doc_label_pattern();
 
@@ -363,6 +375,13 @@ function aidocs_parse_labeled_document( $raw_text ) {
     // label, with or without the teaser above it. A stray "Body:" inside prose
     // would not be at the head of a line on its own, so it cannot trigger this.
     $labeled = $has_label;
+
+    // A title the caller already knows beats one guessed from the text, and is
+    // the only way to be right about body-only text: nothing in it is the
+    // title, so anything taken for one is really the first line of content.
+    if ( $title === '' && trim( (string) $known_title ) !== '' ) {
+        $title = trim( (string) $known_title );
+    }
 
     if ( $title === '' ) {
         // No level-1 heading: the title is whatever precedes the first label.
@@ -692,6 +711,18 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
             continue;
         }
 
+        // In canonical text, a line set in bold from end to end is a section
+        // heading. Word authors most of the headings in these documents that
+        // way — "Purposes of a Credential", "Air Travel", "Online Security" —
+        // rather than with a Word heading style, so nothing else marks them and
+        // they were landing as paragraphs. Level 3: they divide a document into
+        // its sections, which is what the accordion collapses.
+        if ( $annotated && aidocs_is_bold_heading_line( $bare ) ) {
+            $flush_para();
+            $blocks[] = aidocs_heading_block( 3, $bare );
+            continue;
+        }
+
         $para[] = $bare;
         // A canonical paragraph is one line; only unannotated text wraps.
         if ( $annotated ) $flush_para();
@@ -714,9 +745,50 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
  * it does not — text pasted from a plain PDF text layer — paragraphs are
  * wrapped across lines and headings have to be guessed at.
  */
+/**
+ * Is this canonical line a section heading the source set in bold?
+ *
+ * Three things have to hold, and the last two are what keep ordinary prose out:
+ *
+ *  - **Every run is bold.** A bold phrase inside a sentence is emphasis, and a
+ *    bold label opening a paragraph ("Note:", "Substantive Change:") leaves the
+ *    rest of that line unbold, so neither qualifies.
+ *  - **It reads like a heading** — aidocs_reads_like_heading(), the same test the
+ *    plain-text path uses: short, no trailing sentence punctuation, not a clause
+ *    trailing off on a function word.
+ *  - **It is not a note label.** A callout the document labels is a note block,
+ *    which renders as a callout and deliberately never collapses.
+ */
+function aidocs_is_bold_heading_line( $bare ) {
+    if ( strpos( $bare, '**' ) === false ) return false;
+
+    $runs = aidocs_inline_runs( $bare );
+    if ( ! $runs ) return false;
+
+    foreach ( $runs as $run ) {
+        if ( empty( $run['b'] ) ) return false;
+        if ( trim( $run['text'] ) === '' ) continue;
+    }
+
+    $plain = trim( aidocs_plain_text( $bare ) );
+    if ( $plain === '' ) return false;
+    if ( aidocs_note_variant( $plain ) !== '' ) return false;
+
+    return aidocs_reads_like_heading( $plain );
+}
+
 function aidocs_text_is_annotated( array $lines ) {
     foreach ( $lines as $line ) {
-        if ( preg_match( '/^#{1,6}\s+\S/', ltrim( $line ) ) ) return true;
+        $bare = ltrim( $line );
+        if ( preg_match( '/^#{1,6}\s+\S/', $bare ) ) return true;
+        // Emphasis and table markers are the extractor's too, and a body can
+        // easily hold no heading at all — several policies here are four plain
+        // paragraphs with a bold section title. Judging by '#' alone, the
+        // canonical text of such a body read as a raw PDF text layer, and the
+        // editor's Preview tab, which re-parses exactly that text, disagreed
+        // with the published page about the whole document's structure.
+        if ( strpos( $bare, '**' ) !== false ) return true;
+        if ( preg_match( '/^\|.*\|$/', $bare ) ) return true;
     }
     return false;
 }
@@ -1082,17 +1154,17 @@ function aidocs_drop_title_echo( array $blocks, $title ) {
     foreach ( $blocks as $block ) {
         $type = $block['type'] ?? '';
 
-        // A paragraph counts as well as a caps heading. The echo is authored as
-        // whatever the source made it: a Word document sets it in bold body
-        // text, which is not a heading and never becomes one, so restricting
-        // this to headings left the title printed again at the top of the
-        // content on every .docx-sourced document. Only the opening blocks are
-        // ever considered, and only a run whose text actually reads as the
-        // title (aidocs_is_title_echo) is dropped, so an opening paragraph that
-        // merely mentions the subject is not at risk.
+        // Any opening heading or paragraph counts, whatever its level. The echo
+        // is authored as whatever the source made it and typed as whatever the
+        // parser then made of that: a Word document sets it in bold body text,
+        // which becomes a level-3 heading here, while a PDF's all-caps title
+        // line becomes a level-2 one. Pinning this to level 2 meant the title
+        // was printed again at the top of the content of every .docx-sourced
+        // document. Only the opening blocks are ever considered, and only a run
+        // whose text actually reads as the title (aidocs_is_title_echo) is
+        // dropped, so an opening section that merely names the subject is safe.
         $is_candidate = count( $out ) < $limit
-            && ( $type === 'paragraph'
-                 || ( $type === 'heading' && (int) ( $block['level'] ?? 3 ) === 2 ) );
+            && ( $type === 'paragraph' || $type === 'heading' );
 
         if ( $is_candidate ) {
             $run[] = $block;

@@ -3273,7 +3273,10 @@ function aidocs_extract_content_ajax() {
         wp_send_json_error( __( 'No text to parse. Load a PDF or Word file and wait for extraction.' ) );
     }
 
-    $parsed = aidocs_parse_labeled_document( $raw_text );
+    // The entry's own title, so re-parsing content this document already has —
+    // which is every Preview refresh — reads it the same way the first parse
+    // did. Stored text is the body alone and carries no title of its own.
+    $parsed = aidocs_parse_labeled_document( $raw_text, get_the_title( $post_id ) );
     $blocks = $parsed['blocks'];
     if ( ! $blocks ) {
         wp_send_json_error( __( 'The parser found no content in this document.' ) );
@@ -4115,7 +4118,7 @@ function aidocs_ai_restructure_ajax() {
     // document history are their own fields, parsed deterministically from
     // their labels — handing them to the AI would invite it to fold the teaser
     // into the content as one more paragraph, duplicating the description.
-    $parsed    = aidocs_parse_labeled_document( $raw_text );
+    $parsed    = aidocs_parse_labeled_document( $raw_text, get_the_title( $post_id ) );
     $body_text = trim( $parsed['body_text'] ) !== '' ? $parsed['body_text'] : $raw_text;
 
     // The bold markers stay in. They used to be stripped along with the "\*"
