@@ -2934,10 +2934,98 @@ function aidocs_gemini_generate_content( $model, $api_key, array $payload, $time
 
         $code = (int) wp_remote_retrieve_response_code( $response );
         if ( $code !== 503 && $code !== 429 ) return $response;
-        if ( $attempt < $max_attempts ) sleep( 2 * $attempt ); // 2s, then 4s.
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        // A 429 is two different answers wearing one status code. "You are
+        // going too fast" clears in a second or two and is worth retrying;
+        // "this model has no quota on your plan" — which Gemini reports as a
+        // 429 with a zero limit — never clears, and every Pro and preview
+        // model returns it on a key without billing enabled. Retrying that one
+        // only slows the caller down and repeats the same error back at them
+        // once per attempt, which is exactly what a 49-article import did.
+        if ( aidocs_gemini_quota_is_exhausted( $body ) ) return $response;
+
+        if ( $attempt < $max_attempts ) {
+            // Gemini says how long to wait when it knows. Honour it, within
+            // reason: its own suggestion is routinely tens of seconds, which is
+            // longer than a request can afford to sit here.
+            $wait = aidocs_gemini_retry_delay( $body );
+            sleep( $wait > 0 ? min( $wait, 8 ) : 2 * $attempt );
+        }
     }
 
     return $response;
+}
+
+/**
+ * Does this error say the plan has no allowance for the model, rather than that
+ * the caller is briefly going too fast?
+ *
+ * The distinguishing mark is a quota violation whose limit is zero: not a
+ * budget spent, a budget never granted. Google's wording has changed more than
+ * once, so the numeric limit in the structured details is what is read, with
+ * the message text only as a fallback.
+ */
+function aidocs_gemini_quota_is_exhausted( $body ) {
+    if ( ! is_array( $body ) ) return false;
+
+    foreach ( (array) ( $body['error']['details'] ?? [] ) as $detail ) {
+        foreach ( (array) ( $detail['violations'] ?? [] ) as $violation ) {
+            if ( isset( $violation['quotaValue'] ) && (int) $violation['quotaValue'] === 0 ) return true;
+        }
+    }
+
+    $message = (string) ( $body['error']['message'] ?? '' );
+    return (bool) preg_match( '/limit:\s*0\b/i', $message );
+}
+
+/** The retryDelay Gemini asks for, in whole seconds, or 0 when it names none. */
+function aidocs_gemini_retry_delay( $body ) {
+    if ( ! is_array( $body ) ) return 0;
+
+    foreach ( (array) ( $body['error']['details'] ?? [] ) as $detail ) {
+        if ( isset( $detail['retryDelay'] ) && preg_match( '/^(\d+(?:\.\d+)?)s$/', (string) $detail['retryDelay'], $m ) ) {
+            return (int) ceil( (float) $m[1] );
+        }
+    }
+    return 0;
+}
+
+/**
+ * The failure to show an editor, from a Gemini error body.
+ *
+ * Google's quota errors run to several hundred characters of metric names,
+ * documentation links and one repeated line per violated quota. None of it
+ * tells the person looking at the screen what to do, and the import panel was
+ * printing the whole thing — four times over, once per retry. This says the one
+ * thing that resolves it.
+ */
+function aidocs_gemini_error_message( $body, $model = '' ) {
+    $raw = trim( (string) ( $body['error']['message'] ?? '' ) );
+
+    if ( aidocs_gemini_quota_is_exhausted( $body ) ) {
+        return sprintf(
+            /* translators: %s: the configured Gemini model id. */
+            __( 'The model %s has no quota on this API key\'s plan, so every request is refused. Pro and preview models need billing enabled on the Google account; choose a Flash model in Documents → Settings instead.' ),
+            $model !== '' ? $model : __( 'currently configured' )
+        );
+    }
+
+    // Anything else: Google's own prose, up to the bulleted metric dump it
+    // appends. Cutting at the first sentence instead would be shorter and
+    // wrong — "Resource has been exhausted (e.g. check quota)." ends its first
+    // sentence inside "e.g.", and the reader is handed "Resource has been
+    // exhausted (e.g." for their trouble.
+    $short = trim( preg_split( '/\s\*\s/', $raw, 2 )[0] );
+
+    // Some messages carry no bullets and simply run long. A hard cap keeps one
+    // of those from filling the panel, on a word boundary so it stays readable.
+    if ( mb_strlen( $short ) > 300 ) {
+        $short = rtrim( mb_substr( $short, 0, mb_strrpos( mb_substr( $short, 0, 301 ), ' ' ) ?: 300 ), " ,;:" ) . '…';
+    }
+
+    return $short !== '' ? $short : __( 'The AI request failed.' );
 }
 
 /**
@@ -3011,7 +3099,7 @@ function aidocs_ai_complete_fields( $raw_text, array $fields, $api_key, $model, 
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
     if ( $code !== 200 ) {
-        return new WP_Error( 'aidocs_ai_http', $body['error']['message'] ?? 'API error ' . $code );
+        return new WP_Error( 'aidocs_ai_http', aidocs_gemini_error_message( $body, $model ) );
     }
 
     $text = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
@@ -3909,7 +3997,7 @@ function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
     if ( $code !== 200 ) {
-        return new WP_Error( 'aidocs_ai_http', $body['error']['message'] ?? 'API error ' . $code );
+        return new WP_Error( 'aidocs_ai_http', aidocs_gemini_error_message( $body, $model ) );
     }
 
     $reply = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
@@ -6181,7 +6269,7 @@ function aidocs_ai_explain_ajax() {
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    if ( $code !== 200 ) wp_send_json_error( aidocs_gemini_error_message( $body, $model ) );
 
     $text = trim( $body['candidates'][0]['content']['parts'][0]['text'] ?? '' );
 
@@ -6352,7 +6440,7 @@ function aidocs_ai_recommend_ajax() {
 
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
-    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    if ( $code !== 200 ) wp_send_json_error( aidocs_gemini_error_message( $body, $model ) );
 
     $text   = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $text   = preg_replace( '/^```(?:json)?\s*/m', '', trim( $text ) );
@@ -6438,7 +6526,7 @@ function aidocs_ai_doc_chat_ajax() {
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
-    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    if ( $code !== 200 ) wp_send_json_error( aidocs_gemini_error_message( $body, $model ) );
 
     $text = trim( $body['candidates'][0]['content']['parts'][0]['text'] ?? '' );
     wp_send_json_success( [ 'message' => $text ] );
@@ -6492,7 +6580,7 @@ function aidocs_ai_search_ajax() {
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-    if ( $code !== 200 ) wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
+    if ( $code !== 200 ) wp_send_json_error( aidocs_gemini_error_message( $body, $model ) );
 
     $text   = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $text   = preg_replace( '/^```(?:json)?\s*/m', '', trim( $text ) );
