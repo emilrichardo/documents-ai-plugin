@@ -180,10 +180,6 @@ function aidocs_model_catalog() {
         'gemini-3.1-flash-lite'     => 'Gemini 3.1 Flash Lite',
         'gemini-3-pro-preview'      => 'Gemini 3 Pro Preview',
         'gemini-3-flash-preview'    => 'Gemini 3 Flash Preview',
-        'gemini-2.5-pro'            => 'Gemini 2.5 Pro',
-        'gemini-2.5-flash'          => 'Gemini 2.5 Flash',
-        'gemini-2.5-flash-lite'     => 'Gemini 2.5 Flash Lite',
-        'gemini-2.0-flash'          => 'Gemini 2.0 Flash (legacy)',
         'gemini-pro-latest'         => 'Gemini Pro (alias: always newest pro)',
         'gemini-flash-latest'       => 'Gemini Flash (alias: always newest flash)',
         'gemini-flash-lite-latest'  => 'Gemini Flash Lite (alias: always newest lite)',
@@ -550,8 +546,15 @@ function aidocs_get_archive_slug() {
  * the theme's generic archive/single templates — a bare title-and-excerpt
  * list, or a single-post layout dragging in sidebars, related posts or
  * comments that don't make sense for a document.
+ *
+ * Priority PHP_INT_MAX: Elementor Pro's Theme Builder also filters
+ * template_include (for its own "Archive"/"Single" location templates,
+ * e.g. a global "All Archives" template built for the blog) and normally
+ * wins at the default priority, silently replacing this template with
+ * Elementor's generic post listing. Running last guarantees this plugin's
+ * document template is what actually gets included.
  */
-add_filter( 'template_include', 'aidocs_document_template_include' );
+add_filter( 'template_include', 'aidocs_document_template_include', PHP_INT_MAX );
 function aidocs_document_template_include( $template ) {
     if ( is_post_type_archive( 'aidoc' ) ) {
         return AIDOCS_DIR . 'templates/archive-aidoc.php';
@@ -560,6 +563,38 @@ function aidocs_document_template_include( $template ) {
         return AIDOCS_DIR . 'templates/single-aidoc.php';
     }
     return $template;
+}
+
+/**
+ * <main id="aidocs-archive">/<main id="aidocs-single-page"> replace the
+ * theme's own #primary content column, but a classic theme's layout wrapper
+ * (e.g. Astra's .ast-container) is typically a flex row sized around that
+ * column. Without #primary's own width/flex-basis, our <main> just shrinks
+ * to its content's width and sits flush left instead of filling — and
+ * centering — the column. This forces it to take the full row and adds the
+ * side gutters the theme would otherwise have provided.
+ */
+add_action( 'wp_head', 'aidocs_document_layout_css' );
+function aidocs_document_layout_css() {
+    if ( ! is_post_type_archive( 'aidoc' ) && ! is_singular( 'aidoc' ) ) return;
+    ?>
+    <style>
+    #aidocs-archive,#aidocs-single-page{flex:1 1 100%;width:100%;max-width:100%;box-sizing:border-box;padding:48px clamp(20px,5vw,40px);}
+    /*
+     * The search/single-document markup below styles itself off
+     * --wp--preset--color--raft-accent(-secondary) with a hardcoded rust
+     * fallback everywhere it's used — border, text and gradient colors
+     * included, not just backgrounds. This theme's block.json never
+     * defines a "raft-*" palette, so every one of those var() calls was
+     * silently falling through to that fallback instead of the site's own
+     * navy/blue (matches this theme's --ast-global-color-0 / -8, the same
+     * navy the header and the search "GO" button already use). Defining
+     * the two variables here — scoped to just these two pages — re-themes
+     * every var()-driven color at once instead of editing each fallback.
+     */
+    :root{--wp--preset--color--raft-accent:#4d758e;--wp--preset--color--raft-accent-secondary:#003a5d;}
+    </style>
+    <?php
 }
 
 /** Render a theme template part by slug, or nothing if the theme has none by that name. Used by both plugin templates. */
@@ -680,7 +715,7 @@ function aidocs_publish_multi_meta_box_html( $post ) {
     ?>
     <div id="cd-publish-multi" class="cd-mode-multi-only">
         <p class="description" style="margin-top:0;">
-            <?php esc_html_e( 'Each policy selected on the left becomes its own published entry — this one included.' ); ?>
+            <?php esc_html_e( 'Each article selected on the left becomes its own published entry — this one included.' ); ?>
         </p>
         <button type="button" id="cd-split-import-btn" class="button button-primary" style="width:100%;text-align:center;">
             &#10133; <?php esc_html_e( 'Create the selected entries' ); ?>
@@ -833,17 +868,42 @@ function aidocs_meta_box_html( $post ) {
         .cd-badge.is-off { background:#f8d7da; color:#721c24; }
         .cd-badge.is-warn { background:#fff3cd; color:#7a5b00; }
         /* Content restructuring: set apart from the metadata fields, because it
-           is a different task and a much larger request. */
-        .cd-ai-content-box { margin-top:14px; padding:12px 14px; background:#fffdf6; border:1px solid #f0e3c4; border-left:3px solid #c8a24a; border-radius:0 6px 6px 0; }
+           is a different task and a much larger request — given more visual
+           weight than the plain cd-ai-content-box used to (thicker accent,
+           a title-row icon, a touch of shadow) so it reads as its own
+           feature rather than one more collapsed line in the panel. */
+        .cd-ai-content-box { margin-top:16px; padding:14px 16px; background:#fffdf6; border:1px solid #f0e3c4; border-left:5px solid #c8a24a; border-radius:0 8px 8px 0; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+        .cd-ai-content-box > .cd-step-head strong { font-size:14px; }
         .cd-ai-fidelity { margin:10px 0; padding:9px 12px; border-radius:4px; font-size:12px; line-height:1.6; }
         .cd-ai-fidelity.is-ok { background:#eefaf1; border:1px solid #b7e2c4; color:#1c6b34; }
         .cd-ai-fidelity.is-warn { background:#fdf6e7; border:1px solid #ecd9a6; color:#7a5b00; }
         .cd-ai-fidelity strong { display:block; margin-bottom:3px; }
+        /* The restructure review: one row per correction the AI made to the
+           extractor's reading, colour-coded by what kind of change it is. */
+        .cd-diff { margin-top:12px; }
+        .cd-diff-empty { margin:0; padding:9px 12px; background:#eefaf1; border:1px solid #b7e2c4; border-radius:4px; font-size:12px; color:#1c6b34; }
+        .cd-diff-unchanged { margin:8px 0 0; font-size:11.5px; color:#646970; }
+        .cd-diff-table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e0d3ab; border-radius:6px; font-size:12px; }
+        .cd-diff-table th { text-align:left; padding:7px 9px; background:#faf6ea; border-bottom:1px solid #e0d3ab; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:#7a5b00; }
+        .cd-diff-table td { padding:7px 9px; border-bottom:1px solid #f0efe8; vertical-align:top; }
+        .cd-diff-table tr:last-child td { border-bottom:none; }
+        .cd-diff-status { white-space:nowrap; font-weight:600; }
+        .cd-diff-role { white-space:nowrap; color:#646970; font-size:11.5px; }
+        .cd-diff-text { line-height:1.6; color:#3c434a; }
+        .cd-diff-was { display:block; margin-top:3px; font-size:11.5px; color:#8a2c1e; }
+        .cd-diff-table tr.is-retyped   { background:#f4f8fd; }
+        .cd-diff-table tr.is-retyped   .cd-diff-status { color:#1c4e80; }
+        .cd-diff-table tr.is-added     { background:#f3fbf5; }
+        .cd-diff-table tr.is-added     .cd-diff-status { color:#1c6b34; }
+        .cd-diff-table tr.is-removed   { background:#fdf4f4; }
+        .cd-diff-table tr.is-removed   .cd-diff-status { color:#8a2c1e; }
+        .cd-diff-table tr.is-rewritten { background:#fdf6e7; }
+        .cd-diff-table tr.is-rewritten .cd-diff-status { color:#7a5b00; }
         .cd-preview { margin-top:12px; }
         .cd-preview summary { cursor:pointer; font-size:12px; color:#2271b1; }
         .cd-preview-body { max-height:340px; overflow-y:auto; margin-top:10px; padding:12px 14px; background:#fff; border:1px solid #e0e0e0; border-radius:4px; }
         .cd-preview-body .aidocs-content-h2 { font-size:15px; margin:14px 0 6px; }
-        .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--wp--preset--color--secondary,#2c4a7c); }
+        .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--wp--preset--color--raft-accent-secondary,#AC5039); }
         .cd-preview-body .aidocs-content-p, .cd-preview-body li { font-size:12.5px; line-height:1.7; color:#3c434a; }
         /* Rich markdown editor: CodeMirror still tags the literal #, ** and *
            characters with their own span (cm-formatting-*) even though the
@@ -856,6 +916,20 @@ function aidocs_meta_box_html( $post ) {
         #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-em {
             display: inline-block; width: 0; overflow: hidden;
         }
+        /* EasyMDE's stylesheet sizes cm-header-1..6 off Bootstrap's display
+           classes — calc(1.375rem + 1.5vw) and similar, up to ~55px on a wide
+           screen — meant for a rendered page, not a fixed-line-height
+           CodeMirror editor. Each line still gets only CodeMirror-lines' 4px
+           padding, so a heading that size crowds directly into the line
+           above and below it instead of reading as its own block. Capped to
+           sizes that fit the editor and given breathing room of their own. */
+        #cd-raw-text-edit + .EasyMDEContainer .CodeMirror { line-height: 1.6; }
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-1 { font-size: 22px; }
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-2 { font-size: 19px; }
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-3 { font-size: 16px; }
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-4,
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-5,
+        #cd-raw-text-edit + .EasyMDEContainer .cm-header-6 { font-size: 14px; }
         /* Extracted-content tabs: edit (default) vs. preview */
         .cd-tabs { margin-top:12px; }
         .cd-tabs-nav { display:flex; gap:2px; border-bottom:1px solid #dcdcde; }
@@ -942,16 +1016,16 @@ function aidocs_meta_box_html( $post ) {
                     <input type="radio" name="document_source_mode" value="single" <?php checked( $source_mode, 'single' ); ?>>
                     <span class="cd-mode-option-card">
                         <span class="cd-mode-radio-dot" aria-hidden="true"></span>
-                        <strong><?php esc_html_e( 'One policy' ); ?></strong>
-                        <span><?php esc_html_e( 'This entry is the policy.' ); ?></span>
+                        <strong><?php esc_html_e( 'One article' ); ?></strong>
+                        <span><?php esc_html_e( 'This entry is the article.' ); ?></span>
                     </span>
                 </label>
                 <label class="cd-mode-option">
                     <input type="radio" name="document_source_mode" value="multi" <?php checked( $source_mode, 'multi' ); ?>>
                     <span class="cd-mode-option-card">
                         <span class="cd-mode-radio-dot" aria-hidden="true"></span>
-                        <strong><?php esc_html_e( 'A document holding several policies' ); ?></strong>
-                        <span><?php esc_html_e( 'Each policy inside it becomes an entry of its own. Works for PDF and Word (.docx) — the splitter reads the same extracted text as everything else, so an Excel file cannot be split; switch to "One policy" and upload each one on its own instead.' ); ?></span>
+                        <strong><?php esc_html_e( 'A document holding several articles' ); ?></strong>
+                        <span><?php esc_html_e( 'Each article inside it becomes an entry of its own. Works for PDF and Word (.docx) — the splitter reads the same extracted text as everything else, so an Excel file cannot be split; switch to "One article" and upload each one on its own instead.' ); ?></span>
                     </span>
                 </label>
             </div>
@@ -1061,7 +1135,7 @@ function aidocs_meta_box_html( $post ) {
         $has_content    = (bool) $content_blocks;
         $has_emb        = (bool) get_post_meta( $post->ID, '_document_embedding', true );
         $ai_key_set     = (bool) get_option( 'aidocs_gemini_api_key', '' );
-        $ai_model       = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+        $ai_model       = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
         $can_setup_ai   = current_user_can( 'manage_options' );
         ?>
 
@@ -1072,16 +1146,16 @@ function aidocs_meta_box_html( $post ) {
              document up: an existing entry is always a single policy by now. -->
         <div id="cd-split-wrap" class="cd-mode-multi-only">
             <div class="cd-step-head">
-                <strong><?php esc_html_e( 'Policies in this document' ); ?></strong>
+                <strong><?php esc_html_e( 'Articles in this document' ); ?></strong>
                 <span id="cd-split-badge" class="cd-badge is-off"><?php esc_html_e( 'Not read yet' ); ?></span>
                 <span id="cd-split-status" class="cd-step-status"></span>
             </div>
             <p class="cd-step-hint">
-                <?php esc_html_e( 'Each policy inside the file is found by its own Teaser / Body / Last Updated labels — no AI, no API key — and its title, description, date, history and content are read the same way a policy uploaded on its own would be. Review the list, then create one entry per policy. The first one is written over this entry; the rest are added as new ones.' ); ?>
+                <?php esc_html_e( 'Each article inside the file is found by its own Teaser / Body / Last Updated labels — no AI, no API key — and its title, description, date, history and content are read the same way an article uploaded on its own would be. Review the list, then create one entry per article. The first one is written over this entry; the rest are added as new ones.' ); ?>
             </p>
             <div class="cd-step-actions">
                 <button type="button" id="cd-split-detect-btn" class="button">
-                    &#128269; <?php esc_html_e( 'Read the policies again' ); ?>
+                    &#128269; <?php esc_html_e( 'Read the articles again' ); ?>
                 </button>
             </div>
 
@@ -1118,7 +1192,7 @@ function aidocs_meta_box_html( $post ) {
                 <div class="cd-col"></div>
             </div>
             <p class="cd-step-hint">
-                <?php esc_html_e( '"By AI" reads each policy on its own and picks its own value for it; "Manually" applies the one value chosen here to every entry this upload creates.' ); ?>
+                <?php esc_html_e( '"By AI" reads each article on its own and picks its own value for it; "Manually" applies the one value chosen here to every entry this upload creates.' ); ?>
             </p>
 
             <!-- Document Type has no label of its own in the source, so —
@@ -1128,7 +1202,7 @@ function aidocs_meta_box_html( $post ) {
                  in between: reviewing forty-nine proposals one at a time is
                  exactly what this batch flow exists to avoid. -->
             <div id="cd-split-ai">
-                <strong style="font-size:13px;display:block;margin:14px 0 6px;"><?php esc_html_e( 'Complete fields with AI, per policy:' ); ?></strong>
+                <strong style="font-size:13px;display:block;margin:14px 0 6px;"><?php esc_html_e( 'Complete fields with AI, per article:' ); ?></strong>
                 <div id="cd-split-ai-fields">
                     <label class="cd-ai-field-option">
                         <input type="checkbox" class="cd-split-ai-check" data-field-id="title">
@@ -1144,7 +1218,7 @@ function aidocs_meta_box_html( $post ) {
                 </p>
                 <p class="cd-step-hint">
                     <?php if ( $ai_key_set ) : ?>
-                        <?php esc_html_e( 'Title and Description are already read from the labels above on almost every policy, so they only need this when one is missing. Requires the Gemini key configured below.' ); ?>
+                        <?php esc_html_e( 'Title and Description are already read from the labels above on almost every article, so they only need this when one is missing. Requires the Gemini key configured below.' ); ?>
                     <?php else : ?>
                         <?php esc_html_e( 'No Gemini API key is configured — a field ticked here is imported empty until an administrator adds one in Documents → Settings.' ); ?>
                     <?php endif; ?>
@@ -1342,11 +1416,11 @@ function aidocs_meta_box_html( $post ) {
                      it is deliberately not one more checkbox in that list. -->
                 <div id="cd-ai-restructure" class="cd-ai-content-box">
                     <div class="cd-step-head">
-                        <strong><?php esc_html_e( 'Document content structure' ); ?></strong>
+                        <strong>&#129518; <?php esc_html_e( 'Document content structure' ); ?></strong>
                         <span class="cd-badge is-warn"><?php esc_html_e( 'Whole document · higher cost' ); ?></span>
                     </div>
                     <p class="cd-step-hint">
-                        <?php esc_html_e( 'Only for a PDF whose layout the extractor above misread — a heading left as a paragraph, a list flattened into prose. The AI does not write anything: it re-decides which block each piece of the already-extracted text belongs to, reusing that text verbatim. The whole document is sent in one request, so this costs considerably more than the fields above.' ); ?>
+                        <?php esc_html_e( 'For a PDF or Word (.docx) file whose layout the extractor above misread — a heading left as a paragraph, a list flattened into prose. The AI does not write anything: it re-decides which block each piece of the already-extracted text belongs to, reusing that text verbatim. What comes back is shown as a list of corrections against the extractor\'s own reading, so you approve the changes rather than a wall of content. The whole document is sent in one request, so this costs considerably more than the fields above.' ); ?>
                     </p>
                     <div class="cd-step-actions">
                         <button type="button" id="cd-ai-restructure-btn" class="button">
@@ -1356,12 +1430,13 @@ function aidocs_meta_box_html( $post ) {
                     </div>
                     <div id="cd-ai-restructure-review" hidden>
                         <div id="cd-ai-restructure-report" class="cd-ai-fidelity"></div>
+                        <div id="cd-ai-restructure-diff"></div>
                         <details class="cd-preview">
-                            <summary><?php esc_html_e( 'Review the restructured content' ); ?></summary>
+                            <summary><?php esc_html_e( 'Preview the full restructured content' ); ?></summary>
                             <div id="cd-ai-restructure-preview" class="cd-preview-body"></div>
                         </details>
                         <div class="cd-step-actions" style="margin-top:10px;">
-                            <button type="button" id="cd-ai-restructure-apply" class="button button-primary"><?php esc_html_e( 'Replace content with this' ); ?></button>
+                            <button type="button" id="cd-ai-restructure-apply" class="button button-primary"><?php esc_html_e( 'Apply these corrections' ); ?></button>
                             <button type="button" id="cd-ai-restructure-discard" class="button"><?php esc_html_e( 'Discard' ); ?></button>
                         </div>
                     </div>
@@ -1913,8 +1988,8 @@ function aidocs_meta_box_html( $post ) {
                     $('input[name="document_source_mode"][value="multi"]').prop('checked', true);
                     cdApplyMode();
                     $('#cd-split-badge').removeClass('is-off').addClass('is-ok')
-                        .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'policies found' ) ); ?>');
-                    $('#cd-split-status').text('<?php echo esc_js( __( 'Several policies were found in this file — switched to "A document holding several policies".' ) ); ?>');
+                        .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'articles found' ) ); ?>');
+                    $('#cd-split-status').text('<?php echo esc_js( __( 'Several articles were found in this file — switched to "A document holding several articles".' ) ); ?>');
                     cdRenderPolicies();
                 } else {
                     cdExtractContent(true);
@@ -2226,7 +2301,7 @@ function aidocs_meta_box_html( $post ) {
             var $status = $('#cd-ai-restructure-status');
 
             if (!rawText.trim()) {
-                $status.text('<?php echo esc_js( __( 'No document text — load a PDF and wait for extraction.' ) ); ?>');
+                $status.text('<?php echo esc_js( __( 'No document text — load a PDF or Word file and wait for extraction.' ) ); ?>');
                 return;
             }
             if (!cdAiConfigured()) {
@@ -2251,14 +2326,15 @@ function aidocs_meta_box_html( $post ) {
                 if (!res.success) { $status.text('Error: ' + res.data); return; }
                 var d = res.data;
 
-                var summary = d.total + ' blocks (' + d.headings + ' headings, ' + d.paragraphs + ' paragraphs, '
-                    + d.lists + ' lists' + (d.notes ? ', ' + d.notes + ' notes' : '')
-                    + (d.tables ? ', ' + d.tables + ' tables' : '') + ')';
-                if (d.before) summary += ' — currently ' + d.before + ' blocks';
-                $status.text(summary);
+                var c = d.changes || {};
+                var corrections = (c.retyped || 0) + (c.added || 0) + (c.removed || 0) + (c.rewritten || 0);
+                $status.text(corrections
+                    ? corrections + ' <?php echo esc_js( __( 'corrections proposed' ) ); ?>'
+                    : '<?php echo esc_js( __( 'No corrections — the AI read the structure the same way.' ) ); ?>');
 
-                // The fidelity numbers are the point of the review: they say
-                // whether the AI only moved text around or started writing.
+                // The fidelity numbers answer the other half of the review: the
+                // diff below says what changed structurally, this says whether
+                // the AI stayed with the source's words while doing it.
                 var f = d.fidelity || {};
                 var verbatim = (f.added === 0 && f.removed === 0);
                 var $report = $('#cd-ai-restructure-report')
@@ -2272,17 +2348,12 @@ function aidocs_meta_box_html( $post ) {
                     + ' · ' + f.added + ' <?php echo esc_js( __( 'added' ) ); ?>'
                     + ' · ' + f.removed + ' <?php echo esc_js( __( 'dropped' ) ); ?>';
                 lines.push($('<div>').text(detail));
-                if ((f.added_sample || []).length) {
-                    lines.push($('<div>').text('<?php echo esc_js( __( 'Added:' ) ); ?> ' + f.added_sample.join(', ')));
-                }
-                if ((f.removed_sample || []).length) {
-                    lines.push($('<div>').text('<?php echo esc_js( __( 'Dropped:' ) ); ?> ' + f.removed_sample.join(', ')));
-                }
                 if (d.truncated) {
                     lines.push($('<div>').text('<?php echo esc_js( __( 'Note: the document was too long to send in full.' ) ); ?>'));
                 }
                 $report.empty().append(lines);
 
+                $('#cd-ai-restructure-diff').html(d.diff_html || '');
                 $('#cd-ai-restructure-preview').html(d.html || '');
                 $('#cd-ai-restructure-review').prop('hidden', false);
             })
@@ -2489,7 +2560,7 @@ function aidocs_meta_box_html( $post ) {
                 cdPolicies = res.data.policies || [];
                 $status.text('');
                 $('#cd-split-badge').removeClass('is-off').addClass('is-ok')
-                    .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'policies found' ) ); ?>');
+                    .text('✓ ' + res.data.count + ' <?php echo esc_js( __( 'articles found' ) ); ?>');
                 cdRenderPolicies();
             })
             .fail(function(xhr) {
@@ -2785,6 +2856,42 @@ function aidocs_save_meta( $post_id ) {
 // 5. AI Processing — Gemini AJAX handler
 // ──────────────────────────────────────────────
 /**
+ * POST to Gemini's generateContent endpoint, retrying a transient overload
+ * (HTTP 503 "the model is overloaded", 429 rate limiting) instead of
+ * surfacing it straight to the editor as a failure. These are the "This
+ * model is currently experiencing high demand… try again later" errors —
+ * genuinely temporary, and gone within a couple of seconds almost every
+ * time, so the retry is what "try again later" already meant.
+ *
+ * @param string $model
+ * @param string $api_key
+ * @param array  $payload The request body (contents/generationConfig/…).
+ * @param int    $timeout
+ * @return array|WP_Error wp_remote_post()'s own return shape.
+ */
+function aidocs_gemini_generate_content( $model, $api_key, array $payload, $timeout = 60 ) {
+    $url  = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key );
+    $args = [
+        'headers' => [ 'Content-Type' => 'application/json' ],
+        'body'    => wp_json_encode( $payload ),
+        'timeout' => $timeout,
+    ];
+
+    $max_attempts = 3;
+    for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+        $response = wp_remote_post( $url, $args );
+
+        if ( is_wp_error( $response ) ) return $response;
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        if ( $code !== 503 && $code !== 429 ) return $response;
+        if ( $attempt < $max_attempts ) sleep( 2 * $attempt ); // 2s, then 4s.
+    }
+
+    return $response;
+}
+
+/**
  * The field-description lines of a "complete these fields" Gemini prompt.
  *
  * Shared between the interactive single-document flow and the per-policy
@@ -2802,6 +2909,12 @@ function aidocs_ai_fields_desc( array $fields ) {
 
         if ( $id === 'document_type' ) {
             $fields_desc .= '- id: "document_type", label: "' . $label . '", type: array (JSON array of strings, choose relevant items from: ' . $available_types . ')' . "\n";
+        } elseif ( $id === 'title' ) {
+            // The source heading is frequently set in ALL CAPS for print emphasis
+            // — reusing it verbatim, as every other field does, just copies that
+            // shouting straight into the post title. Title is the one field this
+            // prompt asks the model to re-case rather than transcribe as-is.
+            $fields_desc .= '- id: "title", label: "' . $label . '", type: text (rewrite in normal title case — e.g. "The Impact Of Budget Cuts" — even if the source heading is in ALL CAPS; do not shout the whole thing back in capitals)' . "\n";
         } else {
             $type_hint    = $type === 'list' ? 'list (one item per line)' : $type;
             $fields_desc .= '- id: "' . $id . '", label: "' . $label . '", type: ' . $type_hint . "\n";
@@ -2838,17 +2951,10 @@ function aidocs_ai_complete_fields( $raw_text, array $fields, $api_key, $model, 
     $prompt .= "No explanation, no markdown fences — just the raw JSON object.\n";
     $prompt .= "Always include an extra field: id \"_summary\", a 1-2 sentence plain-text summary of the document suitable for search indexing.";
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
-                'generationConfig' => [ 'temperature' => 0.1, 'responseMimeType' => 'application/json' ],
-            ] ),
-            'timeout' => 60,
-        ]
-    );
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+        'generationConfig' => [ 'temperature' => 0.1, 'responseMimeType' => 'application/json' ],
+    ], 60 );
 
     if ( is_wp_error( $response ) ) return $response;
 
@@ -2882,7 +2988,7 @@ function aidocs_ai_process() {
     if ( empty( $fields ) ) wp_send_json_error( __( 'No fields selected for AI completion.' ) );
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
 
     if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured in Settings.' ) );
 
@@ -2959,7 +3065,7 @@ function aidocs_ai_credentials_ajax() {
         if ( $model !== '' )  update_option( 'aidocs_gemini_model', $model );
         wp_send_json_success( [
             'configured' => (bool) get_option( 'aidocs_gemini_api_key', '' ),
-            'model'      => get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' ),
+            'model'      => get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' ),
         ] );
     }
 
@@ -3001,7 +3107,7 @@ function aidocs_ai_credentials_ajax() {
 
     wp_send_json_success( [
         'models'  => $models,
-        'current' => get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' ),
+        'current' => get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' ),
     ] );
 }
 
@@ -3249,7 +3355,7 @@ function aidocs_detect_policies_ajax() {
 
     $segments = aidocs_split_multi_policy_text( $raw_text );
     if ( ! $segments ) {
-        wp_send_json_error( __( 'No policy could be told apart in this document. Splitting needs the Teaser / Body / Last Updated labels — without them, upload the policies one at a time.' ) );
+        wp_send_json_error( __( 'No article could be told apart in this document. Splitting needs the Teaser / Body / Last Updated labels — without them, upload the articles one at a time.' ) );
     }
 
     set_transient( aidocs_policy_batch_key( $post_id ), $segments, HOUR_IN_SECONDS );
@@ -3298,7 +3404,7 @@ function aidocs_import_policies_ajax() {
 
     $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
     if ( ! is_array( $segments ) || ! $segments ) {
-        wp_send_json_error( __( 'The detected policies are no longer held — run the detection again.' ) );
+        wp_send_json_error( __( 'The detected articles are no longer held — run the detection again.' ) );
     }
 
     $selection = array_values( array_unique( array_map( 'absint', (array) ( $_POST['indexes'] ?? [] ) ) ) );
@@ -3306,7 +3412,7 @@ function aidocs_import_policies_ajax() {
         return isset( $segments[ $index ] );
     } ) );
     if ( ! $selection ) {
-        wp_send_json_error( __( 'Select at least one policy to import.' ) );
+        wp_send_json_error( __( 'Select at least one article to import.' ) );
     }
 
     $offset = absint( $_POST['offset'] ?? 0 );
@@ -3318,7 +3424,7 @@ function aidocs_import_policies_ajax() {
         array_keys( aidocs_policy_ai_field_labels() )
     ) );
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
 
     // A manually picked Document Type is the same for every entry this
     // upload creates — set once above the policy list rather than left for
@@ -3348,8 +3454,8 @@ function aidocs_import_policies_ajax() {
 
         $title = $fields['title'] !== ''
             ? $fields['title']
-            /* translators: %d: position of the policy inside the uploaded document. */
-            : sprintf( __( 'Untitled policy %d' ), $index + 1 );
+            /* translators: %d: position of the article inside the uploaded document. */
+            : sprintf( __( 'Untitled article %d' ), $index + 1 );
 
         $first  = ( $offset === 0 && $position === 0 );
         $target = $post_id;
@@ -3416,13 +3522,94 @@ function aidocs_import_policies_ajax() {
 }
 
 /**
+ * Send the restructure prompt and turn the reply into blocks. Split out of
+ * aidocs_ai_restructure_ajax() to keep that function about the request/review
+ * flow rather than the prompt and the reply's repair.
+ *
+ * @return array|WP_Error [ 'blocks' => Block[] ] or the failure.
+ */
+function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
+    $prompt  = "You are re-structuring text that has ALREADY been extracted from a policy document.\n";
+    $prompt .= "Your only task is to decide, for each piece of that text, which structural role it has.\n\n";
+    $prompt .= "ABSOLUTE RULES:\n";
+    $prompt .= "1. Reuse the source text VERBATIM. Do not rewrite, summarise, translate, shorten, correct or explain anything.\n";
+    $prompt .= "2. Do not invent text. Every word you output must appear in the source.\n";
+    $prompt .= "3. Do not drop content. Every sentence of the source must appear in exactly one piece.\n";
+    $prompt .= "4. Keep the source's order.\n";
+    $prompt .= "5. Join lines the extractor wrapped mid-sentence back into one piece.\n\n";
+    $prompt .= "The source uses these markers, which you should treat as hints and correct where they are plainly wrong:\n";
+    $prompt .= "'## '/'### '/'#### ' = heading, two spaces of indent per list level, '| a | b |' = table row.\n\n";
+    $prompt .= "PIECE TYPES:\n";
+    $prompt .= "- heading: a section title. level 2 for a document-level/all-caps title, 3 for a section, 4 for a sub-section.\n";
+    $prompt .= "- paragraph: ordinary prose.\n";
+    $prompt .= "- note: a callout the document labels, e.g. 'Note:', 'Note to International Institutions', 'Reminder:', 'Exception:'. Put the label in \"label\" and the rest of the sentence in \"text\".\n";
+    $prompt .= "- list_item: one item of a list. \"marker\" is its authored marker ('1.', 'a.', 'iv.', '-'), \"level\" is 1 for a top-level item, 2 for one nested inside it, and so on.\n";
+    $prompt .= "- table_row: a row of a table, with \"cells\" as an array of cell strings.\n\n";
+    $prompt .= "Return ONLY a JSON object: {\"blocks\":[{\"type\":…,\"level\":…,\"marker\":…,\"label\":…,\"text\":…,\"cells\":[…]}]}\n";
+    $prompt .= "Include only the keys each type needs. No markdown fences, no commentary.\n\n";
+    $prompt .= "SOURCE TEXT:\n" . $sent;
+
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+        // Temperature 0: this is a classification task with one right answer,
+        // not a writing task where variety helps. responseSchema constrains
+        // token generation to the shape below, which is what stops the model
+        // from ever emitting a raw, un-escaped quote or backslash inside a
+        // string — a source that quotes an abbreviation ("C&R") or uses "\*"
+        // for a literal asterisk was copied verbatim into a string value
+        // without the JSON escaping that needs, breaking the whole reply's
+        // decode on a reply that was otherwise complete and correct.
+        // responseMimeType alone asks for JSON but does not enforce it.
+        'generationConfig' => [
+            'temperature'      => 0,
+            'responseMimeType' => 'application/json',
+            'responseSchema'   => aidocs_restructure_response_schema(),
+        ],
+    ], 280 );
+
+    if ( is_wp_error( $response ) ) return $response;
+
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( $code !== 200 ) {
+        return new WP_Error( 'aidocs_ai_http', $body['error']['message'] ?? 'API error ' . $code );
+    }
+
+    $reply = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    $reply = preg_replace( '/^```(?:json)?\s*/m', '', trim( $reply ) );
+    $reply = preg_replace( '/\s*```\s*$/m', '', $reply );
+    $parsed_reply = json_decode( trim( $reply ), true );
+
+    // A model can still slip in a backslash sequence JSON does not define —
+    // most often \* from a source that used it for a literal asterisk, copied
+    // into the reply despite the plain text this prompt sends now — which
+    // breaks decoding of the entire reply, however long and otherwise correct
+    // it is. Repairing just the invalid escapes and re-trying costs nothing
+    // when the first decode already succeeded.
+    if ( ! is_array( $parsed_reply ) ) {
+        $parsed_reply = json_decode( trim( aidocs_repair_json_escapes( $reply ) ), true );
+    }
+
+    if ( ! is_array( $parsed_reply ) || empty( $parsed_reply['blocks'] ) || ! is_array( $parsed_reply['blocks'] ) ) {
+        $finish = $body['candidates'][0]['finishReason'] ?? '';
+        return new WP_Error( 'aidocs_ai_parse', $finish === 'MAX_TOKENS'
+            ? __( 'The document is too long for this model to restructure in one reply. Try a model with a larger output limit.' )
+            : __( 'Could not read the AI reply as structured content. Try again.' ) );
+    }
+
+    return [ 'blocks' => aidocs_blocks_from_ai( $parsed_reply['blocks'] ) ];
+}
+
+/**
  * AJAX: have the AI re-structure the already-extracted content.
  *
  * This is not text generation. The regex extractor gets the structure right on
- * the documents it was built for, but a PDF whose layout it misreads produces
- * mis-typed blocks — a heading left as a paragraph, a list flattened into
- * prose. The AI's whole job here is to re-decide which block each piece of
- * text belongs to, reusing that text verbatim.
+ * the documents it was built for, but a PDF or Word file whose layout it
+ * misreads produces mis-typed blocks — a heading left as a paragraph, a list
+ * flattened into prose. The AI's whole job here is to re-decide which block
+ * each piece of text belongs to, reusing that text verbatim. It works from
+ * the same already-extracted raw text either format produces, so it needs
+ * nothing format-specific of its own.
  *
  * Three things keep it to that job rather than letting it rewrite the policy:
  *
@@ -3434,6 +3621,12 @@ function aidocs_import_policies_ajax() {
  *  - Every word of the result is compared against the extracted text
  *    (aidocs_text_fidelity) and the drift is reported to the editor, who
  *    approves or discards. Nothing is written to _document_content here.
+ *
+ * The review the editor sees is a structural diff against the extractor's own
+ * reading (aidocs_blocks_structure_diff()): each piece the AI gave a different
+ * role, plus anything it added, dropped or reworded. That is the correction
+ * being approved, so it is what the panel shows rather than the finished
+ * content on its own.
  */
 add_action( 'wp_ajax_aidocs_ai_restructure', 'aidocs_ai_restructure_ajax' );
 function aidocs_ai_restructure_ajax() {
@@ -3456,7 +3649,7 @@ function aidocs_ai_restructure_ajax() {
     }
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     if ( ! $api_key ) wp_send_json_error( __( 'Gemini API key not configured.' ) );
 
     // Only the body is restructured. The title, teaser, "Last Updated" and
@@ -3478,111 +3671,58 @@ function aidocs_ai_restructure_ajax() {
     $sent      = aidocs_plain_text( mb_substr( $body_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
     $truncated = mb_strlen( $body_text ) > AIDOCS_AI_TEXT_LIMIT;
 
-    $prompt  = "You are re-structuring text that has ALREADY been extracted from a policy document.\n";
-    $prompt .= "Your only task is to decide, for each piece of that text, which structural role it has.\n\n";
-    $prompt .= "ABSOLUTE RULES:\n";
-    $prompt .= "1. Reuse the source text VERBATIM. Do not rewrite, summarise, translate, shorten, correct or explain anything.\n";
-    $prompt .= "2. Do not invent text. Every word you output must appear in the source.\n";
-    $prompt .= "3. Do not drop content. Every sentence of the source must appear in exactly one piece.\n";
-    $prompt .= "4. Keep the source's order.\n";
-    $prompt .= "5. Join lines the extractor wrapped mid-sentence back into one piece.\n\n";
-    $prompt .= "The source uses these markers, which you should treat as hints and correct where they are plainly wrong:\n";
-    $prompt .= "'## '/'### '/'#### ' = heading, two spaces of indent per list level, '| a | b |' = table row.\n\n";
-    $prompt .= "PIECE TYPES:\n";
-    $prompt .= "- heading: a section title. level 2 for a document-level/all-caps title, 3 for a section, 4 for a sub-section.\n";
-    $prompt .= "- paragraph: ordinary prose.\n";
-    $prompt .= "- note: a callout the document labels, e.g. 'Note:', 'Note to International Institutions', 'Reminder:', 'Exception:'. Put the label in \"label\" and the rest of the sentence in \"text\".\n";
-    $prompt .= "- list_item: one item of a list. \"marker\" is its authored marker ('1.', 'a.', 'iv.', '-'), \"level\" is 1 for a top-level item, 2 for one nested inside it, and so on.\n";
-    $prompt .= "- table_row: a row of a table, with \"cells\" as an array of cell strings.\n\n";
-    $prompt .= "Return ONLY a JSON object: {\"blocks\":[{\"type\":…,\"level\":…,\"marker\":…,\"label\":…,\"text\":…,\"cells\":[…]}]}\n";
-    $prompt .= "Include only the keys each type needs. No markdown fences, no commentary.\n\n";
-    $prompt .= "SOURCE TEXT:\n" . $sent;
+    // Both sides of the fidelity comparison below are the body and only the
+    // body: the blocks the regex extractor produced for it, against the
+    // Both sides of every comparison below are the body and only the body: the
+    // blocks the regex extractor produced for it, against the blocks the AI
+    // produced from the same text. The stored content is the baseline when this
+    // document already has some; otherwise it is what the extractor just read.
+    $current  = aidocs_get_content_blocks( $post_id );
+    $baseline_blocks = $current ?: $parsed['blocks'];
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
-                // Temperature 0: this is a classification task with one right
-                // answer, not a writing task where variety helps. responseSchema
-                // constrains token generation to the shape below, which is what
-                // stops the model from ever emitting a raw, un-escaped quote or
-                // backslash inside a string — a source that quotes an
-                // abbreviation ("C&R") or uses "\*" for a literal asterisk was
-                // copied verbatim into a string value without the JSON escaping
-                // that needs, breaking the whole reply's decode on a reply that
-                // was otherwise complete and correct. responseMimeType alone
-                // asks for JSON but does not enforce it at this level.
-                'generationConfig' => [
-                    'temperature'      => 0,
-                    'responseMimeType' => 'application/json',
-                    'responseSchema'   => aidocs_restructure_response_schema(),
-                ],
-            ] ),
-            'timeout' => 280,
-        ]
-    );
+    $result = aidocs_ai_restructure_call( $sent, $api_key, $model );
+    if ( is_wp_error( $result ) ) wp_send_json_error( $result->get_error_message() );
 
-    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
-
-    $code = (int) wp_remote_retrieve_response_code( $response );
-    $body = json_decode( wp_remote_retrieve_body( $response ), true );
-    if ( $code !== 200 ) {
-        wp_send_json_error( $body['error']['message'] ?? 'API error ' . $code );
-    }
-
-    $reply = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
-    $reply = preg_replace( '/^```(?:json)?\s*/m', '', trim( $reply ) );
-    $reply = preg_replace( '/\s*```\s*$/m', '', $reply );
-    $parsed_reply = json_decode( trim( $reply ), true );
-
-    // A model can still slip in a backslash sequence JSON does not define —
-    // most often \* from a source that used it for a literal asterisk, copied
-    // into the reply despite the plain text this prompt sends now — which
-    // breaks decoding of the entire reply, however long and otherwise correct
-    // it is. Repairing just the invalid escapes and re-trying costs nothing
-    // when the first decode already succeeded.
-    if ( ! is_array( $parsed_reply ) ) {
-        $parsed_reply = json_decode( trim( aidocs_repair_json_escapes( $reply ) ), true );
-    }
-
-    if ( ! is_array( $parsed_reply ) || empty( $parsed_reply['blocks'] ) || ! is_array( $parsed_reply['blocks'] ) ) {
-        $finish = $body['candidates'][0]['finishReason'] ?? '';
-        wp_send_json_error( $finish === 'MAX_TOKENS'
-            ? __( 'The document is too long for this model to restructure in one reply. Try a model with a larger output limit.' )
-            : __( 'Could not read the AI reply as structured content. Try again.' ) );
-    }
-
-    $blocks = aidocs_blocks_from_ai( $parsed_reply['blocks'] );
     // The body's echo of the document title is dropped here for the same reason
     // it is dropped from extracted content: the page already shows the title.
-    // Doing it on both paths also keeps the fidelity figures below comparable.
-    $blocks = aidocs_drop_title_echo( $blocks, $parsed['title'] );
+    // Doing it on both paths also keeps the comparison below meaningful.
+    $blocks = aidocs_drop_title_echo( $result['blocks'], $parsed['title'] );
     if ( ! $blocks ) wp_send_json_error( __( 'The AI returned no usable content.' ) );
 
     // The proposal is parked in its own meta key. Approving it is a separate,
     // explicit request; until then the live content is untouched.
     update_post_meta( $post_id, '_document_content_ai', wp_slash( wp_json_encode( $blocks ) ) );
 
-    // Both sides of this comparison are the body and only the body: the blocks
-    // the regex extractor produced for it, against the blocks the AI produced
-    // from the same text. Anything the AI adds or loses shows up here.
-    $current  = aidocs_get_content_blocks( $post_id );
-    $baseline = $current ? aidocs_blocks_plain_text( $current )
-                         : aidocs_blocks_plain_text( $parsed['blocks'] );
-    $fidelity = aidocs_text_fidelity( $baseline, aidocs_blocks_plain_text( $blocks ) );
+    $fidelity = aidocs_text_fidelity(
+        aidocs_blocks_plain_text( $baseline_blocks ),
+        aidocs_blocks_plain_text( $blocks )
+    );
 
-    $counts = array_count_values( wp_list_pluck( $blocks, 'type' ) );
+    // The structural diff is the review: which pieces the AI gave a different
+    // role than the extractor did, and anything it added, dropped or reworded
+    // along the way. The fidelity counts above answer "did it stay verbatim";
+    // this answers "what did it actually correct".
+    $diff   = aidocs_blocks_structure_diff( $baseline_blocks, $blocks );
+    $counts = array_count_values( wp_list_pluck( $diff, 'status' ) );
+
+    $block_counts = array_count_values( wp_list_pluck( $blocks, 'type' ) );
     wp_send_json_success( [
         'total'      => count( $blocks ),
-        'headings'   => (int) ( $counts['heading'] ?? 0 ),
-        'paragraphs' => (int) ( $counts['paragraph'] ?? 0 ),
-        'lists'      => (int) ( $counts['list'] ?? 0 ),
-        'notes'      => (int) ( $counts['note'] ?? 0 ),
-        'tables'     => (int) ( $counts['table'] ?? 0 ),
+        'headings'   => (int) ( $block_counts['heading'] ?? 0 ),
+        'paragraphs' => (int) ( $block_counts['paragraph'] ?? 0 ),
+        'lists'      => (int) ( $block_counts['list'] ?? 0 ),
+        'notes'      => (int) ( $block_counts['note'] ?? 0 ),
+        'tables'     => (int) ( $block_counts['table'] ?? 0 ),
         'before'     => count( $current ),
         'fidelity'   => $fidelity,
+        'changes'    => [
+            'retyped'   => (int) ( $counts['retyped'] ?? 0 ),
+            'added'     => (int) ( $counts['added'] ?? 0 ),
+            'removed'   => (int) ( $counts['removed'] ?? 0 ),
+            'rewritten' => (int) ( $counts['rewritten'] ?? 0 ),
+            'same'      => (int) ( $counts['same'] ?? 0 ),
+        ],
+        'diff_html'  => aidocs_render_structure_diff( $diff ),
         'truncated'  => $truncated,
         'model'      => $model,
         'html'       => aidocs_render_content_blocks( $blocks ),
@@ -3841,6 +3981,221 @@ function aidocs_repair_json_escapes( $text ) {
 }
 
 /**
+ * Flatten blocks into one line per piece of text, each tagged with the
+ * structural role it was given.
+ *
+ * The role is what a restructure changes, so it is what the comparison needs
+ * to see: aidocs_blocks_plain_text() deliberately throws it away, and block
+ * arrays nest (a list item can hold blocks of its own), which a side-by-side
+ * comparison cannot walk. One flat, ordered list of (role, text) is what both
+ * sides reduce to.
+ *
+ * @return array<int,array{role:string,text:string}>
+ */
+function aidocs_blocks_flatten_lines( array $blocks, $depth = 0 ) {
+    $lines = [];
+
+    foreach ( $blocks as $block ) {
+        $type = $block['type'] ?? '';
+
+        if ( $type === 'heading' ) {
+            if ( ! empty( $block['text'] ) ) {
+                /* translators: %d: heading level, e.g. "Heading 2". */
+                $lines[] = [ 'role' => sprintf( __( 'Heading %d' ), (int) ( $block['level'] ?? 2 ) ), 'text' => $block['text'] ];
+            }
+        } elseif ( $type === 'paragraph' ) {
+            if ( ! empty( $block['text'] ) ) {
+                $lines[] = [ 'role' => __( 'Paragraph' ), 'text' => $block['text'] ];
+            }
+        } elseif ( $type === 'note' ) {
+            $label = ! empty( $block['label'] ) ? $block['label'] . ': ' : '';
+            $lines[] = [ 'role' => __( 'Note' ), 'text' => $label . ( $block['text'] ?? '' ) ];
+        } elseif ( $type === 'list' ) {
+            foreach ( (array) ( $block['items'] ?? [] ) as $item ) {
+                // Content stored before nested items existed holds plain strings.
+                $item = is_array( $item ) ? $item : [ 'text' => (string) $item ];
+                if ( ! empty( $item['text'] ) ) {
+                    /* translators: %d: nesting depth of the list item, 1 for top level. */
+                    $lines[] = [ 'role' => sprintf( __( 'List item (level %d)' ), $depth + 1 ), 'text' => $item['text'] ];
+                }
+                if ( ! empty( $item['blocks'] ) ) {
+                    $lines = array_merge( $lines, aidocs_blocks_flatten_lines( $item['blocks'], $depth + 1 ) );
+                }
+            }
+        } elseif ( $type === 'table' ) {
+            if ( ! empty( $block['head'] ) ) {
+                $lines[] = [ 'role' => __( 'Table header' ), 'text' => implode( ' | ', (array) $block['head'] ) ];
+            }
+            foreach ( (array) ( $block['rows'] ?? [] ) as $row ) {
+                $lines[] = [ 'role' => __( 'Table row' ), 'text' => implode( ' | ', array_column( (array) $row, 'text' ) ) ];
+            }
+        }
+    }
+
+    return $lines;
+}
+
+/** The comparison key for one flattened line: its text, normalised. */
+function aidocs_diff_line_key( $text ) {
+    $text = mb_strtolower( wp_strip_all_tags( (string) $text ) );
+    $text = str_replace( [ '’', '‘', '“', '”', '–', '—' ], [ "'", "'", '"', '"', '-', '-' ], $text );
+    $text = preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $text );
+    return trim( $text );
+}
+
+/**
+ * Align the regex extractor's blocks against the AI's and classify each line.
+ *
+ * The AI is instructed to reuse the text verbatim and keep its order, so the
+ * two sides line up almost everywhere and only differ in the structural role
+ * a piece was given — which is exactly the correction worth showing. Lines are
+ * matched on their normalised text with a bounded lookahead rather than a full
+ * LCS: the order guarantee makes the cheap alignment correct in practice, and
+ * a long document would make an O(n·m) table needlessly expensive.
+ *
+ * @return array<int,array{status:string,before_role:string,after_role:string,text:string}>
+ */
+function aidocs_blocks_structure_diff( array $before_blocks, array $after_blocks ) {
+    $before = aidocs_blocks_flatten_lines( $before_blocks );
+    $after  = aidocs_blocks_flatten_lines( $after_blocks );
+
+    $before_keys = array_map( function ( $l ) { return aidocs_diff_line_key( $l['text'] ); }, $before );
+    $after_keys  = array_map( function ( $l ) { return aidocs_diff_line_key( $l['text'] ); }, $after );
+
+    $lookahead = 25;
+    $rows      = [];
+    $i = $j = 0;
+    $n = count( $before );
+    $m = count( $after );
+
+    $pair = function ( $bi, $aj ) use ( $before, $after ) {
+        return [
+            'status'      => $before[ $bi ]['role'] === $after[ $aj ]['role'] ? 'same' : 'retyped',
+            'before_role' => $before[ $bi ]['role'],
+            'after_role'  => $after[ $aj ]['role'],
+            'text'        => $after[ $aj ]['text'],
+        ];
+    };
+
+    while ( $i < $n && $j < $m ) {
+        if ( $before_keys[ $i ] === $after_keys[ $j ] ) {
+            $rows[] = $pair( $i, $j );
+            $i++; $j++;
+            continue;
+        }
+
+        // This before-line reappears a little further down the AI's output:
+        // everything the AI put in between is text it added.
+        $found = -1;
+        for ( $k = 1; $k <= $lookahead && $j + $k < $m; $k++ ) {
+            if ( $before_keys[ $i ] === $after_keys[ $j + $k ] ) { $found = $k; break; }
+        }
+        if ( $found > 0 ) {
+            for ( $k = 0; $k < $found; $k++ ) {
+                $rows[] = [ 'status' => 'added', 'before_role' => '', 'after_role' => $after[ $j + $k ]['role'], 'text' => $after[ $j + $k ]['text'] ];
+            }
+            $j += $found;
+            continue;
+        }
+
+        // The mirror case: this AI line appears further down the extractor's
+        // output, so the extractor lines in between were dropped.
+        $found = -1;
+        for ( $k = 1; $k <= $lookahead && $i + $k < $n; $k++ ) {
+            if ( $after_keys[ $j ] === $before_keys[ $i + $k ] ) { $found = $k; break; }
+        }
+        if ( $found > 0 ) {
+            for ( $k = 0; $k < $found; $k++ ) {
+                $rows[] = [ 'status' => 'removed', 'before_role' => $before[ $i + $k ]['role'], 'after_role' => '', 'text' => $before[ $i + $k ]['text'] ];
+            }
+            $i += $found;
+            continue;
+        }
+
+        // Neither side resynchronises within the window: the wording itself
+        // changed here, which is the one thing a restructure must not do.
+        $rows[] = [ 'status' => 'rewritten', 'before_role' => $before[ $i ]['role'], 'after_role' => $after[ $j ]['role'], 'text' => $after[ $j ]['text'], 'before_text' => $before[ $i ]['text'] ];
+        $i++; $j++;
+    }
+
+    for ( ; $i < $n; $i++ ) {
+        $rows[] = [ 'status' => 'removed', 'before_role' => $before[ $i ]['role'], 'after_role' => '', 'text' => $before[ $i ]['text'] ];
+    }
+    for ( ; $j < $m; $j++ ) {
+        $rows[] = [ 'status' => 'added', 'before_role' => '', 'after_role' => $after[ $j ]['role'], 'text' => $after[ $j ]['text'] ];
+    }
+
+    return $rows;
+}
+
+/**
+ * Render the structural diff as the review table the editor decides from.
+ *
+ * Unchanged lines are counted, not listed: a fifty-page policy the AI re-typed
+ * correctly in three places should show those three, not fifty pages of rows
+ * that say "no change". Every other status is listed in document order.
+ */
+function aidocs_render_structure_diff( array $rows ) {
+    $labels = [
+        'retyped'   => __( 'Re-typed' ),
+        'added'     => __( 'Added by the AI' ),
+        'removed'   => __( 'Dropped by the AI' ),
+        'rewritten' => __( 'Wording changed' ),
+    ];
+
+    $unchanged = 0;
+    $listed    = [];
+    foreach ( $rows as $row ) {
+        if ( $row['status'] === 'same' ) { $unchanged++; continue; }
+        $listed[] = $row;
+    }
+
+    ob_start();
+    ?>
+    <div class="cd-diff">
+        <?php if ( ! $listed ) : ?>
+            <p class="cd-diff-empty"><?php esc_html_e( 'The AI read the structure exactly as the extractor did — nothing to correct.' ); ?></p>
+        <?php else : ?>
+            <table class="cd-diff-table">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Change' ); ?></th>
+                        <th><?php esc_html_e( 'Extractor' ); ?></th>
+                        <th><?php esc_html_e( 'AI' ); ?></th>
+                        <th><?php esc_html_e( 'Text' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ( $listed as $row ) : ?>
+                    <tr class="is-<?php echo esc_attr( $row['status'] ); ?>">
+                        <td class="cd-diff-status"><?php echo esc_html( $labels[ $row['status'] ] ?? $row['status'] ); ?></td>
+                        <td class="cd-diff-role"><?php echo esc_html( $row['before_role'] ?: '—' ); ?></td>
+                        <td class="cd-diff-role"><?php echo esc_html( $row['after_role'] ?: '—' ); ?></td>
+                        <td class="cd-diff-text">
+                            <?php echo esc_html( $row['text'] ); ?>
+                            <?php if ( $row['status'] === 'rewritten' && ! empty( $row['before_text'] ) ) : ?>
+                                <span class="cd-diff-was"><?php esc_html_e( 'was:' ); ?> <?php echo esc_html( $row['before_text'] ); ?></span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+        <?php if ( $unchanged ) : ?>
+            <p class="cd-diff-unchanged">
+                <?php
+                /* translators: %d: number of lines the AI and the extractor agreed on. */
+                echo esc_html( sprintf( _n( '%d more line was read the same way by both.', '%d more lines were read the same way by both.', $unchanged ), $unchanged ) );
+                ?>
+            </p>
+        <?php endif; ?>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
+/**
  * Compare two bodies of text word by word, ignoring order.
  *
  * The point is to answer one question about an AI restructure: did it only
@@ -3936,7 +4291,7 @@ function aidocs_settings_page() { // phpcs:ignore
     if ( isset( $_POST['aidocs_settings_nonce'] ) &&
          wp_verify_nonce( $_POST['aidocs_settings_nonce'], 'aidocs_settings_save' ) ) {
 
-        update_option( 'aidocs_gemini_model', sanitize_text_field( $_POST['aidocs_gemini_model'] ?? 'gemini-2.5-flash' ) );
+        update_option( 'aidocs_gemini_model', sanitize_text_field( $_POST['aidocs_gemini_model'] ?? 'gemini-3.6-flash' ) );
         if ( ! empty( $_POST['aidocs_gemini_api_key'] ) ) {
             update_option( 'aidocs_gemini_api_key', sanitize_text_field( $_POST['aidocs_gemini_api_key'] ) );
         }
@@ -3951,7 +4306,7 @@ function aidocs_settings_page() { // phpcs:ignore
     }
 
     /* ---- data ---- */
-    $gemini_model      = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $gemini_model      = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     $gemini_api_key    = get_option( 'aidocs_gemini_api_key', '' );
     $types_list        = get_option( 'aidocs_types_list', implode( "\n", AIDOCS_TYPES ) );
 
@@ -4003,7 +4358,7 @@ function aidocs_settings_page() { // phpcs:ignore
                     <button type="button" id="cd-gemini-model-refresh" class="button"><?php esc_html_e( 'Refresh from API' ); ?></button>
                     <span id="cd-gemini-model-status" style="font-size:12px;color:#646970;"></span>
                     <p class="description">
-                        <?php esc_html_e( 'The list above is a starting point. "Refresh from API" replaces it with exactly the text models the saved key can reach — use it if a model here is rejected. Every model listed takes a 1M-token context, so a whole policy document fits in one request.' ); ?>
+                        <?php esc_html_e( 'The list above is a starting point. "Refresh from API" replaces it with exactly the text models the saved key can reach — use it if a model here is rejected. Every model listed takes a 1M-token context, so a whole document fits in one request.' ); ?>
                     </p>
                 </td>
             </tr>
@@ -4789,11 +5144,15 @@ ENDSCRIPT;
     <style>
     .cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
     .cd-fs-card{background:#fff;border:1.5px solid #d8dde6;border-radius:14px;padding:36px 40px 32px;}
-    .cd-fs-title{text-align:center;font-size:26px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 6px;display:flex;align-items:center;gap:16px;}
+    /* Matches this site's own heading style (Montserrat 600, navy) — the
+       plugin ships a generic system-font/near-black default for whichever
+       theme it's dropped into, and this card's font-family override above
+       otherwise carries straight through to this h2 by inheritance. */
+    .cd-fs-title{font-family:'Montserrat',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center;font-size:26px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#1D1F25);margin:0 0 6px;display:flex;align-items:center;gap:16px;}
     .cd-fs-title::before,.cd-fs-title::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,transparent,#c8d0dc);}
     .cd-fs-title::after{background:linear-gradient(to left,transparent,#c8d0dc);}
     .cd-fs-subtitle{text-align:center;font-size:13px;color:#6b7280;margin:0 0 24px;display:flex;align-items:center;justify-content:center;gap:6px;}
-    .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#e8f0fb,#dbeafe);border:1px solid #bfdbfe;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);border:1px solid color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 30%,#fff);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     /* Single-row controls */
     .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
     .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
@@ -4804,73 +5163,79 @@ ENDSCRIPT;
        its own padding win, which left this input's text sitting under the
        search icon rather than clear of it. The wrapper-qualified selector
        below outweighs that regardless of style order. */
-    .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);background:#fff;outline:none;transition:border-color .18s;}
-    .cd-fs-keyword:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);background:#fff;outline:none;transition:border-color .18s;}
+    .cd-fs-keyword:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
-    .cd-fs-kw-clear:hover{color:var(--wp--preset--color--contrast,#1a2744);background:#f0f2f5;}
+    .cd-fs-kw-clear:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);background:#f0f2f5;}
     .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
     .cd-fs-select-wrap{flex:1;min-width:120px;}
-    .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:var(--wp--preset--color--contrast,#1a2744);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
-    .cd-fs-select-wrap select:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
-    /* Search button */
-    .cd-fs-search-btn{height:46px;padding:0 22px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;}
-    .cd-fs-search-btn:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:var(--wp--preset--color--raft-fg,#1D1F25);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
+    .cd-fs-select-wrap select:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    /* Search button — !important on the sizing props because this theme's
+       global button styling (Astra's Customizer "Buttons" typography)
+       targets plain <button> elements with its own !important rules, which
+       would otherwise inflate this into an oversized pill. */
+    .cd-fs-search-btn{height:46px !important;padding:0 22px !important;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px) !important;font-size:14px !important;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;line-height:normal !important;}
+    .cd-fs-search-btn:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     /* Document Type tabs — replaces the plain dropdown as the way to switch
        between Policies / Guidelines / Good Practices / Position Statements
        (and whichever other types are configured). The <select> with the
        same values stays in the markup, just hidden, so every existing
        .cd-fs-type read/write in the JS below keeps working untouched. */
     .cd-fs-type-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;}
-    .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
-    .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--wp--preset--color--contrast,#1a2744);}
-    .cd-fs-type-tab.is-active{background:var(--wp--preset--color--primary,#1e3a5f);border-color:var(--wp--preset--color--primary,#1e3a5f);color:#fff;}
+    /* !important on the sizing props for the same reason as .cd-fs-search-btn
+       above — otherwise the theme's global <button> styling blows these
+       pills up well past the compact size they're designed at. */
+    .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px !important;padding:7px 16px !important;font-size:13px !important;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;line-height:normal !important;height:auto !important;}
+    .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--wp--preset--color--raft-fg,#1D1F25);}
+    .cd-fs-type-tab.is-active{background:var(--wp--preset--color--raft-accent,#C26148);border-color:var(--wp--preset--color--raft-accent,#C26148);color:#fff;}
     .cd-fs-type-select-hidden{display:none;}
     /* Results */
     .cd-fs-results{margin-top:24px;}
     .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
     .cd-fs-doc-card{display:flex;gap:16px;padding:18px 20px;border:1px solid #e5e9ef;border-radius:10px;margin-bottom:12px;background:#fff;transition:box-shadow .18s,border-color .18s;}
     .cd-fs-doc-card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08);border-color:#b8cce4;}
-    .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#dbeafe;}
-    .cd-fs-doc-icon svg{color:#2563eb;}
+    .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 12%,#fff);}
+    .cd-fs-doc-icon svg{color:var(--wp--preset--color--raft-accent-secondary,#2563eb);}
     .cd-fs-doc-body{flex:1;min-width:0;}
-    .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 6px;}
-    .cd-fs-doc-title a{color:inherit;text-decoration:none;}.cd-fs-doc-title a:hover{color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:underline;}
+    .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:0 0 6px;}
+    .cd-fs-doc-title a{color:inherit;text-decoration:none;}.cd-fs-doc-title a:hover{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:underline;}
     .cd-fs-doc-desc{font-size:13px;color:#6b7280;margin:0 0 10px;line-height:1.55;}
     .cd-fs-doc-snippet{font-size:13px;color:#4b5563;margin:0 0 10px;line-height:1.55;background:#f9fafb;border-left:2.5px solid #bfdbfe;padding:6px 10px;border-radius:0 6px 6px 0;}
     .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
     .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
+    .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
     .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
     .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
-    .cd-fs-page-btn{height:34px;min-width:34px;padding:0 10px;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px);font-size:13px;cursor:pointer;transition:background .15s,border-color .15s;}
-    .cd-fs-page-btn:hover,.cd-fs-page-btn.active{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-color:var(--wp--preset--color--primary,#1e3a5f);}
+    .cd-fs-page-btn{height:34px !important;min-width:34px;padding:0 10px !important;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px) !important;font-size:13px !important;cursor:pointer;transition:background .15s,border-color .15s;line-height:normal !important;}
+    .cd-fs-page-btn:hover,.cd-fs-page-btn.active{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-color:var(--wp--preset--color--raft-accent,#C26148);}
     .cd-fs-loading{text-align:center;padding:32px;color:#9ca3af;font-size:14px;}
     /* Autocomplete suggestions */
     .cd-fs-suggestions{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1.5px solid #c8d0dc;border-radius:0 0 10px 10px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;display:none;}
     .cd-fs-suggestion{padding:9px 14px 9px 38px;font-size:13px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f2f5;}
     .cd-fs-suggestion:last-child{border-bottom:none;}
-    .cd-fs-suggestion:hover,.cd-fs-suggestion.highlighted{background:#f0f6ff;color:var(--wp--preset--color--contrast,#1a2744);}
+    .cd-fs-suggestion:hover,.cd-fs-suggestion.highlighted{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
     .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* AI explanation */
     .cd-fs-ai-explain{margin-top:16px;}
     .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
-    .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--wp--preset--color--secondary,#2c4a7c);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+    .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
     .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
     .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
     .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
     .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
-    .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--wp--preset--color--contrast,#1a2744);margin-bottom:8px;line-height:1.4;}
+    .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--wp--preset--color--raft-fg,#1D1F25);margin-bottom:8px;line-height:1.4;}
     .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
-    .cd-fs-ai-suggest-view:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .cd-fs-ai-suggest-view:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     @keyframes cd-dot-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
     .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
-    .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--wp--preset--color--primary,#1e3a5f),var(--wp--preset--color--secondary,#2c4a7c));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--wp--preset--color--raft-accent,#C26148),var(--wp--preset--color--raft-accent-secondary,#AC5039));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
     .cd-fs-ai-thinking-icon svg{color:#fff;}
-    .cd-fs-ai-thinking-text{font-size:13px;color:var(--wp--preset--color--secondary,#2c4a7c);font-weight:500;}
+    .cd-fs-ai-thinking-text{font-size:13px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);font-weight:500;}
     .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
-    .cd-fs-ai-dots span{width:5px;height:5px;background:var(--wp--preset--color--secondary,#2c4a7c);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
+    .cd-fs-ai-dots span{width:5px;height:5px;background:var(--wp--preset--color--raft-accent-secondary,#AC5039);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
     .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
     .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
     /* Document modal */
@@ -4880,10 +5245,10 @@ ENDSCRIPT;
     .cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
     .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
     .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
-    .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:0 0 10px;line-height:1.4;}
+    .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:0 0 10px;line-height:1.4;}
     .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
-    .cd-doc-modal-close:hover{color:var(--wp--preset--color--contrast,#1a2744);background:#f0f2f5;}
+    .cd-doc-modal-close:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);background:#f0f2f5;}
     /* Modal tabs */
     .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
     .cd-doc-modal-pane.active{display:flex;}
@@ -4892,28 +5257,28 @@ ENDSCRIPT;
     .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
     .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
     .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
-    .cd-doc-modal-value{font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);font-weight:500;line-height:1.5;}
+    .cd-doc-modal-value{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);font-weight:500;line-height:1.5;}
     /* Chat pane */
     /* Ask AI — persistent bar pinned below the panes */
     .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
     .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
     .cd-doc-ask-answers.open{display:flex;}
     .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
-    .cd-doc-ask-icon{color:var(--wp--preset--color--secondary,#2c4a7c);flex-shrink:0;}
-    .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--contrast,#1a2744);}
-    .cd-doc-ask-input:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
-    .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
-    .cd-doc-ask-send:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-doc-ask-icon{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);flex-shrink:0;}
+    .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
+    .cd-doc-ask-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
+    .cd-doc-ask-send:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
     .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
-    .cd-doc-ask-collapse:hover{color:var(--wp--preset--color--contrast,#1a2744);}
-    .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--wp--preset--color--primary,#1e3a5f);border:1.5px solid var(--wp--preset--color--primary,#1e3a5f);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
-    .cd-doc-modal-permalink:hover{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;}
+    .cd-doc-ask-collapse:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);}
+    .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--wp--preset--color--raft-accent,#C26148);border:1.5px solid var(--wp--preset--color--raft-accent,#C26148);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
+    .cd-doc-modal-permalink:hover{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;}
     /* Structured document content */
     .aidocs-content{margin-top:4px;}
-    .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:26px 0 10px;line-height:1.35;}
+    .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:26px 0 10px;line-height:1.35;}
     .aidocs-content-h2:first-child{margin-top:0;}
-    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--secondary,#2c4a7c);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
     .aidocs-content-h3:first-child{margin-top:0;}
     .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
     .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
@@ -4928,17 +5293,17 @@ ENDSCRIPT;
     .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
     .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
     .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
-    .cd-doc-modal-cancel:hover{border-color:var(--wp--preset--color--secondary,#2c4a7c);background:#f0f6ff;}
+    .cd-doc-modal-cancel:hover{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);background:#f0f6ff;}
     /* card clickable */
     .cd-fs-doc-card{cursor:pointer;}
     /* AI Bot */
-    .cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,var(--wp--preset--color--primary,#1e3a5f),var(--wp--preset--color--secondary,#2c4a7c));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
+    .cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,var(--wp--preset--color--raft-accent,#C26148),var(--wp--preset--color--raft-accent-secondary,#AC5039));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
     .cd-bot-toggle:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(30,58,95,.5);}
     .cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:540px;}
     .cd-bot-panel.open{display:flex;}
     .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border-radius:14px 14px 0 0;}
     .cd-bot-header-info{display:flex;flex-direction:column;gap:2px;}
-    .cd-bot-header strong{font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);}
+    .cd-bot-header strong{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);}
     .cd-bot-header span{font-size:11px;color:#6b7280;}
     .cd-bot-close{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0;}
     .cd-bot-messages{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
@@ -4946,17 +5311,17 @@ ENDSCRIPT;
     .cd-bot-turn.user{align-self:flex-end;align-items:flex-end;}
     .cd-bot-turn.bot{align-self:flex-start;align-items:flex-start;}
     .cd-bot-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
-    .cd-bot-turn.bot .cd-bot-msg{background:#f0f6ff;color:var(--wp--preset--color--contrast,#1a2744);border-bottom-left-radius:3px;}
-    .cd-bot-turn.user .cd-bot-msg{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-bottom-right-radius:3px;}
+    .cd-bot-turn.bot .cd-bot-msg{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);border-bottom-left-radius:3px;}
+    .cd-bot-turn.user .cd-bot-msg{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-bottom-right-radius:3px;}
     .cd-bot-doc-card{display:flex;gap:10px;align-items:center;background:#fff;border:1.5px solid #d0dce8;border-radius:10px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s,border-color .15s;width:100%;box-sizing:border-box;}
-    .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     .cd-bot-doc-info{flex:1;min-width:0;}
-    .cd-bot-doc-title{font-size:12px;font-weight:600;color:var(--wp--preset--color--contrast,#1a2744);margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
+    .cd-bot-doc-title{font-size:12px;font-weight:600;color:var(--wp--preset--color--raft-fg,#1D1F25);margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
     .cd-bot-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
     .cd-bot-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e9ef;flex-shrink:0;}
     .cd-bot-input{flex:1;height:38px;padding:0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
-    .cd-bot-input:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
-    .cd-bot-send{height:38px;padding:0 14px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;cursor:pointer;}
+    .cd-bot-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .cd-bot-send{height:38px;padding:0 14px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;cursor:pointer;}
     .cd-bot-send:disabled{opacity:.5;cursor:default;}
     @media(max-width:600px){.cd-fs-controls{flex-wrap:wrap;}.cd-fs-keyword-wrap{flex:none;width:100%;}.cd-fs-select-wrap{flex:1;min-width:calc(50% - 5px);}.cd-fs-search-btn{width:100%;justify-content:center;}.cd-fs-card{padding:24px 18px;}.cd-bot-panel{width:calc(100vw - 40px);}}
     </style>
@@ -5299,21 +5664,21 @@ function aidocs_single_view_styles() {
     .aidocs-single-page{max-width:820px;margin:0 auto;padding:40px 20px;}
     .aidocs-single-title{font-size:28px;font-weight:700;margin:0 0 20px;}
     .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
-    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;margin-bottom:18px;}
+    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:none;margin-bottom:18px;}
     .aidocs-single-back:hover{text-decoration:underline;}
     .aidocs-single-header{display:flex;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
     .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;}
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.type{background:#e8f0fb;color:var(--wp--preset--color--secondary,#2c4a7c);}
+    .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
     .aidocs-single-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-bottom:4px;}
     .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
-    .aidocs-single-value{font-size:14px;color:var(--wp--preset--color--contrast,#1a2744);font-weight:500;line-height:1.5;}
+    .aidocs-single-value{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);font-weight:500;line-height:1.5;}
     .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:26px 0 12px;padding-top:18px;border-top:1px solid #f0f2f5;}
-    .aidocs-content-h2{font-size:18px;font-weight:700;color:var(--wp--preset--color--contrast,#1a2744);margin:28px 0 10px;line-height:1.35;}
+    .aidocs-content-h2{font-size:18px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:28px 0 10px;line-height:1.35;}
     .aidocs-content-h2:first-child{margin-top:0;}
-    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--secondary,#2c4a7c);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
     .aidocs-content-h3:first-child{margin-top:0;}
     .aidocs-content-p{font-size:15px;color:#374151;line-height:1.8;margin:0 0 14px;}
     .aidocs-content-list{margin:0 0 16px;padding-left:24px;}
@@ -5323,7 +5688,7 @@ function aidocs_single_view_styles() {
     .aidocs-toc-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:8px;}
     .aidocs-toc ul{list-style:none;margin:0;padding:0;columns:2;column-gap:24px;}
     .aidocs-toc li{margin-bottom:6px;break-inside:avoid;}
-    .aidocs-toc a{font-size:13px;color:var(--wp--preset--color--secondary,#2c4a7c);text-decoration:none;font-weight:500;}
+    .aidocs-toc a{font-size:13px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:none;font-weight:500;}
     .aidocs-toc a:hover{text-decoration:underline;}
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
     .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
@@ -5336,14 +5701,14 @@ function aidocs_single_view_styles() {
     .aidocs-ask-turn.user{align-self:flex-end;align-items:flex-end;}
     .aidocs-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
     .aidocs-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.6;}
-    .aidocs-ask-turn.bot .aidocs-ask-msg{background:#f0f6ff;color:var(--wp--preset--color--contrast,#1a2744);border-bottom-left-radius:3px;}
-    .aidocs-ask-turn.user .aidocs-ask-msg{background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-ask-turn.bot .aidocs-ask-msg{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);border-bottom-left-radius:3px;}
+    .aidocs-ask-turn.user .aidocs-ask-msg{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-bottom-right-radius:3px;}
     .aidocs-single-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;}
-    .aidocs-single-ask-icon{color:var(--wp--preset--color--secondary,#2c4a7c);flex-shrink:0;}
-    #aidocs-single-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--contrast,#1a2744);}
-    #aidocs-single-ask-input:focus{border-color:var(--wp--preset--color--secondary,#2c4a7c);}
-    #aidocs-single-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--primary,#1e3a5f);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
-    #aidocs-single-ask-send:hover{background:var(--wp--preset--color--secondary,#2c4a7c);}
+    .aidocs-single-ask-icon{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);flex-shrink:0;}
+    #aidocs-single-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
+    #aidocs-single-ask-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    #aidocs-single-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
+    #aidocs-single-ask-send:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     #aidocs-single-ask-send:disabled{opacity:.5;cursor:default;}
     @media(max-width:600px){.aidocs-single-grid{grid-template-columns:1fr;}.aidocs-single-header{flex-wrap:wrap;}}
     </style>
@@ -5455,7 +5820,7 @@ function aidocs_ai_explain_ajax() {
     if ( ! $titles ) wp_send_json_error( 'No results.' );
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $query_parts = [];
@@ -5469,17 +5834,10 @@ function aidocs_ai_explain_ajax() {
     $prompt .= "Write 1-2 sentences in the same language the search query implies (default to the site language) explaining why these results are relevant to the user's search. ";
     $prompt .= "Be concise and helpful. Do not use markdown.";
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => [ [ 'role' => 'user', 'parts' => [ [ 'text' => $prompt ] ] ] ],
-                'generationConfig' => [ 'temperature' => 0.4, 'maxOutputTokens' => 120 ],
-            ] ),
-            'timeout' => 20,
-        ]
-    );
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => [ [ 'role' => 'user', 'parts' => [ [ 'text' => $prompt ] ] ] ],
+        'generationConfig' => [ 'temperature' => 0.4, 'maxOutputTokens' => 120 ],
+    ], 20 );
 
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
 
@@ -5505,7 +5863,7 @@ function aidocs_ai_recommend_ajax() {
     if ( ! $message ) wp_send_json_error( 'Empty message.' );
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     // Semantic search: embed query → cosine similarity → top candidates
@@ -5637,28 +5995,21 @@ function aidocs_ai_recommend_ajax() {
         }
     }
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => $contents,
-                // responseSchema (not just responseMimeType) is what stops the
-                // model from ever emitting a raw, un-escaped quote inside a
-                // string — expected here since the message routinely quotes a
-                // document title or a phrase copied from its text — breaking
-                // the whole reply's decode on a reply that was otherwise
-                // complete and correct (see aidocs_restructure_response_schema
-                // for the same fix applied to document extraction).
-                'generationConfig' => [
-                    'temperature'      => 0.5,
-                    'responseMimeType' => 'application/json',
-                    'responseSchema'   => aidocs_recommend_response_schema(),
-                ],
-            ] ),
-            'timeout' => 30,
-        ]
-    );
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => $contents,
+        // responseSchema (not just responseMimeType) is what stops the
+        // model from ever emitting a raw, un-escaped quote inside a
+        // string — expected here since the message routinely quotes a
+        // document title or a phrase copied from its text — breaking
+        // the whole reply's decode on a reply that was otherwise
+        // complete and correct (see aidocs_restructure_response_schema
+        // for the same fix applied to document extraction).
+        'generationConfig' => [
+            'temperature'      => 0.5,
+            'responseMimeType' => 'application/json',
+            'responseSchema'   => aidocs_recommend_response_schema(),
+        ],
+    ], 30 );
 
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
 
@@ -5710,7 +6061,7 @@ function aidocs_ai_doc_chat_ajax() {
     if ( ! $doc_id || ! $message ) wp_send_json_error( 'Invalid request.' );
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $post = get_post( $doc_id );
@@ -5742,17 +6093,10 @@ function aidocs_ai_doc_chat_ajax() {
         }
     }
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => $contents,
-                'generationConfig' => [ 'temperature' => 0.4, 'maxOutputTokens' => 350 ],
-            ] ),
-            'timeout' => 25,
-        ]
-    );
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => $contents,
+        'generationConfig' => [ 'temperature' => 0.4, 'maxOutputTokens' => 350 ],
+    ], 25 );
 
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
     $code = (int) wp_remote_retrieve_response_code( $response );
@@ -5775,7 +6119,7 @@ function aidocs_ai_search_ajax() {
     if ( ! $message ) wp_send_json_error( 'Empty message.' );
 
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-2.5-flash' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     if ( ! $api_key ) wp_send_json_error( 'AI not configured.' );
 
     $types     = aidocs_get_types();
@@ -5797,21 +6141,14 @@ function aidocs_ai_search_ajax() {
         }
     }
 
-    $response = wp_remote_post(
-        'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode( $model ) . ':generateContent?key=' . urlencode( $api_key ),
-        [
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'contents'         => $contents,
-                'generationConfig' => [
-                    'temperature'      => 0.4,
-                    'responseMimeType' => 'application/json',
-                    'responseSchema'   => aidocs_search_response_schema(),
-                ],
-            ] ),
-            'timeout' => 30,
-        ]
-    );
+    $response = aidocs_gemini_generate_content( $model, $api_key, [
+        'contents'         => $contents,
+        'generationConfig' => [
+            'temperature'      => 0.4,
+            'responseMimeType' => 'application/json',
+            'responseSchema'   => aidocs_search_response_schema(),
+        ],
+    ], 30 );
 
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
 

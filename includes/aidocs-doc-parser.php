@@ -326,8 +326,35 @@ function aidocs_parse_labeled_document( $raw_text ) {
 
     if ( $title === '' ) {
         // No level-1 heading: the title is whatever precedes the first label.
-        $title_lines = array_slice( array_values( array_filter( $preamble, 'strlen' ) ), 0, 3 );
-        $title       = aidocs_plain_text( implode( ' ', $title_lines ) );
+        //
+        // Those lines are usually headings, and their "## " markers have to come
+        // off before they are joined — a title still carrying them can never
+        // match the body's own echo of itself, which is what
+        // aidocs_drop_title_echo() compares against, so the echo survives into
+        // the content and the document renders its title twice, split across
+        // however many lines the layout wrapped it over.
+        //
+        // Only the opening run of same-level headings is taken. A title set over
+        // two lines is one heading repeated at one level; the heading below it at
+        // a different level is a subtitle or a section of its own ("A Position
+        // Statement"), and folding that into the title breaks the same echo
+        // match a different way. Text that opens with no heading at all keeps the
+        // previous up-to-three-lines behaviour.
+        $title_lines = [];
+        $run_level   = null;
+        foreach ( array_values( array_filter( $preamble, 'strlen' ) ) as $line ) {
+            if ( ! preg_match( '/^(#{1,6})\s+(\S.*)$/', ltrim( $line ), $m ) ) break;
+            $level = strlen( $m[1] );
+            if ( $run_level !== null && $level !== $run_level ) break;
+            $run_level     = $level;
+            $title_lines[] = $m[2];
+        }
+
+        if ( ! $title_lines ) {
+            $title_lines = array_slice( array_values( array_filter( $preamble, 'strlen' ) ), 0, 3 );
+        }
+
+        $title = aidocs_plain_text( implode( ' ', $title_lines ) );
     }
 
     $body_lines = $labeled ? ( $sections['body'] ?? [] ) : array_merge( $preamble, $sections['body'] ?? [] );
@@ -1639,10 +1666,10 @@ function aidocs_content_block_css() {
    never defined — is what lets buttons, badges and section headers pick up
    the active theme's look instead of a colour fixed at build time. */
 .aidocs-content{
-    --cd-primary:var(--wp--preset--color--primary,#007565);
-    --cd-secondary:var(--wp--preset--color--secondary,#08a889);
-    --cd-base:var(--wp--preset--color--base,#ffffff);
-    --cd-contrast:var(--wp--preset--color--contrast,#1a2744);
+    --cd-primary:var(--wp--preset--color--raft-accent,#C26148);
+    --cd-secondary:var(--wp--preset--color--raft-accent-secondary,#AC5039);
+    --cd-base:var(--wp--preset--color--raft-fg-alt,#FDFDFD);
+    --cd-contrast:var(--wp--preset--color--raft-fg,#1D1F25);
     --cd-radius:var(--wp--custom--button-border-radius,4px);
 }
 .aidocs-content strong{font-weight:700;color:var(--cd-contrast);}
