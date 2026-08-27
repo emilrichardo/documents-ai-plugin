@@ -3258,7 +3258,17 @@ function aidocs_extract_content_ajax() {
 
 /** Where a detected split is held between the two requests. */
 function aidocs_policy_batch_key( $post_id ) {
-    return 'aidocs_policies_' . get_current_user_id() . '_' . (int) $post_id;
+    // Deliberately not scoped to the current user. The import's worker runs from
+    // wp-cron, where there is no current user at all, so a key built from
+    // get_current_user_id() resolved to a different string there than the one
+    // detection had written under — and the worker declared the articles gone
+    // a moment after they had been found.
+    return 'aidocs_policies_' . (int) $post_id;
+}
+
+/** Where the detected article texts are kept for the worker to read. */
+function aidocs_import_segments_key( $post_id ) {
+    return 'aidocs_import_segments_' . (int) $post_id;
 }
 
 /**
@@ -3448,6 +3458,7 @@ function aidocs_import_job_key( $post_id ) {
 add_action( 'before_delete_post', 'aidocs_clear_import_job' );
 function aidocs_clear_import_job( $post_id ) {
     delete_option( aidocs_import_job_key( $post_id ) );
+    delete_option( aidocs_import_segments_key( $post_id ) );
     delete_option( aidocs_import_lock_key( $post_id ) );
     wp_clear_scheduled_hook( 'aidocs_import_batch', [ (int) $post_id ] );
 }
@@ -3578,7 +3589,12 @@ function aidocs_run_import_batch( $post_id, $seconds = 45 ) {
 
 /** The body of one import run. Always called with the lock held. */
 function aidocs_work_import( $post_id, array $job, $seconds ) {
-    $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
+    // The job's own copy, written when the import was started. The detection
+    // transient is only a fallback for a job queued by the previous version.
+    $segments = get_option( aidocs_import_segments_key( $post_id ) );
+    if ( ! is_array( $segments ) || ! $segments ) {
+        $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
+    }
     if ( ! is_array( $segments ) || ! $segments ) {
         $job['status']  = 'error';
         $job['message'] = __( 'The detected articles are no longer held — run the detection again.' );
@@ -3668,6 +3684,10 @@ function aidocs_work_import( $post_id, array $job, $seconds ) {
     if ( $job['offset'] >= $total ) {
         $job['status'] = 'done';
         update_option( aidocs_import_job_key( $post_id ), $job, false );
+        // The article texts are the bulk of what this import stored — a
+        // megabyte for a large compilation — and nothing reads them once every
+        // entry has been written.
+        delete_option( aidocs_import_segments_key( $post_id ) );
         delete_transient( aidocs_policy_batch_key( $post_id ) );
         // The compilation entry has served its purpose. Trashing rather than
         // deleting keeps the upload recoverable for the length of the trash
@@ -3766,6 +3786,15 @@ function aidocs_import_policies_ajax() {
             ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Documents → Settings.' )
             : '',
     ];
+
+    // The article texts move out of the transient they were detected into and
+    // become part of the job. A transient is the wrong home for the one input
+    // the worker cannot do without: it expires on a clock that knows nothing
+    // about how long the import takes, and a persistent object cache is free to
+    // evict it mid-run. Kept in an option of its own rather than on the job, so
+    // the progress poll is not re-reading a megabyte of article text every two
+    // seconds to learn one number.
+    update_option( aidocs_import_segments_key( $post_id ), $segments, false );
 
     // Autoload off: this is a short-lived working record for one upload, read
     // only by its own worker and the page polling it.
