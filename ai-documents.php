@@ -715,7 +715,7 @@ function aidocs_publish_multi_meta_box_html( $post ) {
     ?>
     <div id="cd-publish-multi" class="cd-mode-multi-only">
         <p class="description" style="margin-top:0;">
-            <?php esc_html_e( 'Each article selected on the left becomes its own published entry — this one included.' ); ?>
+            <?php esc_html_e( 'Each article selected on the left becomes its own published entry. This upload is not one of them — it is removed once they are all created.' ); ?>
         </p>
         <button type="button" id="cd-split-import-btn" class="button button-primary" style="width:100%;text-align:center;">
             &#10133; <?php esc_html_e( 'Create the selected entries' ); ?>
@@ -2750,9 +2750,12 @@ function aidocs_meta_box_html( $post ) {
             }
 
             if (d.status === 'running') {
+                // Deliberately not "this keeps running if you close the page":
+                // that depends on wp-cron, which depends on a loopback this
+                // host may block. Resuming on reopen is true either way.
                 $('#cd-split-status').text(
                     d.processed + ' / ' + d.total + ' — '
-                    + '<?php echo esc_js( __( 'this keeps running if you close this page' ) ); ?>'
+                    + '<?php echo esc_js( __( 'you can close this page; reopening it resumes where this left off' ) ); ?>'
                 );
                 return;
             }
@@ -3445,11 +3448,85 @@ function aidocs_import_job_key( $post_id ) {
 add_action( 'before_delete_post', 'aidocs_clear_import_job' );
 function aidocs_clear_import_job( $post_id ) {
     delete_option( aidocs_import_job_key( $post_id ) );
+    delete_option( aidocs_import_lock_key( $post_id ) );
     wp_clear_scheduled_hook( 'aidocs_import_batch', [ (int) $post_id ] );
 }
 
+/** Which run currently owns this import. @see aidocs_acquire_import_lock() */
+function aidocs_import_lock_key( $post_id ) {
+    return 'aidocs_import_lock_' . (int) $post_id;
+}
+
 /**
- * The import runs as a background job rather than a loop the browser drives.
+ * Take exclusive ownership of an import, or report that someone else has it.
+ *
+ * Two things can drive the same import — the cron event, and the editor's own
+ * polling request when cron is not firing — and both walking the selection at
+ * once would create every entry twice.
+ *
+ * The lock is a raw INSERT rather than add_option(): that one reads before it
+ * writes, and the write it then makes is an upsert, so two runs racing it can
+ * both come away believing they hold the lock. option_name carries a UNIQUE
+ * index, so an INSERT IGNORE lets the database decide it instead — the loser
+ * affects no rows. Taking over a stale lock is the same idea: an UPDATE that
+ * only matches the timestamp it expects to find, so two runs both deciding the
+ * lock is stale still produce exactly one winner.
+ *
+ * A lock older than the longest run a request could survive is assumed to
+ * belong to a run that was killed — otherwise one fatal would strand the
+ * import with no way to resume it.
+ */
+function aidocs_acquire_import_lock( $post_id ) {
+    global $wpdb;
+
+    $key = aidocs_import_lock_key( $post_id );
+    $now = time();
+
+    $inserted = $wpdb->query( $wpdb->prepare(
+        "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+        $key,
+        (string) $now
+    ) );
+
+    if ( $inserted ) {
+        aidocs_flush_option_cache( $key );
+        return true;
+    }
+
+    $held = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+        $key
+    ) );
+
+    if ( $held && ( $now - $held ) > 180 ) {
+        $took = $wpdb->query( $wpdb->prepare(
+            "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+            (string) $now,
+            $key,
+            (string) $held
+        ) );
+        if ( $took ) {
+            aidocs_flush_option_cache( $key );
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function aidocs_release_import_lock( $post_id ) {
+    delete_option( aidocs_import_lock_key( $post_id ) );
+}
+
+/** Options written behind get_option()'s back have to be dropped from its cache. */
+function aidocs_flush_option_cache( $key ) {
+    wp_cache_delete( $key, 'options' );
+    wp_cache_delete( 'notoptions', 'options' );
+    wp_cache_delete( 'alloptions', 'options' );
+}
+
+/**
+ * The import runs as a job rather than a loop the browser drives.
  *
  * Forty-nine articles, each with a Gemini call and an embedding of its own, is
  * several minutes of work. Driving that from the editor's own page meant the
@@ -3459,21 +3536,48 @@ function aidocs_clear_import_job( $post_id ) {
  *
  * The job is stored in an option — not a transient, which an object cache is
  * free to evict mid-run — and one run works through as many articles as it can
- * before handing the rest to a follow-up event. WordPress fires these through
- * wp-cron, so progress continues whether or not anyone is watching; the
- * editor's page just polls for progress it no longer owns.
+ * before handing the rest on.
  *
- * The run keeps going for a whole time budget rather than stopping after a
- * fixed number of articles: spawn_cron() refuses to start a second run within
+ * Two things drive it, because neither is reliable alone:
+ *
+ *  - **wp-cron**, which is what keeps the import going after the page is
+ *    closed. It depends on a loopback request the server makes to itself, and
+ *    plenty of hosts block that, in which case the event sits scheduled and
+ *    nothing happens at all.
+ *  - **The editor's own polling request**, which runs a slice itself. This is
+ *    what guarantees the progress bar moves while someone is watching, whether
+ *    or not the host allows loopbacks.
+ *
+ * Both take aidocs_acquire_import_lock() first, so the two never walk the same
+ * selection at once and create every entry twice.
+ *
+ * A run keeps going for a whole time budget rather than stopping after a fixed
+ * number of articles: spawn_cron() refuses to start a second run within
  * WP_CRON_LOCK_TIMEOUT (60 seconds by default), so one-article-per-run would
  * stretch a forty-nine article compilation across the best part of an hour.
+ *
+ * @param int $post_id
+ * @param int $seconds How long this run may work for.
  */
 add_action( 'aidocs_import_batch', 'aidocs_run_import_batch' );
-function aidocs_run_import_batch( $post_id ) {
+function aidocs_run_import_batch( $post_id, $seconds = 45 ) {
     $post_id = (int) $post_id;
     $job     = get_option( aidocs_import_job_key( $post_id ) );
     if ( ! is_array( $job ) || ( $job['status'] ?? '' ) !== 'running' ) return;
 
+    // Someone else is already working this import. Nothing to do and, more to
+    // the point, nothing safe to do: the other run owns the offset.
+    if ( ! aidocs_acquire_import_lock( $post_id ) ) return;
+
+    try {
+        aidocs_work_import( $post_id, $job, $seconds );
+    } finally {
+        aidocs_release_import_lock( $post_id );
+    }
+}
+
+/** The body of one import run. Always called with the lock held. */
+function aidocs_work_import( $post_id, array $job, $seconds ) {
     $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
     if ( ! is_array( $segments ) || ! $segments ) {
         $job['status']  = 'error';
@@ -3487,10 +3591,9 @@ function aidocs_run_import_batch( $post_id ) {
     $api_key = get_option( 'aidocs_gemini_api_key', '' );
     $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
 
-    // Long enough to be worth the round trip, short enough to stay clear of a
-    // host's own request ceiling. Checked between articles, so one slow Gemini
-    // call can overshoot it — that is fine, the next run picks up after it.
-    $deadline = time() + 45;
+    // Checked between articles, so one slow Gemini call can overshoot it —
+    // that is fine, the next run picks up after it.
+    $deadline = time() + max( 5, (int) $seconds );
     $total    = count( $job['selection'] );
 
     while ( $job['offset'] < $total && time() < $deadline ) {
@@ -3689,11 +3792,16 @@ function aidocs_import_job_status( $post_id, array $job ) {
 }
 
 /**
- * AJAX: how far the background import has got.
+ * AJAX: run a slice of the import, and report how far it has got.
  *
- * Also re-arms the job. A cron event can be lost — a fatal in another plugin's
- * hook, a loopback that never fired — and without this the progress bar would
- * sit still forever with the work half done and no way to resume it.
+ * This request does the work rather than only asking about it. wp-cron reaches
+ * the job through a loopback request the server makes to itself, and a host
+ * that blocks loopbacks leaves the event scheduled and never runs it — the
+ * import would sit at zero with the page open and nothing to show for it. Doing
+ * a slice here makes progress depend on nothing but this request.
+ *
+ * The slice is short enough to keep the poll responsive; the cron event, which
+ * gets a longer budget, is still scheduled for whenever the page is closed.
  */
 add_action( 'wp_ajax_aidocs_import_status', 'aidocs_import_status_ajax' );
 function aidocs_import_status_ajax() {
@@ -3707,7 +3815,16 @@ function aidocs_import_status_ajax() {
     $job = get_option( aidocs_import_job_key( $post_id ) );
     if ( ! is_array( $job ) ) wp_send_json_error( __( 'No import is running for this upload.' ) );
 
-    if ( $job['status'] === 'running' ) aidocs_schedule_import_batch( $post_id );
+    if ( $job['status'] === 'running' ) {
+        aidocs_schedule_import_batch( $post_id );
+        // Returns immediately when a cron run already holds the lock, so the
+        // poll stays a poll whenever the background path is in fact working.
+        aidocs_run_import_batch( $post_id, 15 );
+
+        // Re-read: the slice above is what just moved it.
+        $job = get_option( aidocs_import_job_key( $post_id ) );
+        if ( ! is_array( $job ) ) wp_send_json_error( __( 'No import is running for this upload.' ) );
+    }
 
     wp_send_json_success( aidocs_import_job_status( $post_id, $job ) );
 }
