@@ -212,7 +212,32 @@ function aidocs_policy_start_line( array $lines, array $labels, $head, $floor ) 
     // previous policy rather than the head of this one.
     if ( ! $level ) {
         $text = aidocs_plain_text( $lines[ $index ] );
-        return ( aidocs_is_trailer_text( $text ) || ! aidocs_reads_like_heading( $text ) ) ? $head : $index;
+        if ( ! aidocs_is_trailer_text( $text ) && aidocs_reads_like_heading( $text ) ) return $index;
+
+        // An editorial note is authored between the title and the labels often
+        // enough — "Note: this guideline states …", "Note on currency: …", left
+        // for whoever re-publishes the document — that stopping at the first
+        // line which is not a heading loses the title outright, and the policy
+        // imports as "Untitled". Keep looking up for the heading.
+        //
+        // Not far, and never past anything belonging to the policy before this
+        // one: the floor is only the previous policy's "Body" label, so an
+        // unbounded walk would happily climb into that policy's own headings.
+        // A trailer line ("Revised: …", "Endorsed: …") is where the previous
+        // policy ends, and in each of these documents it is exactly what sits
+        // above the title — so it is the boundary that matters most here.
+        $skipped = 0;
+        for ( $up = $index - 1; $up >= $floor && $skipped < 4; $up-- ) {
+            if ( trim( $lines[ $up ] ) === '' ) continue;
+            if ( isset( $labels[ $up ] ) ) break;
+            if ( aidocs_is_trailer_text( aidocs_plain_text( $lines[ $up ] ) ) ) break;
+
+            $level = $title_level( $lines[ $up ] );
+            if ( $level ) { $index = $up; break; }
+            $skipped++;
+        }
+
+        if ( ! $level ) return $head;
     }
 
     $start = $index;
@@ -232,6 +257,13 @@ function aidocs_promote_policy_title( array $lines ) {
     $title = [];
     $index = 0;
     $count = count( $lines );
+    // The heading level of the run being collected, once one has started. A
+    // title set over two lines is one heading repeated at one level; a line at
+    // a different level, or no heading at all, is something else — an editorial
+    // note authored between the title and the labels, most often — and folding
+    // that into the title produces a title no echo of it can ever match, and a
+    // sentence of commentary standing in for the policy's name.
+    $run_level = null;
 
     while ( $index < $count ) {
         $line = $lines[ $index ];
@@ -240,8 +272,16 @@ function aidocs_promote_policy_title( array $lines ) {
         $bare = aidocs_label_candidate( $line );
         if ( $bare !== null && preg_match( $pattern, $bare ) ) break;
 
-        $heading = preg_match( '/^#{1,6}\s+(\S.*)$/', ltrim( $line ), $m ) ? $m[1] : $line;
-        $title[] = trim( $heading );
+        $is_heading = preg_match( '/^(#{1,6})\s+(\S.*)$/', ltrim( $line ), $m );
+        $level      = $is_heading ? strlen( $m[1] ) : 0;
+
+        if ( $run_level !== null && $level !== $run_level ) break;
+        // Prose where the title should be, with no heading run started: keep
+        // the previous behaviour of taking it, since plenty of documents carry
+        // a title the extractor never marked up as a heading at all.
+        if ( $run_level === null && $level ) $run_level = $level;
+
+        $title[] = trim( $is_heading ? $m[2] : $line );
         $index++;
     }
 
@@ -365,7 +405,19 @@ function aidocs_parse_labeled_document( $raw_text ) {
         'teaser'           => aidocs_join_plain( $sections['teaser'] ?? [] ),
         'last_updated'     => aidocs_join_plain( $sections['last updated'] ?? [] ),
         'document_history' => aidocs_join_history( $sections['document history'] ?? [] ),
-        'blocks'           => aidocs_parse_structured_content( $body_text, $title ),
+        // Whether the text is the extractor's own canonical format is a
+        // question about the whole document, not about its body. An article
+        // whose body happens to contain no heading, list or table — several of
+        // them here are four plain paragraphs — has no marker in it to find,
+        // and was being read as a PDF text layer instead: its authored
+        // paragraphs merged into one, and any bold line promoted to a heading
+        // by guesswork. The document's own title line and label schema are the
+        // evidence, and they sit outside the body.
+        'blocks'           => aidocs_parse_structured_content(
+            $body_text,
+            $title,
+            aidocs_text_is_annotated( $lines )
+        ),
         // The body on its own, still carrying the extractor's markers. The
         // blocks above cover exactly this much of the document and nothing
         // else, so anything re-deriving them — the AI restructure pass — has
@@ -518,13 +570,18 @@ function aidocs_normalize_doc_date( $value ) {
 /**
  * Turn the body of a document into content blocks.
  *
- * @param string $raw_text Body text, canonical or plain.
- * @param string $title    Document title, so the body's echo of it can be dropped.
+ * @param string    $raw_text  Body text, canonical or plain.
+ * @param string    $title     Document title, so the body's echo of it can be dropped.
+ * @param bool|null $annotated Whether the text carries the extractor's structure
+ *                             markers, when the caller already knows. Sniffed from
+ *                             the body alone when null — see the caller in
+ *                             aidocs_parse_labeled_document() for why that is not
+ *                             good enough on its own.
  * @return array List of blocks.
  */
-function aidocs_parse_structured_content( $raw_text, $title = '' ) {
+function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = null ) {
     $lines     = aidocs_normalize_lines( $raw_text );
-    $annotated = aidocs_text_is_annotated( $lines );
+    $annotated = $annotated === null ? aidocs_text_is_annotated( $lines ) : (bool) $annotated;
 
     $blocks  = [];
     $items   = [];   // the flat list items collected so far, with their levels
@@ -1023,11 +1080,21 @@ function aidocs_drop_title_echo( array $blocks, $title ) {
     $run   = [];
 
     foreach ( $blocks as $block ) {
-        $is_caps_heading = ( $block['type'] ?? '' ) === 'heading'
-            && (int) ( $block['level'] ?? 3 ) === 2
-            && count( $out ) < $limit;
+        $type = $block['type'] ?? '';
 
-        if ( $is_caps_heading ) {
+        // A paragraph counts as well as a caps heading. The echo is authored as
+        // whatever the source made it: a Word document sets it in bold body
+        // text, which is not a heading and never becomes one, so restricting
+        // this to headings left the title printed again at the top of the
+        // content on every .docx-sourced document. Only the opening blocks are
+        // ever considered, and only a run whose text actually reads as the
+        // title (aidocs_is_title_echo) is dropped, so an opening paragraph that
+        // merely mentions the subject is not at risk.
+        $is_candidate = count( $out ) < $limit
+            && ( $type === 'paragraph'
+                 || ( $type === 'heading' && (int) ( $block['level'] ?? 3 ) === 2 ) );
+
+        if ( $is_candidate ) {
             $run[] = $block;
             $joined = aidocs_comparable( implode( ' ', array_column( $run, 'text' ) ) );
             if ( aidocs_is_title_echo( $joined, $needle ) ) { $run = []; continue; }  // the echo, dropped
