@@ -857,7 +857,17 @@ function aidocs_meta_box_html( $post ) {
         #cd-ai-process-wrap { padding:15px 18px; background:linear-gradient(135deg,#f0f6ff 0%,#e8f3ff 100%); border:1.5px solid #b8d4f5; border-top:none; border-radius:0 0 8px 8px; }
         #cd-ai-process-btn { font-size:13px !important; padding:6px 20px !important; height:auto !important; }
         /* Step 1: extraction (no AI) */
-        #cd-extract-wrap { margin-top:20px; padding:15px 18px; border:1px solid #e0e0e0; border-radius:8px; background:#fafafa; }
+        /* Document content is the centre of this screen — the thing being
+           edited, with the AI panels arranged around it — so it is given a
+           white card and a title row of its own rather than reading as one
+           more grey box in the stack. */
+        #cd-extract-wrap { margin-top:20px; border:1px solid #dcdcde; border-radius:8px; background:#fff; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+        #cd-extract-wrap > .cd-step-head { padding:13px 18px; background:#f6f7f7; border-bottom:1px solid #dcdcde; }
+        #cd-extract-wrap > .cd-step-head strong { font-size:14px; }
+        #cd-extract-wrap > .cd-step-hint,
+        #cd-extract-wrap > .cd-step-actions { margin-left:18px; margin-right:18px; }
+        #cd-extract-wrap > .cd-step-hint { margin-top:12px; }
+        #cd-extract-wrap > #cd-content-tabs { margin:14px 18px 18px; }
         .cd-step-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
         .cd-step-head strong { font-size:13px; }
         .cd-step-hint { margin:6px 0 10px; font-size:12px; color:#646970; line-height:1.6; }
@@ -931,12 +941,21 @@ function aidocs_meta_box_html( $post ) {
         #cd-raw-text-edit + .EasyMDEContainer .cm-header-5,
         #cd-raw-text-edit + .EasyMDEContainer .cm-header-6 { font-size: 14px; }
         /* Extracted-content tabs: edit (default) vs. preview */
+        /* Edit / Preview are two views of one thing, so they read as a segmented
+           control rather than as browser-style folder tabs — the active view is
+           filled in, not outlined, which survives sitting on a white card. */
         .cd-tabs { margin-top:12px; }
-        .cd-tabs-nav { display:flex; gap:2px; border-bottom:1px solid #dcdcde; }
-        .cd-tab-btn { background:none; border:1px solid transparent; border-bottom:none; border-radius:4px 4px 0 0; padding:8px 14px; font-size:12.5px; font-weight:600; color:#646970; cursor:pointer; margin-bottom:-1px; }
+        .cd-tabs-nav { display:inline-flex; gap:3px; padding:3px; background:#f0f0f1; border-radius:6px; }
+        .cd-tab-btn { background:none; border:none; border-radius:4px; padding:6px 16px; font-size:12.5px; font-weight:600; color:#646970; cursor:pointer; transition:background .12s, color .12s; }
         .cd-tab-btn:hover { color:#1d2327; }
-        .cd-tab-btn.is-active { background:#fff; border-color:#dcdcde; color:#1d2327; }
+        .cd-tab-btn.is-active { background:#fff; color:#1d2327; box-shadow:0 1px 2px rgba(0,0,0,.08); }
         .cd-tab-panel { padding-top:12px; }
+        /* The markdown editor is the working surface: a real border and a focus
+           ring, so it reads as a field rather than as loose text on the card. */
+        #cd-raw-text-edit + .EasyMDEContainer { border:1px solid #dcdcde; border-radius:6px; overflow:hidden; }
+        #cd-raw-text-edit + .EasyMDEContainer:focus-within { border-color:#2271b1; box-shadow:0 0 0 1px #2271b1; }
+        #cd-raw-text-edit + .EasyMDEContainer .editor-toolbar { border:none; border-bottom:1px solid #e5e5e5; background:#fafafa; }
+        #cd-raw-text-edit + .EasyMDEContainer .CodeMirror { border:none; }
         /* Step 2: AI (opt-in) */
         #cd-ai-panel { margin-top:14px; }
         #cd-ai-panel > summary { cursor:pointer; font-size:13px; font-weight:600; padding:10px 14px; background:#f0f6ff; border:1.5px solid #b8d4f5; border-radius:8px; }
@@ -1468,6 +1487,11 @@ function aidocs_meta_box_html( $post ) {
         var cdAjaxNonce       = <?php echo wp_json_encode( wp_create_nonce( 'aidocs_ai' ) ); ?>;
         var cdTypeOptions     = <?php echo wp_json_encode( aidocs_get_types() ); ?>;
         var cdDocId           = <?php echo (int) $post->ID; ?>;
+        // An import already running for this upload when the page loaded. The
+        // work belongs to the server, so reopening the editor picks the
+        // progress back up instead of offering to start a second one.
+        <?php $cd_running_job = get_option( aidocs_import_job_key( $post->ID ) ); ?>
+        var cdImportRunning   = <?php echo ( is_array( $cd_running_job ) && ( $cd_running_job['status'] ?? '' ) === 'running' ) ? 'true' : 'false'; ?>;
 
         // ── Media uploader ──────────────────────────────
         var mediaFrame;
@@ -2615,8 +2639,8 @@ function aidocs_meta_box_html( $post ) {
         }
 
         // Every entry written is indexed for semantic search, and fifty embedding
-        // calls do not fit in one request — so the import walks the selection a
-        // few at a time and reports as it goes.
+        // calls do not fit in one request — so the import is handed to a
+        // background job on the server, and this page only follows its progress.
         function cdSplitAiFields() {
             return $('.cd-split-ai-check:checked').map(function() { return $(this).data('field-id'); }).get();
         }
@@ -2640,108 +2664,130 @@ function aidocs_meta_box_html( $post ) {
             var aiFields = cdSplitAiFields();
             if (!typeIsManual)     aiFields.push('document_type');
 
-            cdImportBatch(selection, aiFields, 0, fixedType);
-        });
-
-        function cdImportBatch(selection, aiFields, offset, fixedType) {
-            var $status = $('#cd-split-status');
-            $status.text(offset + ' / ' + selection.length);
-
             $.post(cdAjaxUrl, {
-                action:    'aidocs_import_policies',
-                nonce:     cdAjaxNonce,
-                post_id:   cdDocId,
-                indexes:   selection,
-                offset:    offset,
-                // A batch that also asks the AI to fill fields makes one more
-                // Gemini call per policy on top of the embedding it already
-                // makes, so it is walked in smaller bites to keep each request
-                // inside a reasonable time.
-                limit:         aiFields.length ? 2 : 4,
-                ai_fields:     JSON.stringify(aiFields),
-                fixed_type:     fixedType
+                action:     'aidocs_import_policies',
+                nonce:      cdAjaxNonce,
+                post_id:    cdDocId,
+                indexes:    selection,
+                ai_fields:  JSON.stringify(aiFields),
+                fixed_type: fixedType
             })
             .done(function(res) {
                 if (!res.success) { cdImportFailed(res.data); return; }
-                var d = res.data;
-
-                if (d.ai_warning && !$('#cd-split-ai-warning').length) {
-                    $('<div id="cd-split-ai-warning" class="cd-ai-fidelity is-warn"></div>')
-                        .text(d.ai_warning).insertBefore('#cd-split-progress');
-                }
-
-                $.each(d.created || [], function(_, doc) {
-                    var $li = $('<li></li>');
-                    if (doc.current) {
-                        $li.text(doc.title + ' — ')
-                           .append($('<em></em>').text('<?php echo esc_js( __( 'this entry' ) ); ?>'));
-                    } else {
-                        $li.append($('<a target="_blank"></a>').attr('href', doc.edit).text(doc.title));
-                    }
-                    var meta = [doc.blocks + ' <?php echo esc_js( __( 'blocks' ) ); ?>'];
-                    if ((doc.type || []).length)     meta.push(doc.type.join(', '));
-                    $li.append(document.createTextNode(' (' + meta.join(' · ') + ')'));
-                    $('#cd-split-result-list').append($li);
-
-                    // The first policy was written over the post this form is
-                    // open on, so the form has to show that — otherwise clicking
-                    // Update would put the stale values straight back, or (before
-                    // this was fixed) wipe out the Type/History the import just
-                    // wrote, since those hidden fields were never touched by
-                    // this page and still held whatever they loaded with
-                    // (usually nothing, for a brand-new upload).
-                    if (doc.current) {
-                        cdHasContent = true;
-                        $('#title').val(doc.title).trigger('input').trigger('keyup').trigger('focus').trigger('blur');
-                        if (doc.fields.description) $('#cd-description').val(doc.fields.description);
-                        if (doc.fields.pub_date)    $('#cd-pub-date').val(doc.fields.pub_date);
-                        if (doc.fields.history) {
-                            $('#cd-history').val(doc.fields.history);
-                            $('#cd-history-touched').val('1');
-                        }
-                        cdTypeSelect.clearTags();
-                        (doc.type || []).forEach(function(v) { cdTypeSelect.addTag(v); });
-                        // This entry is now a single policy in its own right —
-                        // not the compilation upload it started as — so the form
-                        // has to stop hiding its own Type/History row and stop
-                        // offering "Create the selected entries" again.
-                        $('input[name="document_source_mode"][value="single"]').prop('checked', true);
-                        cdApplyMode();
-                        cdSuppressLeaveWarning();
-                    }
-                });
-
-                var done = d.next;
-                $('#cd-split-progress span').css('width', Math.round(done / selection.length * 100) + '%');
-
-                // Mark off what has been written, so a run interrupted halfway
-                // leaves the list saying where it stopped.
-                $('.cd-split-check').each(function() {
-                    var index = selection.indexOf(parseInt(this.value, 10));
-                    if (index > -1 && index < done) $(this).closest('.cd-split-item').addClass('is-done');
-                });
-
-                if (!d.done) { cdImportBatch(selection, aiFields, done, fixedType); return; }
-
-                $('#cd-split-status').text('');
-                $('#cd-split-result-head').text(
-                    selection.length + ' <?php echo esc_js( __( 'entries created — remember to update this one so the form and the entry agree.' ) ); ?>'
-                );
-                $('#cd-split-result').prop('hidden', false);
-                // The list stays locked: these entries exist now, and importing
-                // the same selection twice would duplicate them. Reading the file
-                // again is what starts over.
-                $('#cd-split-detect-btn, .cd-split-ai-check').prop('disabled', false);
+                // The work is the server's now. Leaving this page — or closing
+                // the tab — no longer stops it, so the warning that would ask
+                // the editor to stay goes away with the handover.
+                cdSuppressLeaveWarning();
+                cdRenderImportProgress(res.data, selection);
+                cdPollImport(selection);
             })
             .fail(function(xhr) {
                 cdImportFailed(xhr.responseJSON && xhr.responseJSON.data || xhr.statusText);
             });
+        });
+
+        // The import runs in the background from here: this only asks how far
+        // it has got. Closing the page stops the asking, not the importing.
+        var cdImportPoll = null;
+
+        function cdPollImport(selection) {
+            clearTimeout(cdImportPoll);
+            cdImportPoll = setTimeout(function() {
+                $.post(cdAjaxUrl, {
+                    action:  'aidocs_import_status',
+                    nonce:   cdAjaxNonce,
+                    post_id: cdDocId
+                })
+                .done(function(res) {
+                    if (!res.success) { cdImportFailed(res.data); return; }
+                    cdRenderImportProgress(res.data, selection);
+                    if (res.data.status === 'running') cdPollImport(selection);
+                })
+                // A poll that fails is not an import that failed — the job is
+                // on the server either way, so this keeps asking rather than
+                // reporting a failure that has not happened.
+                .fail(function() { cdPollImport(selection); });
+            }, 2000);
+        }
+
+        function cdRenderImportProgress(d, selection) {
+            if (d.failed) { cdImportFailed(d.message); return; }
+
+            if (d.ai_warning && !$('#cd-split-ai-warning').length) {
+                $('<div id="cd-split-ai-warning" class="cd-ai-fidelity is-warn"></div>')
+                    .text(d.ai_warning).insertBefore('#cd-split-progress');
+            }
+            // A failing AI call is not a failing import: the entries are still
+            // written, just without the fields the AI was asked for. Said once,
+            // where the empty columns would otherwise be the only clue.
+            if (d.ai_error && !$('#cd-split-ai-error').length) {
+                $('<div id="cd-split-ai-error" class="cd-ai-fidelity is-warn"></div>')
+                    .text('<?php echo esc_js( __( 'The AI could not fill the requested fields:' ) ); ?> ' + d.ai_error)
+                    .insertBefore('#cd-split-progress');
+            }
+
+            $('#cd-split-result-list').empty();
+            $.each(d.created || [], function(_, doc) {
+                var $li = $('<li></li>')
+                    .append($('<a target="_blank"></a>').attr('href', doc.edit).text(doc.title));
+                var meta = [doc.blocks + ' <?php echo esc_js( __( 'blocks' ) ); ?>'];
+                if ((doc.type || []).length) meta.push(doc.type.join(', '));
+                $li.append(document.createTextNode(' (' + meta.join(' · ') + ')'));
+                $('#cd-split-result-list').append($li);
+            });
+            $('#cd-split-result').prop('hidden', !(d.created || []).length);
+
+            $('#cd-split-progress span').css('width', Math.round(d.processed / d.total * 100) + '%');
+
+            // Mark off what has been written. On a reloaded page the original
+            // selection is gone — the job on the server is the record now — so
+            // this only runs when this page is the one that started the import.
+            if (selection) {
+                $('.cd-split-check').each(function() {
+                    var index = selection.indexOf(parseInt(this.value, 10));
+                    if (index > -1 && index < d.processed) $(this).closest('.cd-split-item').addClass('is-done');
+                });
+            }
+
+            if (d.status === 'running') {
+                $('#cd-split-status').text(
+                    d.processed + ' / ' + d.total + ' — '
+                    + '<?php echo esc_js( __( 'this keeps running if you close this page' ) ); ?>'
+                );
+                return;
+            }
+
+            $('#cd-split-status').text('');
+            $('#cd-split-result-head').text(
+                d.total + ' <?php echo esc_js( __( 'entries created. This upload is done and has been removed from the list.' ) ); ?>'
+            );
+            $('#cd-split-result').prop('hidden', false);
+            $('#cd-split-detect-btn, .cd-split-ai-check').prop('disabled', false);
+
+            // This entry has been trashed server-side: it was the upload, not a
+            // document, and every article in it is its own entry now. Leaving
+            // the editor open on it would show WordPress's "you can't edit
+            // this" screen on the next click, so the browser is sent to the
+            // documents list — where the new entries are.
+            if (d.redirect) {
+                setTimeout(function() { window.location.href = d.redirect; }, 2500);
+            }
         }
 
         function cdImportFailed(message) {
             $('#cd-split-status').text('Error: ' + message);
             $('#cd-split-import-btn, #cd-split-detect-btn, .cd-split-check, #cd-split-all, .cd-split-ai-check').prop('disabled', false);
             cdUpdateImportLabel();
+        }
+
+        // Reopening the editor on an upload whose import is still running joins
+        // that run rather than offering to start it over: the controls stay
+        // locked and the progress picks up where the server has got to.
+        if (cdImportRunning) {
+            $('#cd-split-import-btn, #cd-split-detect-btn, .cd-split-check, #cd-split-all, .cd-split-ai-check').prop('disabled', true);
+            $('#cd-split-progress').prop('hidden', false);
+            $('#cd-split-status').text('<?php echo esc_js( __( 'Import running…' ) ); ?>');
+            cdPollImport(null);
         }
 
         function cdOpenPageModal(pageNum) {
@@ -3305,11 +3351,15 @@ function aidocs_sanitize_ai_terms( $values, array $vocabulary ) {
  *                          so the model is not asked to guess which of forty-nine
  *                          policies a field belongs to.
  * @param array  $field_ids Subset of aidocs_policy_ai_field_labels() keys.
+ * @param string $error     Out param: why the call failed, when it did.
  * @return array Field id => value. Empty when nothing was requested, no key is
  *               configured, or the call failed — the caller treats that the same
- *               as the AI simply not having an opinion.
+ *               as the AI simply not having an opinion, but $error separates the
+ *               two, because an import whose every call is failing otherwise
+ *               looks exactly like one whose articles had nothing to fill.
  */
-function aidocs_ai_fill_policy_fields( $raw_text, array $field_ids, $api_key, $model ) {
+function aidocs_ai_fill_policy_fields( $raw_text, array $field_ids, $api_key, $model, &$error = null ) {
+    $error  = '';
     $labels = aidocs_policy_ai_field_labels();
     $fields = [];
     foreach ( $field_ids as $id ) {
@@ -3318,7 +3368,10 @@ function aidocs_ai_fill_policy_fields( $raw_text, array $field_ids, $api_key, $m
     if ( ! $fields || ! $api_key ) return [];
 
     $result = aidocs_ai_complete_fields( $raw_text, $fields, $api_key, $model );
-    if ( is_wp_error( $result ) ) return [];
+    if ( is_wp_error( $result ) ) {
+        $error = $result->get_error_message();
+        return [];
+    }
 
     $out = [];
     if ( isset( $result['title'] ) && is_string( $result['title'] ) ) {
@@ -3378,15 +3431,176 @@ function aidocs_detect_policies_ajax() {
     ] );
 }
 
+/** Where a compilation's import job is parked, keyed by the upload's post. */
+function aidocs_import_job_key( $post_id ) {
+    return 'aidocs_import_job_' . (int) $post_id;
+}
+
 /**
- * AJAX: write one entry per detected policy, a batch at a time.
+ * A finished job outlives its import so a page reopened right after can still
+ * read the result. Emptying the upload out of the trash is the point at which
+ * nothing can want it again, and any batch still queued for a post that no
+ * longer exists would only wake up to find nothing to do.
+ */
+add_action( 'before_delete_post', 'aidocs_clear_import_job' );
+function aidocs_clear_import_job( $post_id ) {
+    delete_option( aidocs_import_job_key( $post_id ) );
+    wp_clear_scheduled_hook( 'aidocs_import_batch', [ (int) $post_id ] );
+}
+
+/**
+ * The import runs as a background job rather than a loop the browser drives.
  *
- * The first policy of the selection is written over the document being edited —
- * the editor already created it to point at this file, so leaving it behind as an
- * empty extra entry would be worse than filling it. Every other policy becomes a
- * new document. None of them carries the source file: the file held fifty
- * policies and none of them is it, and there is nothing public left that a file
- * would be shown through anyway.
+ * Forty-nine articles, each with a Gemini call and an embedding of its own, is
+ * several minutes of work. Driving that from the editor's own page meant the
+ * import only progressed while that page stayed open: closing the tab, or
+ * following one of the links it had just written, stopped it partway and left
+ * the rest of the compilation unimported with no way to resume.
+ *
+ * The job is stored in an option — not a transient, which an object cache is
+ * free to evict mid-run — and one run works through as many articles as it can
+ * before handing the rest to a follow-up event. WordPress fires these through
+ * wp-cron, so progress continues whether or not anyone is watching; the
+ * editor's page just polls for progress it no longer owns.
+ *
+ * The run keeps going for a whole time budget rather than stopping after a
+ * fixed number of articles: spawn_cron() refuses to start a second run within
+ * WP_CRON_LOCK_TIMEOUT (60 seconds by default), so one-article-per-run would
+ * stretch a forty-nine article compilation across the best part of an hour.
+ */
+add_action( 'aidocs_import_batch', 'aidocs_run_import_batch' );
+function aidocs_run_import_batch( $post_id ) {
+    $post_id = (int) $post_id;
+    $job     = get_option( aidocs_import_job_key( $post_id ) );
+    if ( ! is_array( $job ) || ( $job['status'] ?? '' ) !== 'running' ) return;
+
+    $segments = get_transient( aidocs_policy_batch_key( $post_id ) );
+    if ( ! is_array( $segments ) || ! $segments ) {
+        $job['status']  = 'error';
+        $job['message'] = __( 'The detected articles are no longer held — run the detection again.' );
+        update_option( aidocs_import_job_key( $post_id ), $job, false );
+        return;
+    }
+
+    if ( function_exists( 'set_time_limit' ) ) set_time_limit( 0 );
+
+    $api_key = get_option( 'aidocs_gemini_api_key', '' );
+    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
+
+    // Long enough to be worth the round trip, short enough to stay clear of a
+    // host's own request ceiling. Checked between articles, so one slow Gemini
+    // call can overshoot it — that is fine, the next run picks up after it.
+    $deadline = time() + 45;
+    $total    = count( $job['selection'] );
+
+    while ( $job['offset'] < $total && time() < $deadline ) {
+        $index = $job['selection'][ $job['offset'] ];
+        $job['offset']++;
+
+        if ( ! isset( $segments[ $index ] ) ) continue;
+
+        $fields = aidocs_policy_fields( aidocs_parse_labeled_document( $segments[ $index ] ) );
+
+        // The AI is read from the article's own text, for exactly the fields the
+        // label schema does not cover — one call per article, same as the
+        // interactive panel would make for a single document. A title or
+        // description the parser already found still wins; there is nothing
+        // for the parser to have found for Document Type at all, so that
+        // comes from the AI whenever it was asked to fill it.
+        $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $job['ai_fields'], $api_key, $model, $ai_error );
+        if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
+        if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
+
+        // A failed AI call used to be swallowed as an empty answer, so an
+        // import whose every call was failing looked exactly like one whose
+        // articles simply had nothing to fill: entries landed with no title and
+        // no type, and nothing anywhere said why. The first failure is kept and
+        // reported with the finished job.
+        if ( $ai_error && empty( $job['ai_error'] ) ) $job['ai_error'] = $ai_error;
+
+        $terms = [ 'type' => $job['fixed_type'] ?: ( $ai['document_type'] ?? [] ) ];
+
+        $title = $fields['title'] !== ''
+            ? $fields['title']
+            /* translators: %d: position of the article inside the uploaded document. */
+            : sprintf( __( 'Untitled article %d' ), $index + 1 );
+
+        // Every article becomes an entry of its own, this compilation's own
+        // entry included in none of them. It was created to carry the upload —
+        // the file, the detected segments — and giving one article that entry's
+        // identity left a document whose URL, and whose continued presence in
+        // the list, described the upload rather than any article in it. The
+        // upload's entry is trashed once the import finishes instead.
+        $target = wp_insert_post( [
+            'post_type'   => 'aidoc',
+            'post_status' => 'publish',
+            'post_title'  => $title,
+        ], true );
+
+        if ( is_wp_error( $target ) ) {
+            $job['status']  = 'error';
+            $job['message'] = $target->get_error_message();
+            update_option( aidocs_import_job_key( $post_id ), $job, false );
+            return;
+        }
+
+        aidocs_write_policy( $target, $fields, $terms );
+
+        $job['created'][] = [
+            'id'     => $target,
+            'title'  => $title,
+            'blocks' => count( $fields['blocks'] ),
+            'edit'   => get_edit_post_link( $target, 'raw' ),
+            'type'   => $terms['type'],
+        ];
+
+        // Written after every article, not once at the end of the run: this is
+        // what the polling page reads, and it is also what a run killed
+        // mid-import (a host's request ceiling, a restart) leaves behind for
+        // the next one to resume from. A whole run's work would otherwise be
+        // re-done, duplicating every entry it had already created.
+        update_option( aidocs_import_job_key( $post_id ), $job, false );
+    }
+
+    if ( $job['offset'] >= $total ) {
+        $job['status'] = 'done';
+        update_option( aidocs_import_job_key( $post_id ), $job, false );
+        delete_transient( aidocs_policy_batch_key( $post_id ) );
+        // The compilation entry has served its purpose. Trashing rather than
+        // deleting keeps the upload recoverable for the length of the trash
+        // retention, while keeping it out of the documents list — which is the
+        // point: an entry named after the source file is not a document anyone
+        // is looking for.
+        wp_trash_post( $post_id );
+        return;
+    }
+
+    update_option( aidocs_import_job_key( $post_id ), $job, false );
+    aidocs_schedule_import_batch( $post_id );
+}
+
+/**
+ * Queue the next batch and nudge wp-cron into running it now.
+ *
+ * wp_schedule_single_event() on its own only runs when something else visits
+ * the site. spawn_cron() makes the loopback request that starts it immediately,
+ * which is what keeps the import moving while the editor watches — and, just as
+ * importantly, after they have closed the tab.
+ */
+function aidocs_schedule_import_batch( $post_id ) {
+    if ( ! wp_next_scheduled( 'aidocs_import_batch', [ (int) $post_id ] ) ) {
+        wp_schedule_single_event( time(), 'aidocs_import_batch', [ (int) $post_id ] );
+    }
+    spawn_cron();
+}
+
+/**
+ * AJAX: start the background import of the selected articles.
+ *
+ * Returns as soon as the job is queued. Everything the worker needs is stored
+ * with the job, because it runs later in a request with no current user of its
+ * own — which is why every capability is checked here, at the point someone
+ * actually asked for it.
  */
 add_action( 'wp_ajax_aidocs_import_policies', 'aidocs_import_policies_ajax' );
 function aidocs_import_policies_ajax() {
@@ -3415,110 +3629,87 @@ function aidocs_import_policies_ajax() {
         wp_send_json_error( __( 'Select at least one article to import.' ) );
     }
 
-    $offset = absint( $_POST['offset'] ?? 0 );
-    $limit  = max( 1, min( 10, absint( $_POST['limit'] ?? 4 ) ) );
-    $batch  = array_slice( $selection, $offset, $limit );
+    $existing = get_option( aidocs_import_job_key( $post_id ) );
+    if ( is_array( $existing ) && ( $existing['status'] ?? '' ) === 'running' ) {
+        wp_send_json_error( __( 'An import is already running for this upload.' ) );
+    }
 
     $ai_field_ids = array_values( array_intersect(
         (array) json_decode( stripslashes( $_POST['ai_fields'] ?? '[]' ), true ) ?: [],
         array_keys( aidocs_policy_ai_field_labels() )
     ) );
-    $api_key = get_option( 'aidocs_gemini_api_key', '' );
-    $model   = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
 
-    // A manually picked Document Type is the same for every entry this
-    // upload creates — set once above the policy list rather than left for
-    // the AI to guess per policy.
-    $fixed_type     = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_type'] ?? '' ) ) ) ) );
-    // Same vocabulary check as everywhere else Document Type is written —
-    // this is a manually picked value, but the request itself could still be
-    // crafted by hand, so it goes through the same filter as an AI proposal.
-    $fixed_type     = aidocs_sanitize_ai_terms( $fixed_type, aidocs_get_types() );
+    // A manually picked Document Type is the same for every entry this upload
+    // creates — set once above the article list rather than left for the AI to
+    // guess per article. Same vocabulary check as everywhere else Document Type
+    // is written: the value was picked from a list, but the request itself
+    // could still be crafted by hand.
+    $fixed_type = array_filter( array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['fixed_type'] ?? '' ) ) ) ) );
+    $fixed_type = aidocs_sanitize_ai_terms( $fixed_type, aidocs_get_types() );
 
-    $created = [];
-    foreach ( $batch as $position => $index ) {
-        $fields = aidocs_policy_fields( aidocs_parse_labeled_document( $segments[ $index ] ) );
-
-        // The AI is read from the policy's own text, for exactly the fields the
-        // label schema does not cover — one call per policy, same as the
-        // interactive panel would make for a single document. A title or
-        // description the parser already found still wins; there is nothing
-        // for the parser to have found for Document Type at all, so that
-        // comes from the AI whenever it was asked to fill it.
-        $ai = aidocs_ai_fill_policy_fields( $segments[ $index ], $ai_field_ids, $api_key, $model );
-        if ( $fields['title'] === '' && ! empty( $ai['title'] ) )             $fields['title']       = $ai['title'];
-        if ( $fields['description'] === '' && ! empty( $ai['description'] ) ) $fields['description'] = $ai['description'];
-        $terms = [
-            'type'     => $fixed_type     ?: ( $ai['document_type'] ?? [] ),
-        ];
-
-        $title = $fields['title'] !== ''
-            ? $fields['title']
-            /* translators: %d: position of the article inside the uploaded document. */
-            : sprintf( __( 'Untitled article %d' ), $index + 1 );
-
-        $first  = ( $offset === 0 && $position === 0 );
-        $target = $post_id;
-
-        if ( $first ) {
-            // The slug goes too. This entry was created to point at the
-            // compilation and is being given a policy's identity outright —
-            // title, description, date, content — so a URL still derived from
-            // the upload's own filename would describe none of it. An empty
-            // post_name has WordPress build a fresh one from the new title.
-            wp_update_post( [ 'ID' => $post_id, 'post_title' => $title, 'post_name' => '', 'post_status' => 'publish' ] );
-            // This entry is one policy now, not the compilation it started as:
-            // it needs to stop behaving like a multi-document upload (offering
-            // "Create the selected entries" again, hiding its own Type/
-            // History) and stop pointing at the 49-policy source file —
-            // reopening the editor later would otherwise reload and re-detect
-            // policies from that whole file instead of showing this one policy.
-            update_post_meta( $post_id, '_document_source_mode', 'single' );
-            delete_post_meta( $post_id, '_document_file_id' );
-        } else {
-            $target = wp_insert_post( [
-                'post_type'   => 'aidoc',
-                'post_status' => 'publish',
-                'post_title'  => $title,
-            ], true );
-            if ( is_wp_error( $target ) ) {
-                wp_send_json_error( $target->get_error_message() );
-            }
-        }
-
-        aidocs_write_policy( $target, $fields, $terms );
-
-        $created[] = [
-            'id'       => $target,
-            'title'    => $title,
-            'current'  => $first,
-            'blocks'   => count( $fields['blocks'] ),
-            'edit'     => get_edit_post_link( $target, 'raw' ),
-            'link'     => get_permalink( $target ),
-            'type'     => $terms['type'],
-            'fields'   => [
-                'description' => $fields['description'],
-                'pub_date'    => $fields['pub_date'],
-                'history'     => $fields['history'],
-            ],
-        ];
-    }
-
-    $next = $offset + count( $batch );
-    if ( $next >= count( $selection ) ) delete_transient( aidocs_policy_batch_key( $post_id ) );
-
-    wp_send_json_success( [
-        'created'    => $created,
-        'done'       => $next >= count( $selection ),
-        'next'       => $next,
-        'total'      => count( $selection ),
-        // The fields were requested but there is nothing to fill them with —
-        // worth one warning up front rather than forty-nine silently empty
-        // Document Type columns the editor has to notice on their own.
-        'ai_warning' => ( $ai_field_ids && ! $api_key )
+    $job = [
+        'status'     => 'running',
+        'selection'  => $selection,
+        'ai_fields'  => $ai_field_ids,
+        'fixed_type' => $fixed_type,
+        'offset'     => 0,
+        'created'    => [],
+        'message'    => '',
+        'ai_error'   => '',
+        'redirect'   => admin_url( 'edit.php?post_type=aidoc' ),
+        // Worth saying up front rather than leaving forty-nine silently empty
+        // Document Type columns for the editor to notice on their own.
+        'ai_warning' => ( $ai_field_ids && ! get_option( 'aidocs_gemini_api_key', '' ) )
             ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Documents → Settings.' )
             : '',
-    ] );
+    ];
+
+    // Autoload off: this is a short-lived working record for one upload, read
+    // only by its own worker and the page polling it.
+    update_option( aidocs_import_job_key( $post_id ), $job, false );
+    aidocs_schedule_import_batch( $post_id );
+
+    wp_send_json_success( aidocs_import_job_status( $post_id, $job ) );
+}
+
+/** The job as the polling page needs it: progress, and what has been written. */
+function aidocs_import_job_status( $post_id, array $job ) {
+    return [
+        'status'     => $job['status'],
+        'done'       => $job['status'] === 'done',
+        'failed'     => $job['status'] === 'error',
+        'processed'  => $job['offset'],
+        'total'      => count( $job['selection'] ),
+        'created'    => $job['created'],
+        'message'    => $job['message'],
+        'ai_error'   => $job['ai_error'],
+        'ai_warning' => $job['ai_warning'],
+        'redirect'   => $job['status'] === 'done' ? $job['redirect'] : '',
+    ];
+}
+
+/**
+ * AJAX: how far the background import has got.
+ *
+ * Also re-arms the job. A cron event can be lost — a fatal in another plugin's
+ * hook, a loopback that never fired — and without this the progress bar would
+ * sit still forever with the work half done and no way to resume it.
+ */
+add_action( 'wp_ajax_aidocs_import_status', 'aidocs_import_status_ajax' );
+function aidocs_import_status_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+
+    $post_id = absint( $_POST['post_id'] ?? 0 );
+    if ( ! $post_id || ! current_user_can( 'publish_posts' ) ) {
+        wp_send_json_error( 'Unauthorized.' );
+    }
+
+    $job = get_option( aidocs_import_job_key( $post_id ) );
+    if ( ! is_array( $job ) ) wp_send_json_error( __( 'No import is running for this upload.' ) );
+
+    if ( $job['status'] === 'running' ) aidocs_schedule_import_batch( $post_id );
+
+    wp_send_json_success( aidocs_import_job_status( $post_id, $job ) );
 }
 
 /**
