@@ -158,6 +158,25 @@ initials (`Ms. A. Berger`), abbreviations (`U.S. Department`), and
 cross-references from being read as list markers. A `[Title]` at the start of
 an item becomes its own bold lead-in.
 
+### Bold section headings
+
+A canonical line set in bold from end to end is a heading (level 3), not a
+paragraph. Word authors most of the section headings in these documents that way
+— `**Purposes of a Credential**`, `**Air Travel**` — rather than with a heading
+style, so nothing else marks them, and as paragraphs they left documents with a
+clear section structure publishing as one flat run of prose.
+
+`aidocs_is_bold_heading_line()` requires every run on the line to be bold, so
+emphasis inside a sentence and a bold label opening a paragraph both fail it;
+`aidocs_reads_like_heading()` then applies the same shape test the plain-text
+path uses, and a note label is excluded so a callout stays a callout.
+
+This is also why `aidocs_text_is_annotated()` counts `**` and `|` as markers
+alongside `#`. A body whose only structure is bold headings contains no `#` at
+all, so its own canonical text read as a raw PDF text layer on the way back in —
+which is what made the editor's Preview tab, which re-parses exactly that text,
+disagree with the published page about the whole document.
+
 ### Title echo
 
 Almost every document repeats its own title inside the body, in all caps and

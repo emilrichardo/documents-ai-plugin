@@ -214,6 +214,19 @@ from a PDF or a Word file: `##` for headings, `-` for list items, `|` for table
 rows, `**bold**` and `*italic*`. Fixing a misread line here is usually faster
 than fixing the source document and re-uploading it.
 
+**Preview shows exactly what the published page will show.** It re-parses the
+text in the editor rather than reading what is stored, so the two used to be
+able to disagree — a document whose sections rendered as collapsible panels in
+Preview could publish as flat paragraphs. They now produce the same blocks from
+the same text.
+
+> **A line set entirely in bold is read as a section heading**, and each section
+> becomes a collapsible panel on the published page. This is how Word marks most
+> headings in these documents — as bold body text rather than with a heading
+> style — so entries that used to publish as one long run of paragraphs now
+> carry their own outline. Bold *inside* a sentence is still emphasis, and a
+> bold label opening a paragraph (`Note:`) is still a callout.
+
 ### The source file is never published
 
 The file is read for its text and nothing else. It is not linked from the entry,
@@ -359,8 +372,9 @@ Both are metadata the plugin already stores in fields of its own, so repeating
 them inside the content would print them twice on the page:
 
 - **The title echoed at the top of the body**, usually in capitals and often
-  broken over two lines, together with the line naming the kind of document that
-  follows it — *A Position Statement*, *Guidelines*, *Good Practices*.
+  broken over two lines. The line naming the kind of document that follows it —
+  *A Position Statement*, *Guidelines*, *Good Practices* — is kept, because it
+  is content: it becomes the first section heading of the entry.
 - **The revision history at the end** — *Last Updated:*, *[Document History]*,
   and the dated *Approved: / Endorsed: / Revised: / Edited:* lines under it.
 

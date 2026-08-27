@@ -3976,7 +3976,7 @@ function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
     $prompt .= "2. Invent nothing. Every word you output must appear in the source.\n";
     $prompt .= "3. Lose nothing, except the two things RULE 4 names. Every other sentence must appear in exactly one piece.\n";
     $prompt .= "4. Leave out only these, which are metadata this system stores in its own fields and will render separately — repeating them inside the content shows them twice on the page:\n";
-    $prompt .= "   (a) The document's own title echoed at the top of the body, usually in CAPITALS and sometimes broken over two or three lines, together with the line naming the kind of document that follows it ('A Position Statement', 'Position Statement', 'Guidelines', 'Guideline', 'Good Practices').\n";
+    $prompt .= "   (a) The document's own title echoed at the top of the body, usually in CAPITALS and sometimes broken over two or three lines. KEEP the line naming the kind of document that follows it ('A Position Statement', 'Position Statement', 'Guidelines', 'Guideline', 'Good Practices') — that one is content, and it is a heading.\n";
     $prompt .= "   (b) The provenance block at the very end: 'Last Updated: …', '[Document History]', and the dated lines under it ('Approved: …', 'Endorsed: …', 'Revised: …', 'Revised for 2018 Principles: …', 'Updated for the Principles of Accreditation: …', 'Edited: …').\n";
     $prompt .= "   Everything between those two is content. A dated line in the middle of the document is content, not provenance.\n";
     $prompt .= "5. Keep the source's order.\n";
@@ -5962,31 +5962,29 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
         </a>
         <?php endif; ?>
 
+        <!-- The type sits directly under the title, where it reads as what
+             this document is. It used to be set beside the title and then
+             repeated as a labelled column further down, which said the same
+             thing twice and pushed the date into a two-column row of its own. -->
         <header class="aidocs-single-header">
             <h1 class="aidocs-single-title"><?php echo esc_html( get_the_title( $pid ) ); ?></h1>
-            <div class="aidocs-single-heading">
-                <div class="aidocs-single-tags">
-                    <?php foreach ( $types as $t ) : ?>
-                        <span class="cd-fs-doc-tag type"><?php echo esc_html( $t ); ?></span>
-                    <?php endforeach; ?>
-                </div>
+            <?php if ( $types ) : ?>
+            <div class="aidocs-single-tags">
+                <?php foreach ( $types as $t ) : ?>
+                    <span class="cd-fs-doc-tag type"><?php echo esc_html( $t ); ?></span>
+                <?php endforeach; ?>
             </div>
+            <?php endif; ?>
         </header>
 
         <?php if ( $desc ) : ?>
         <div class="aidocs-single-desc"><?php echo esc_html( $desc ); ?></div>
         <?php endif; ?>
 
-        <?php if ( $types || $pub_date ) : ?>
+        <?php if ( $pub_date ) : ?>
         <div class="aidocs-single-grid">
-            <?php if ( $types ) : ?>
-            <div><div class="aidocs-single-label"><?php esc_html_e( 'Document Type' ); ?></div>
-                 <div class="aidocs-single-value"><?php echo esc_html( implode( ', ', $types ) ); ?></div></div>
-            <?php endif; ?>
-            <?php if ( $pub_date ) : ?>
             <div><div class="aidocs-single-label"><?php esc_html_e( 'Last Updated' ); ?></div>
                  <div class="aidocs-single-value"><?php echo esc_html( mysql2date( get_option( 'date_format' ), $pub_date ) ); ?></div></div>
-            <?php endif; ?>
         </div>
         <?php endif; ?>
 
@@ -6129,17 +6127,18 @@ function aidocs_single_view_styles() {
     ?>
     <style>
     .aidocs-single-page{max-width:820px;margin:0 auto;padding:40px 20px;}
-    .aidocs-single-title{font-size:28px;font-weight:700;margin:0 0 20px;}
+    .aidocs-single-title{font-size:28px;font-weight:700;margin:0;}
     .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
     .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:none;margin-bottom:18px;}
     .aidocs-single-back:hover{text-decoration:underline;}
-    .aidocs-single-header{display:flex;align-items:flex-start;gap:18px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
-    .aidocs-single-heading{flex:1;min-width:0;display:flex;align-items:center;}
+    /* Stacked, not a row: the type belongs under the title as a caption to it,
+       and a row put it out to the side where it read as an unrelated badge. */
+    .aidocs-single-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
     .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
     .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
     .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
     .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
-    .aidocs-single-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-bottom:4px;}
+    .aidocs-single-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:16px 40px;padding-bottom:4px;}
     .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
     .aidocs-single-value{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);font-weight:500;line-height:1.5;}
     .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:26px 0 12px;padding-top:18px;border-top:1px solid #f0f2f5;}

@@ -271,8 +271,9 @@ plugin already stores in fields of its own, and repeating them inside the conten
 prints them twice on the page:
 
 - The document's own title, echoed at the top of the body in capitals and often
-  broken over two lines, together with the line naming the kind of document that
-  follows it (`A Position Statement`, `Guidelines`, `Good Practices`).
+  broken over two lines. The line naming the kind of document that follows it
+  (`A Position Statement`, `Guidelines`, `Good Practices`) is kept — it is
+  content, and it becomes the first section heading.
 - The provenance block at the end — `Last Updated:`, `[Document History]`, and the
   dated `Approved:` / `Endorsed:` / `Revised:` / `Edited:` lines under it.
 

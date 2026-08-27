@@ -118,6 +118,9 @@
 </ul>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/edit-extracted-content.png" alt="The Edit content tab, holding the canonical text the parser reads" loading="lazy"><figcaption>The Edit content tab, holding the canonical text the parser reads</figcaption></figure>
 <p>The text in <strong>Edit content</strong> is the same canonical format the parsers produce from a PDF or a Word file: <code>##</code> for headings, <code>-</code> for list items, <code>|</code> for table rows, <code>**bold**</code> and <code>*italic*</code>. Fixing a misread line here is usually faster than fixing the source document and re-uploading it.</p>
+<p><strong>Preview shows exactly what the published page will show.</strong> It re-parses the text in the editor rather than reading what is stored, so the two used to be able to disagree — a document whose sections rendered as collapsible panels in Preview could publish as flat paragraphs. They now produce the same blocks from the same text.</p>
+<blockquote class="aidoc-note"><p><strong>A line set entirely in bold is read as a section heading</strong>, and each section becomes a collapsible panel on the published page. This is how Word marks most headings in these documents — as bold body text rather than with a heading style — so entries that used to publish as one long run of paragraphs now carry their own outline. Bold <em>inside</em> a sentence is still emphasis, and a bold label opening a paragraph (<code>Note:</code>) is still a callout.</p>
+</blockquote>
 <h3 id="the-source-file-is-never-published">The source file is never published</h3>
 <p>The file is read for its text and nothing else. It is not linked from the entry, not previewed, not offered for download, and readers are never told which file an entry came from. Replacing or removing the file after extraction does not change the published content — the blocks are already stored on the entry.</p>
 </section>
@@ -190,7 +193,7 @@
 <h3 id="two-things-it-leaves-out-on-purpose">Two things it leaves out on purpose</h3>
 <p>Both are metadata the plugin already stores in fields of its own, so repeating them inside the content would print them twice on the page:</p>
 <ul>
-<li><strong>The title echoed at the top of the body</strong>, usually in capitals and often broken over two lines, together with the line naming the kind of document that follows it — <em>A Position Statement</em>, <em>Guidelines</em>, <em>Good Practices</em>.</li>
+<li><strong>The title echoed at the top of the body</strong>, usually in capitals and often broken over two lines. The line naming the kind of document that follows it — <em>A Position Statement</em>, <em>Guidelines</em>, <em>Good Practices</em> — is kept, because it is content: it becomes the first section heading of the entry.</li>
 <li><strong>The revision history at the end</strong> — <em>Last Updated:</em>, <em>[Document History]</em>, and the dated <em>Approved: / Endorsed: / Revised: / Edited:</em> lines under it.</li>
 </ul>
 <p>Because of that, a correct run always reports some words left out, and the report says so. What it must never report is words <strong>added</strong> — that is the failure the verdict is watching for. The dropped rows in the list of corrections are there so you can confirm they were only those two things.</p>
