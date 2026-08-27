@@ -1340,6 +1340,26 @@ function aidocs_plain_text( $text ) {
     return trim( preg_replace( '/\\\\([*\\\\])/', '$1', $text ) );
 }
 
+/**
+ * Undo the canonical format's backslash escapes, keeping its emphasis markers.
+ *
+ * For the one caller that wants the "**bold**" cue but must not hand a
+ * backslash to a language model: "\*" is how the extractor writes a literal
+ * asterisk, and a model told to reuse text verbatim copies it into a JSON
+ * string, where it is an escape sequence JSON does not define. Unescaping
+ * first means the reply can only contain characters JSON is happy with.
+ *
+ * A literal asterisk becomes indistinguishable from emphasis by doing this.
+ * That is the right trade here: the caller wants to know which lines were
+ * bold, and a lone asterisk in a policy document is vanishingly rare next to
+ * a bold section heading on nearly every page.
+ */
+function aidocs_unescape_markers( $text ) {
+    $text = (string) $text;
+    if ( strpos( $text, '\\' ) === false ) return $text;
+    return preg_replace( '/\\\\([*\\\\])/', '$1', $text );
+}
+
 /** A stable anchor id for a heading. */
 function aidocs_anchor_id( $text ) {
     $slug = strtolower( preg_replace( '/[^a-zA-Z0-9]+/', '-', aidocs_plain_text( $text ) ) );

@@ -2360,18 +2360,28 @@ function aidocs_meta_box_html( $post ) {
                 // diff below says what changed structurally, this says whether
                 // the AI stayed with the source's words while doing it.
                 var f = d.fidelity || {};
-                var verbatim = (f.added === 0 && f.removed === 0);
+                // Invented text is the failure that matters, and it is the only
+                // one that decides the verdict. Dropped words no longer count
+                // against it: the AI is now asked to leave out the title echo
+                // and the revision history, which this system stores in fields
+                // of its own and renders separately, so a correct result always
+                // drops some. They are still reported, with samples, because
+                // "dropped" is also what losing a paragraph looks like.
+                var invented = f.added > 0;
                 var $report = $('#cd-ai-restructure-report')
                     .removeClass('is-ok is-warn')
-                    .addClass(verbatim ? 'is-ok' : 'is-warn');
+                    .addClass(invented ? 'is-warn' : 'is-ok');
                 var lines = [];
-                lines.push($('<strong>').text(verbatim
-                    ? '<?php echo esc_js( __( 'Text is verbatim — every word matches the extracted content.' ) ); ?>'
-                    : '<?php echo esc_js( __( 'The wording changed — review before applying.' ) ); ?>'));
+                lines.push($('<strong>').text(invented
+                    ? '<?php echo esc_js( __( 'The AI added words that are not in the document — review before applying.' ) ); ?>'
+                    : '<?php echo esc_js( __( 'Nothing was invented — every word comes from the document.' ) ); ?>'));
                 var detail = f.source_words + ' <?php echo esc_js( __( 'words in the source' ) ); ?>'
                     + ' · ' + f.added + ' <?php echo esc_js( __( 'added' ) ); ?>'
-                    + ' · ' + f.removed + ' <?php echo esc_js( __( 'dropped' ) ); ?>';
+                    + ' · ' + f.removed + ' <?php echo esc_js( __( 'left out' ) ); ?>';
                 lines.push($('<div>').text(detail));
+                if (f.removed > 0) {
+                    lines.push($('<div>').text('<?php echo esc_js( __( 'The title and the revision history are left out on purpose. Check the dropped words below are only those.' ) ); ?>'));
+                }
                 if (d.truncated) {
                     lines.push($('<div>').text('<?php echo esc_js( __( 'Note: the document was too long to send in full.' ) ); ?>'));
                 }
@@ -3954,22 +3964,46 @@ function aidocs_import_status_ajax() {
  * @return array|WP_Error [ 'blocks' => Block[] ] or the failure.
  */
 function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
-    $prompt  = "You are re-structuring text that has ALREADY been extracted from a policy document.\n";
-    $prompt .= "Your only task is to decide, for each piece of that text, which structural role it has.\n\n";
-    $prompt .= "ABSOLUTE RULES:\n";
-    $prompt .= "1. Reuse the source text VERBATIM. Do not rewrite, summarise, translate, shorten, correct or explain anything.\n";
-    $prompt .= "2. Do not invent text. Every word you output must appear in the source.\n";
-    $prompt .= "3. Do not drop content. Every sentence of the source must appear in exactly one piece.\n";
-    $prompt .= "4. Keep the source's order.\n";
-    $prompt .= "5. Join lines the extractor wrapped mid-sentence back into one piece.\n\n";
-    $prompt .= "The source uses these markers, which you should treat as hints and correct where they are plainly wrong:\n";
-    $prompt .= "'## '/'### '/'#### ' = heading, two spaces of indent per list level, '| a | b |' = table row.\n\n";
-    $prompt .= "PIECE TYPES:\n";
-    $prompt .= "- heading: a section title. level 2 for a document-level/all-caps title, 3 for a section, 4 for a sub-section.\n";
+    $prompt  = "You are re-structuring text already extracted from an accreditation policy document.\n";
+    $prompt .= "You are not writing. For each piece of that text you decide one thing: what structural role it has.\n";
+    $prompt .= "The text is correct and final. Only its structure was lost on the way out of the source file.\n\n";
+
+    $prompt .= "ABSOLUTE RULES\n";
+    $prompt .= "1. Reuse the source text VERBATIM. Do not rewrite, summarise, translate, shorten, re-order, correct spelling or punctuation, expand abbreviations, or add explanation.\n";
+    $prompt .= "2. Invent nothing. Every word you output must appear in the source.\n";
+    $prompt .= "3. Lose nothing, except the two things RULE 4 names. Every other sentence must appear in exactly one piece.\n";
+    $prompt .= "4. Leave out only these, which are metadata this system stores in its own fields and will render separately — repeating them inside the content shows them twice on the page:\n";
+    $prompt .= "   (a) The document's own title echoed at the top of the body, usually in CAPITALS and sometimes broken over two or three lines, together with the line naming the kind of document that follows it ('A Position Statement', 'Position Statement', 'Guidelines', 'Guideline', 'Good Practices').\n";
+    $prompt .= "   (b) The provenance block at the very end: 'Last Updated: …', '[Document History]', and the dated lines under it ('Approved: …', 'Endorsed: …', 'Revised: …', 'Revised for 2018 Principles: …', 'Updated for the Principles of Accreditation: …', 'Edited: …').\n";
+    $prompt .= "   Everything between those two is content. A dated line in the middle of the document is content, not provenance.\n";
+    $prompt .= "5. Keep the source's order.\n";
+    $prompt .= "6. Join lines the extractor wrapped mid-sentence back into one piece. A piece that ends without terminal punctuation and continues on the next line is one sentence, not two.\n\n";
+
+    $prompt .= "HOW THE SOURCE IS MARKED UP\n";
+    $prompt .= "Treat these as strong evidence, and correct them only where they are plainly wrong:\n";
+    $prompt .= "- '## ', '### ', '#### ' at the start of a line: a heading the source file marked as one.\n";
+    $prompt .= "- '**text**': bold. A line that is bold from end to end, is short, and does not close with a full stop is a SECTION HEADING, not a paragraph — this is how most headings in these documents are authored, and it is the single most important cue you are given. A bold run inside a longer sentence is just emphasis, and a bold label opening a paragraph ('Note:', 'Substantive Change:') makes it a note, not a heading.\n";
+    $prompt .= "- '*text*': italic. Never a heading on its own.\n";
+    $prompt .= "- Two spaces of indent per list level.\n";
+    $prompt .= "- '| a | b |': a table row.\n";
+    $prompt .= "- '[Something]' alone on a line: a section heading, with the brackets dropped from the text.\n";
+    $prompt .= "Strip every '**' and '*' marker from the text you return. They describe the source; they are not part of it.\n\n";
+
+    $prompt .= "HEADING LEVELS\n";
+    $prompt .= "Use 3 for a top-level section of the document and 4 for a sub-section inside one. Use 2 only for a heading that divides the document into major parts above its sections — most of these documents have none, so prefer 3. Keep levels consistent: two sections of equal standing get the same level, and never skip a level going down.\n\n";
+
+    $prompt .= "PIECE TYPES\n";
+    $prompt .= "- heading: a section title. Set \"level\".\n";
     $prompt .= "- paragraph: ordinary prose.\n";
-    $prompt .= "- note: a callout the document labels, e.g. 'Note:', 'Note to International Institutions', 'Reminder:', 'Exception:'. Put the label in \"label\" and the rest of the sentence in \"text\".\n";
-    $prompt .= "- list_item: one item of a list. \"marker\" is its authored marker ('1.', 'a.', 'iv.', '-'), \"level\" is 1 for a top-level item, 2 for one nested inside it, and so on.\n";
-    $prompt .= "- table_row: a row of a table, with \"cells\" as an array of cell strings.\n\n";
+    $prompt .= "- note: a callout the document labels — 'Note:', 'Note on currency:', 'Note to International Institutions', 'Reminder:', 'Exception:', 'Important:'. Put the label in \"label\" (without its colon) and the rest in \"text\".\n";
+    $prompt .= "- list_item: one item of a list. \"marker\" is the marker the author wrote ('1.', 'a.', 'iv.', '-', '•'); use '-' when the source shows no marker. \"level\" is 1 at the top, 2 nested inside that, and so on.\n";
+    $prompt .= "  An enumeration the extractor flattened into one line of prose — 'A. Denial of Candidacy B. Removal from Candidacy C. Denial of Initial Membership' — is a list: split it back into one item per marker. A sentence that merely lists things in prose, with no markers, stays a paragraph.\n";
+    $prompt .= "  A list item running to several sentences stays one item. Do not turn its continuation into a paragraph.\n";
+    $prompt .= "- table_row: one row, with \"cells\" as an array of cell strings. Keep the header row first and give every row the same number of cells.\n\n";
+
+    $prompt .= "WHAT A GOOD RESULT LOOKS LIKE\n";
+    $prompt .= "A reader scrolling the finished page can see the document's shape from its headings alone: every section that the source set in bold or marked as a heading is one, lists read as lists with their own numbering intact, callouts stand apart from the prose around them, and no line of the title, the document-kind, or the revision history appears anywhere in the body. Not one word differs from the source.\n\n";
+
     $prompt .= "Return ONLY a JSON object: {\"blocks\":[{\"type\":…,\"level\":…,\"marker\":…,\"label\":…,\"text\":…,\"cells\":[…]}]}\n";
     $prompt .= "Include only the keys each type needs. No markdown fences, no commentary.\n\n";
     $prompt .= "SOURCE TEXT:\n" . $sent;
@@ -4084,16 +4118,21 @@ function aidocs_ai_restructure_ajax() {
     $parsed    = aidocs_parse_labeled_document( $raw_text );
     $body_text = trim( $parsed['body_text'] ) !== '' ? $parsed['body_text'] : $raw_text;
 
-    // Plain text, not this plugin's own markdown-flavoured canonical format:
-    // the source's "**bold**" and its "\*" escape for a literal asterisk are
-    // an internal convention the AI has no reason to know about, and asking
-    // it to reuse text "verbatim" means it copies that convention's own
-    // punctuation into its reply — including, once, a literal `\*` landing
-    // inside a JSON string as an escape sequence JSON does not define, which
-    // broke decoding the entire reply. Structural cues ('#', list markers,
-    // '|') are untouched, since those are exactly what the prompt asks the
-    // model to read; only the inline emphasis markup is stripped.
-    $sent      = aidocs_plain_text( mb_substr( $body_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
+    // The bold markers stay in. They used to be stripped along with the "\*"
+    // escape, on the reasoning that this plugin's markdown-flavoured convention
+    // is an internal detail the model has no reason to know about — but bold is
+    // the only thing distinguishing a section heading from a paragraph in every
+    // one of these documents. Word sets "Purposes of a Credential" and "Air
+    // Travel" as bold body text, not as Word headings, so nothing else marks
+    // them; stripping the bold left the model guessing from line length, and it
+    // guessed paragraph. The prompt below explains the marker and forbids
+    // echoing it back.
+    //
+    // Only the backslash escape is removed, which was the actual hazard: a
+    // literal `\*` copied into a JSON string is an escape sequence JSON does
+    // not define, and it broke the decode of an entire reply. Unescaping first
+    // means no backslash reaches the model to copy.
+    $sent      = aidocs_unescape_markers( mb_substr( $body_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
     $truncated = mb_strlen( $body_text ) > AIDOCS_AI_TEXT_LIMIT;
 
     // Both sides of the fidelity comparison below are the body and only the
