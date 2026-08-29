@@ -1,0 +1,1001 @@
+/**
+ * The institutions directory — dressed in the site's own design language.
+ *
+ * The first version of this file reproduced sacscoc.org/institutions/ component
+ * by component: heavily rounded outlined panels with their titles notched into
+ * the top border, a type scale of its own, everything centred. Dropped into the
+ * Cirlot theme it read as a page from another site pasted into this one.
+ *
+ * So the reference is now the theme itself — the same language the rest of the
+ * site is built in (see /insights-research/):
+ *
+ *   · no boxes. Sections are separated by space and a hairline rule, never by
+ *     an outlined rounded panel.
+ *   · lists are rows: a Montserrat title in navy, a gold arrow, a 1px divider.
+ *   · headings are left-aligned Montserrat, not centred notches.
+ *   · one measure — the theme's 1200px container — and real air above and below.
+ *   · the only round things are the controls and the buttons, which is exactly
+ *     where the theme rounds things too (its header search, its pill buttons).
+ *
+ * ── Colour and type come from the theme, not from here ──────────────────────
+ *
+ * Every token below reads an Elementor global first and only falls back to a
+ * literal if the site has none:
+ *
+ *   --e-global-color-primary    #003A5D  navy
+ *   --e-global-color-secondary  #4D758E  muted blue
+ *   --e-global-color-accent     #CC9F53  gold
+ *   --e-global-color-text       #454545  body copy
+ *   --e-global-typography-primary-*      Montserrat 600, the heading face
+ *
+ * Re-branding the site therefore re-brands the directory, with no edit here.
+ * A theme without Elementor gets the literals, which are the SACSCOC palette.
+ */
+
+.sacscoc-directory,
+.sacscoc-single {
+  /* Palette — the theme's own globals, with the SACSCOC values as fallback. */
+  --sacscoc-navy: var(--e-global-color-primary, #003a5d);
+  --sacscoc-blue: var(--e-global-color-secondary, #4d758e);
+  --sacscoc-gold: var(--e-global-color-accent, #cc9f53);
+  --sacscoc-ink: var(--e-global-color-text, #454545);
+  --sacscoc-muted: #686868;
+  --sacscoc-error: #c1272d;
+
+  /* Rules and tints are stated as ink over the page rather than as the theme's
+     literal greys (#ECECEC, #DFDFDF, #F7F7F7). Those greys are those greys only
+     on a white page; on a theme with a tinted background they disappear. As
+     percentages of black they land on the same values on white and keep working
+     everywhere else. */
+  --sacscoc-line: rgba(0, 0, 0, 0.09);
+  --sacscoc-line-strong: rgba(0, 0, 0, 0.16);
+  --sacscoc-surface: rgba(0, 0, 0, 0.03);
+
+  /* Type. Used as `var(--sacscoc-font-heading), sans-serif`, which resolves two
+     ways on purpose: with an Elementor kit it becomes `"Montserrat", sans-serif`
+     — the theme's face, with a real fallback if the webfont has not loaded, so a
+     heading can never drop to the browser's default serif. Without a kit it
+     becomes `inherit, sans-serif`, which is not valid CSS, so the declaration is
+     dropped and the heading simply keeps the theme's own font. */
+  --sacscoc-font-heading: var(--e-global-typography-primary-font-family, inherit);
+  --sacscoc-font-heading-weight: var(--e-global-typography-primary-font-weight, 600);
+
+  /* A scale that lands on the theme's: body 17px, row titles 22px, section
+     headings 32px, page title 44px at the top end — fluid, and bounded in px
+     so it can neither shrink to nothing nor inflate with an oversized theme. */
+  --sacscoc-text: clamp(15px, 0.3vw + 14px, 17px);
+  --sacscoc-text-sm: clamp(13px, 0.2vw + 12.4px, 14px);
+  --sacscoc-label: clamp(12px, 0.15vw + 11.5px, 13px);
+  --sacscoc-name: clamp(18px, 0.6vw + 16px, 22px);
+  --sacscoc-subheading: clamp(19px, 0.7vw + 16.5px, 22px);
+  --sacscoc-heading: clamp(24px, 1.4vw + 19px, 32px);
+  --sacscoc-title: clamp(30px, 2.6vw + 20px, 44px);
+
+  /* Vertical rhythm: the gap between two sections. */
+  --sacscoc-gap: clamp(32px, 4vw, 56px);
+  --sacscoc-radius: 6px;
+
+  color: var(--sacscoc-ink);
+  font-size: var(--sacscoc-text);
+  line-height: 1.6;
+}
+
+.sacscoc-directory *,
+.sacscoc-single * { box-sizing: border-box; }
+
+/* ── Standing up to the theme's own element rules ────────────────
+   Astra styles `.entry-content p`, `.entry-content ul` and friends at (0,1,1),
+   which beats a plain class — and the shortcode renders inside .entry-content.
+   So every paragraph in a result row was picking up the theme's 1.75em bottom
+   margin and pushing the rows apart. Zeroing them here at (0,2,0) — the root
+   class doubled, which costs nothing and needs no !important — puts spacing
+   back in this file's hands; everything that wants a margin asks for one below,
+   at the same weight. The About block is prose rather than layout, so its
+   spacing is handed back at the end of the file. */
+.sacscoc-directory.sacscoc-directory :where(p, ul, ol, li, dl, dt, dd, address, table, td, th, figure),
+.sacscoc-single.sacscoc-single :where(p, ul, ol, li, dl, dt, dd, address, table, td, th, figure) {
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Icons ───────────────────────────────────────────────────────
+   Inline SVG that inherits its size from the type beside it and its colour
+   from `currentColor`, so an icon is never out of step with its label. Gold is
+   applied only where the icon is an accent — headings and field labels — and
+   links keep the icon in the link's own colour so it reads as part of it. */
+
+.sacscoc-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.14em;
+}
+
+.sacscoc-icon--heading {
+  width: 1.05em;
+  height: 1.05em;
+  color: var(--sacscoc-gold);
+}
+
+.sacscoc-icon--empty {
+  width: 1.6em;
+  height: 1.6em;
+  margin-right: 10px;
+  color: var(--sacscoc-line-strong);
+  stroke-width: 1.5;
+}
+
+/* Air above and below, so the directory never butts up against the page banner
+   or the footer the way it did inside the theme's zero-padding container. */
+.sacscoc-directory { margin: clamp(32px, 5vw, 72px) 0; }
+
+/* ── Sections ────────────────────────────────────────────────────
+   What used to be `.sacscoc-block`: an outlined rounded panel. Now just a
+   region of the page — no border, no radius, no background. Spacing does the
+   separating, the way it does everywhere else on the site. */
+
+.sacscoc-block {
+  position: relative;
+  padding: 0;
+  margin: 0 0 var(--sacscoc-gap);
+  border: 0;
+}
+
+.sacscoc-block:last-child { margin-bottom: 0; }
+
+/* Section titles: left-aligned Montserrat navy over a hairline rule — the
+   theme's "Latest News" treatment, not a title notched into a border. */
+.sacscoc-directory .sacscoc-block__heading,
+.sacscoc-single .sacscoc-block__heading {
+  position: static;
+  top: auto;
+  margin: 0 0 20px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--sacscoc-line);
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-heading);
+  font-weight: var(--sacscoc-font-heading-weight);
+  line-height: 1.2;
+  text-align: left;
+  color: var(--sacscoc-navy);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The span survives from the notched version, where it masked the border. It
+   is a plain inline box now. */
+.sacscoc-block__heading > span {
+  padding: 0;
+  background: none;
+}
+
+/* The institution name is the page's h1: the theme's own display size, and no
+   rule under it — the "as of" line and the intro carry it instead. */
+.sacscoc-directory .sacscoc-block__heading--title,
+.sacscoc-single .sacscoc-block__heading--title {
+  display: block;
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: var(--sacscoc-title);
+  font-weight: var(--sacscoc-font-heading-weight);
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+.sacscoc-directory .sacscoc-block__subheading,
+.sacscoc-single .sacscoc-block__subheading {
+  margin: 32px 0 20px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--sacscoc-line);
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-subheading);
+  font-weight: var(--sacscoc-font-heading-weight);
+  line-height: 1.3;
+  text-align: left;
+  color: var(--sacscoc-navy);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sacscoc-block--no-heading > .sacscoc-block__subheading:first-child,
+.sacscoc-block__heading + .sacscoc-block__subheading { margin-top: 0; }
+
+/* ── Directory layout ────────────────────────────────────────────
+   Results left, filters right, as on the current directory. Source order is
+   search-then-results so the keyboard reaches the filters first; the visual
+   swap happens here. The aside is a fixed measure rather than a percentage —
+   a filter column does not want to grow with the viewport. */
+
+.sacscoc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 0 clamp(32px, 4vw, 64px);
+  align-items: start;
+}
+
+.sacscoc-layout__aside { grid-column: 2; grid-row: 1; }
+.sacscoc-layout__main  { grid-column: 1; grid-row: 1; min-width: 0; }
+
+/* With no results the search panel is the whole page. The class comes from the
+   template rather than from :has(), which would have needed an @supports
+   fallback that could not tell this case apart from the two-column one. */
+/* No results: one column, the search panel at a sane measure, and the message
+   under it — the results column is still in the page, because that is where the
+   message is. */
+.sacscoc-layout--solo { grid-template-columns: minmax(0, 1fr); }
+.sacscoc-layout--solo .sacscoc-layout__aside { grid-column: 1; max-width: 520px; }
+.sacscoc-layout--solo .sacscoc-layout__main { grid-column: 1; grid-row: 2; }
+
+@media (max-width: 899px) {
+  .sacscoc-layout { grid-template-columns: minmax(0, 1fr); }
+  .sacscoc-layout__aside { grid-column: 1; grid-row: 1; }
+  .sacscoc-layout__main  { grid-column: 1; grid-row: 2; margin-top: var(--sacscoc-gap); }
+}
+
+/* ── Search panel ────────────────────────────────────────────────
+   A flat tint, not an outlined card: the same #F7F7F7 the theme uses for its
+   alternating page sections. */
+
+.sacscoc-search {
+  padding: clamp(20px, 2.5vw, 28px);
+  background: var(--sacscoc-surface);
+  border-radius: var(--sacscoc-radius);
+}
+
+.sacscoc-directory .sacscoc-search .sacscoc-block__heading {
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--sacscoc-line-strong);
+  font-size: var(--sacscoc-subheading);
+}
+
+.sacscoc-search__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.sacscoc-field { margin: 0; }
+
+.sacscoc-directory .sacscoc-field__label,
+.sacscoc-single .sacscoc-field__label {
+  display: block;
+  margin-bottom: 7px;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  color: var(--sacscoc-navy);
+}
+
+/* Controls keep a pill, which is the one place the theme rounds anything: its
+   header search field and its buttons. */
+.sacscoc-directory .sacscoc-control,
+.sacscoc-single .sacscoc-control {
+  display: block;
+  width: 100%;
+  height: 46px;
+  padding: 0 20px;
+  border: 1px solid var(--sacscoc-line-strong);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: var(--sacscoc-text-sm);
+  line-height: 44px;
+  color: var(--sacscoc-ink);
+  background-color: #fff;
+  box-shadow: none;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.sacscoc-directory .sacscoc-control::placeholder,
+.sacscoc-single .sacscoc-control::placeholder { color: var(--sacscoc-muted); opacity: 1; }
+
+.sacscoc-directory .sacscoc-control:focus,
+.sacscoc-single .sacscoc-control:focus {
+  outline: none;
+  border-color: var(--sacscoc-blue);
+  box-shadow: 0 0 0 3px rgba(77, 117, 142, 0.15);
+}
+
+.sacscoc-directory .sacscoc-control--select,
+.sacscoc-single .sacscoc-control--select {
+  appearance: none;
+  padding-right: 44px;
+  /* The chevron is inline so there is no image request and no broken icon if
+     the plugin directory moves. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%234d758e' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 18px 18px;
+}
+
+.sacscoc-directory .sacscoc-search__actions,
+.sacscoc-single .sacscoc-search__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 24px 0 0;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────
+   The theme's pill: uppercase Montserrat, letter-spaced, navy or gold. */
+
+.sacscoc-directory .sacscoc-btn,
+.sacscoc-single .sacscoc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px 28px;
+  border: 1px solid var(--sacscoc-navy);
+  border-radius: 999px;
+  background: var(--sacscoc-navy);
+  color: #fff;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+
+.sacscoc-directory .sacscoc-btn:hover,
+.sacscoc-single .sacscoc-btn:hover,
+.sacscoc-directory .sacscoc-btn:focus,
+.sacscoc-single .sacscoc-btn:focus,
+.sacscoc-directory .sacscoc-btn:active,
+.sacscoc-single .sacscoc-btn:active {
+  background: var(--sacscoc-gold);
+  border-color: var(--sacscoc-gold);
+  color: #fff;
+  outline: 0;
+}
+
+/* Back and the history toggle are secondary: outlined, filling in on hover. */
+.sacscoc-single .sacscoc-btn--back,
+.sacscoc-single .sacscoc-btn--toggle,
+.sacscoc-directory .sacscoc-btn--back,
+.sacscoc-directory .sacscoc-btn--toggle {
+  background: transparent;
+  color: var(--sacscoc-navy);
+}
+
+.sacscoc-directory .sacscoc-back,
+.sacscoc-single .sacscoc-back { margin: 0 0 clamp(24px, 3vw, 36px); }
+
+/* ── Links ───────────────────────────────────────────────────────
+   The old gold "+" prefix is gone; the theme marks its links with a trailing
+   gold arrow, and so do these. */
+
+.sacscoc-directory .sacscoc-plus-link,
+.sacscoc-single .sacscoc-plus-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-text-sm);
+  font-weight: 600;
+  color: var(--sacscoc-blue);
+  text-decoration: none;
+}
+
+.sacscoc-directory .sacscoc-plus-link:hover,
+.sacscoc-single .sacscoc-plus-link:hover,
+.sacscoc-directory .sacscoc-plus-link:focus,
+.sacscoc-single .sacscoc-plus-link:focus {
+  color: var(--sacscoc-navy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sacscoc-directory .sacscoc-plus-link .sacscoc-icon,
+.sacscoc-single .sacscoc-plus-link .sacscoc-icon {
+  color: var(--sacscoc-gold);
+  transition: transform 0.15s ease-in-out;
+}
+
+.sacscoc-directory .sacscoc-plus-link:hover .sacscoc-icon,
+.sacscoc-single .sacscoc-plus-link:hover .sacscoc-icon { transform: translateX(2px); }
+
+.sacscoc-directory .sacscoc-links,
+.sacscoc-single .sacscoc-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 24px 0 0;
+}
+
+.sacscoc-links--inline { flex-direction: row; flex-wrap: wrap; gap: 12px 32px; }
+
+/* ── Results ─────────────────────────────────────────────────────
+   A heading row, then rows divided by hairlines — the theme's news list. */
+
+.sacscoc-directory .sacscoc-results__meta,
+.sacscoc-single .sacscoc-results__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 24px;
+  margin: 0 0 14px;
+}
+
+.sacscoc-results__hint,
+.sacscoc-results__count {
+  margin: 0;
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+.sacscoc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--sacscoc-line);
+}
+
+/* A whole row is the click target. The row is a positioned container with a
+   full-bleed link stretched across it, so the target is the whole row without
+   nesting the other links inside an anchor. */
+.sacscoc-directory .sacscoc-result {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 32px;
+  padding: 22px 8px;
+  border-bottom: 1px solid var(--sacscoc-line);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.sacscoc-result:hover,
+.sacscoc-result:focus-within { background-color: var(--sacscoc-surface); }
+
+.sacscoc-result:hover .sacscoc-result__name,
+.sacscoc-result:focus-within .sacscoc-result__name { color: var(--sacscoc-blue); }
+
+.sacscoc-result__hit { position: absolute; inset: 0; z-index: 1; }
+
+.sacscoc-result__hit:focus-visible {
+  outline: 2px solid var(--sacscoc-blue);
+  outline-offset: -2px;
+}
+
+.sacscoc-result__identity {
+  flex: 1 1 18rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Title, gold arrow, both moving together on hover — the theme's row title. */
+.sacscoc-result__name {
+  margin: 0;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-name);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--sacscoc-navy);
+}
+
+.sacscoc-result__former {
+  margin: 0;
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+/* Above the full-bleed hit area, so these stay independently clickable. */
+.sacscoc-result__site,
+.sacscoc-result__sanction {
+  position: relative;
+  z-index: 2;
+  align-self: flex-start;
+}
+
+.sacscoc-directory .sacscoc-result__sanction { margin: 2px 0 0; font-size: var(--sacscoc-text-sm); }
+
+.sacscoc-result__facts {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 32px;
+  font-size: var(--sacscoc-text-sm);
+}
+
+/* ── Key/value pairs ─────────────────────────────────────────── */
+
+.sacscoc-kv { margin: 0; flex: 1 1 8rem; min-width: 0; }
+.sacscoc-kv > div { display: flex; gap: 5px; align-items: baseline; }
+.sacscoc-kv dt { margin: 0; font-weight: 600; color: var(--sacscoc-navy); }
+.sacscoc-kv dt::after { content: ":"; }
+.sacscoc-kv dd { margin: 0; color: var(--sacscoc-muted); }
+
+/* ── Detail: the record's fields ─────────────────────────────────
+   A data sheet, not a bulleted list: a small letter-spaced label over its
+   value, in two columns. */
+
+.sacscoc-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 4px clamp(32px, 4vw, 64px);
+}
+
+.sacscoc-col { min-width: 0; }
+
+.sacscoc-directory .sacscoc-plus-list,
+.sacscoc-single .sacscoc-plus-list {
+  margin: 0 0 22px;
+  padding: 0;
+  position: relative;
+}
+
+.sacscoc-plus-list:last-child { margin-bottom: 0; }
+
+.sacscoc-directory .sacscoc-plus-list > dt,
+.sacscoc-single .sacscoc-plus-list > dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 4px;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--sacscoc-navy);
+}
+
+.sacscoc-plus-list > dt .sacscoc-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--sacscoc-gold);
+}
+
+.sacscoc-plus-list > dd { margin: 0; }
+.sacscoc-plus-list > dd > span { display: block; }
+.sacscoc-plus-list address { font-style: normal; }
+.sacscoc-plus-list address span { display: block; }
+
+.sacscoc-plus-list .sacscoc-plus-link { margin-top: 6px; }
+
+.sacscoc-directory .sacscoc-asof,
+.sacscoc-single .sacscoc-asof {
+  margin: 0 0 20px;
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+.sacscoc-former { display: inline-block; }
+.sacscoc-directory .sacscoc-intro,
+.sacscoc-single .sacscoc-intro { margin: 0 0 8px; max-width: 68ch; }
+.sacscoc-directory .sacscoc-staff,
+.sacscoc-single .sacscoc-staff { margin: 0 0 4px; font-size: var(--sacscoc-name); font-family: var(--sacscoc-font-heading), sans-serif; font-weight: 500; color: var(--sacscoc-navy); }
+.sacscoc-staff strong { font-weight: inherit; }
+
+/* ── History ─────────────────────────────────────────────────── */
+
+.sacscoc-history { margin-top: 32px; }
+
+.sacscoc-history > summary {
+  display: inline-flex;
+  list-style: none;
+  margin: 0;
+}
+
+.sacscoc-history > summary::-webkit-details-marker { display: none; }
+.sacscoc-history > summary::after { content: "\25BE"; letter-spacing: 0; }
+.sacscoc-history[open] > summary::after { content: "\25B4"; }
+
+.sacscoc-directory .sacscoc-history__title,
+.sacscoc-single .sacscoc-history__title {
+  margin: 28px 0 10px;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-subheading);
+  font-weight: var(--sacscoc-font-heading-weight);
+  color: var(--sacscoc-navy);
+  text-align: left;
+}
+
+.sacscoc-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--sacscoc-text-sm);
+}
+
+.sacscoc-directory .sacscoc-table td,
+.sacscoc-single .sacscoc-table td {
+  padding: 10px 0;
+  border: none;
+  border-bottom: 1px solid var(--sacscoc-line);
+}
+
+.sacscoc-table tr:last-child td { border-bottom: none; }
+
+/* ── Level hint ──────────────────────────────────────────────── */
+
+.sacscoc-directory .sacscoc-hint,
+.sacscoc-single .sacscoc-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Fixed px rather than em: at 0.75em of a 14px fact this became a 10px disc
+     with a glyph in it that read as a stray mark rather than as an "i". */
+  width: 18px;
+  height: 18px;
+  margin-left: 0.4em;
+  border: 1px solid var(--sacscoc-line-strong);
+  border-radius: 50%;
+  background: var(--sacscoc-surface);
+  color: var(--sacscoc-blue);
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.sacscoc-hint__note { display: block; margin-top: 2px; font-size: var(--sacscoc-text-sm); color: var(--sacscoc-muted); }
+
+/* ── States ──────────────────────────────────────────────────── */
+
+.sacscoc-error { color: var(--sacscoc-error); }
+
+.sacscoc-directory .sacscoc-alert,
+.sacscoc-single .sacscoc-alert {
+  margin: 20px 0 0;
+  color: var(--sacscoc-error);
+}
+
+/* ── Pagination ──────────────────────────────────────────────── */
+
+.sacscoc-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 32px;
+}
+
+.sacscoc-pagination .page-numbers {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--sacscoc-blue);
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-text-sm);
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+
+.sacscoc-pagination .page-numbers:hover { background: var(--sacscoc-surface); color: var(--sacscoc-navy); }
+
+.sacscoc-pagination .page-numbers.current {
+  background: var(--sacscoc-navy);
+  color: #fff;
+}
+
+.sacscoc-pagination .page-numbers.dots { color: var(--sacscoc-muted); }
+.sacscoc-pagination .page-numbers.dots:hover { background: none; }
+
+.sacscoc-pagination .prev,
+.sacscoc-pagination .next { letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* ── About block ─────────────────────────────────────────────── */
+
+.sacscoc-about {
+  margin-top: var(--sacscoc-gap);
+  padding-top: var(--sacscoc-gap);
+  border-top: 1px solid var(--sacscoc-line);
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+/* Prose, not layout: the element reset at the top of the file is handed back
+   inside this block, so paragraphs and lists from Settings space themselves the
+   way they would anywhere else. Same weight as the reset, later in the file. */
+/* A reading measure for the prose itself, not for the block — the rule above
+   it should still run the full width of the record. */
+.sacscoc-single .sacscoc-about :where(p, ul, ol, dl, table) { margin: 0 0 1.1em; max-width: 78ch; }
+.sacscoc-single .sacscoc-about :where(ul, ol) { padding-left: 1.4em; }
+.sacscoc-single .sacscoc-about :where(li) { margin: 0 0 0.4em; }
+.sacscoc-single .sacscoc-about > *:first-child { margin-top: 0; }
+.sacscoc-single .sacscoc-about > *:last-child { margin-bottom: 0; }
+
+.sacscoc-single .sacscoc-about h2,
+.sacscoc-single .sacscoc-about h3 {
+  margin: 1.4em 0 0.5em;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-subheading);
+  font-weight: var(--sacscoc-font-heading-weight);
+  color: var(--sacscoc-navy);
+}
+
+/* ── Housekeeping ────────────────────────────────────────────── */
+
+.sacscoc-directory img,
+.sacscoc-single img { max-width: 100%; height: auto; }
+
+.sacscoc-notice { margin: 20px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sacscoc-directory *,
+  .sacscoc-single * { transition: none !important; animation: none !important; }
+}
+
+@media (max-width: 599px) {
+  .sacscoc-directory .sacscoc-result { padding: 18px 0; gap: 8px 20px; }
+  .sacscoc-list { margin: 0; }
+}
+
+/* ── Clearable filters and live state ─────────────────────────────
+   The × sits inside the control's own box, so it never changes the field's
+   height or the panel's rhythm when it appears and disappears. */
+
+.sacscoc-field__control {
+  position: relative;
+  display: block;
+}
+
+.sacscoc-directory .sacscoc-field__control .sacscoc-control { padding-right: 44px; }
+.sacscoc-directory .sacscoc-field__control .sacscoc-control--select { padding-right: 66px; }
+
+.sacscoc-directory .sacscoc-field__clear {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sacscoc-line);
+  color: var(--sacscoc-navy);
+  font-size: 14px;
+  line-height: 1;
+  text-decoration: none;
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+
+/* Clear of the select's own chevron. */
+.sacscoc-directory .sacscoc-control--select ~ .sacscoc-field__clear { right: 42px; }
+
+.sacscoc-directory .sacscoc-field__clear:hover,
+.sacscoc-directory .sacscoc-field__clear:focus-visible {
+  background: var(--sacscoc-navy);
+  color: #fff;
+}
+
+/* Once the script is running, filtering is live and the button is noise — in
+   the two-column panel. It is left in the DOM and reachable, so a mid-session
+   script failure still leaves a form that submits.
+   The one-column bar keeps its button: there it is part of the shape of the
+   bar, and pressing it simply applies the filters at once. */
+.sacscoc-directory.is-live:not(.sacscoc-directory--stacked) [data-sacscoc-submit] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sacscoc-directory .sacscoc-reset { font-size: var(--sacscoc-text-sm); }
+.sacscoc-directory .sacscoc-reset.is-hidden { display: none; }
+
+/* ── Loading ─────────────────────────────────────────────────────
+   The results stay visible and legible while a new set is fetched; only their
+   opacity drops, so the page never collapses to a blank column and jumps back. */
+
+.sacscoc-results-region { transition: opacity 0.15s ease-in-out; }
+
+.sacscoc-directory.is-loading .sacscoc-results-region {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.sacscoc-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--sacscoc-line-strong);
+  border-top-color: var(--sacscoc-navy);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.sacscoc-spinner.is-active {
+  opacity: 1;
+  animation: sacscoc-spin 0.7s linear infinite;
+}
+
+@keyframes sacscoc-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sacscoc-spinner.is-active { animation: none; }
+}
+
+.sacscoc-directory .sacscoc-empty,
+.sacscoc-single .sacscoc-empty {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: var(--sacscoc-gap) 0;
+  color: var(--sacscoc-muted);
+}
+
+/* ── The one-column layout ───────────────────────────────────────
+   Last in the file on purpose: these rules restate parts of the panel, the
+   controls and the button at the same specificity, so source order is what
+   decides them. Moving this block higher would silently give the two-column
+   styles back.
+   Chosen in Institutions → Settings, or per page with
+   `[sacscoc_institutions layout="one-column"]`. The search becomes a single
+   bar across the top and the results run the full width beneath it — the
+   arrangement the site's own Find an Institution page uses, down to the joined
+   square fields and the navy button welded to the end of them.
+
+   It is the same markup: the form is still first in source order, so nothing
+   about the keyboard order or the screen-reader order changes. */
+
+.sacscoc-layout--stacked { grid-template-columns: minmax(0, 1fr); }
+.sacscoc-layout--stacked .sacscoc-layout__aside { grid-column: 1; grid-row: 1; max-width: none; }
+.sacscoc-layout--stacked .sacscoc-layout__main { grid-column: 1; grid-row: 2; margin-top: var(--sacscoc-gap); }
+
+/* The bar carries its own edges, so the tinted panel goes. The form itself is
+   the row: the strip of fields, then the button welded to the end of it. */
+.sacscoc-directory--stacked .sacscoc-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+/* The page's own title names this search — as it does on Find an Institution,
+   where the bar sits under the page heading with no label of its own. It stays
+   in the markup for anyone who is not looking at the page. */
+.sacscoc-directory--stacked .sacscoc-search .sacscoc-block__heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* One strip: fields divided by hairlines rather than separated by gaps. */
+.sacscoc-directory--stacked .sacscoc-search__fields {
+  flex: 1 1 480px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border: 1px solid var(--sacscoc-line-strong);
+  background: #fff;
+}
+
+.sacscoc-directory--stacked .sacscoc-field {
+  flex: 1 1 190px;
+  min-width: 0;
+  border-left: 1px solid var(--sacscoc-line);
+}
+
+.sacscoc-directory--stacked .sacscoc-field:first-child { border-left: 0; }
+
+/* Labels are read, not seen: the fields say what they are through their
+   placeholder and their "Any …" first option, exactly as on the reference. */
+.sacscoc-directory--stacked .sacscoc-field__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sacscoc-directory--stacked .sacscoc-control {
+  height: 54px;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--sacscoc-text);
+}
+
+.sacscoc-directory--stacked .sacscoc-control:focus {
+  box-shadow: inset 0 0 0 2px var(--sacscoc-blue);
+}
+
+.sacscoc-directory--stacked .sacscoc-search__actions {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0 18px;
+  margin: 0;
+}
+
+.sacscoc-directory--stacked .sacscoc-btn {
+  align-self: stretch;
+  min-height: 54px;
+  border-radius: 0;
+  font-size: var(--sacscoc-text-sm);
+}
+
+/* Reset and the spinner ride alongside the button, not inside the strip. */
+.sacscoc-directory--stacked .sacscoc-reset,
+.sacscoc-directory--stacked .sacscoc-spinner { margin-left: 0; }
+
+@media (max-width: 719px) {
+  /* Too narrow for a strip: back to stacked fields, each with its label. */
+  .sacscoc-directory--stacked .sacscoc-search__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    border: 0;
+    background: none;
+  }
+
+  .sacscoc-directory--stacked .sacscoc-field { border-left: 0; }
+
+  .sacscoc-directory--stacked .sacscoc-field__label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0 0 7px;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .sacscoc-directory--stacked .sacscoc-control {
+    border: 1px solid var(--sacscoc-line-strong);
+    border-radius: 999px;
+  }
+
+  .sacscoc-directory--stacked .sacscoc-search { display: block; }
+  .sacscoc-directory--stacked .sacscoc-search__actions { margin-top: 22px; }
+  .sacscoc-directory--stacked .sacscoc-btn { border-radius: 999px; }
+}

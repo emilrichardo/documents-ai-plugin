@@ -1,0 +1,438 @@
+/**
+ * Institutions admin screens.
+ *
+ * Built on the greys and blues wp-admin already uses, so these screens sit
+ * inside WordPress rather than next to it. Nothing here is a brand: the
+ * hierarchy comes from type scale and spacing, and colour is reserved for
+ * state — accredited, sanctioned, missing, empty.
+ *
+ * ── On box heights ─────────────────────────────────────────────────────────
+ *
+ * There is deliberately no auto-fitting grid of cards anywhere. That layout
+ * gives every card its own height, so the bottom edges across a row disagree
+ * and the screen reads as ragged. Instead:
+ *
+ *   .sacscoc-record   two columns; every panel spans its column's full width,
+ *                     so there is nothing to misalign.
+ *   .sacscoc-keyfacts equal grid columns and an identical internal structure
+ *                     in every tile, so the tiles match by construction rather
+ *                     than by being stretched.
+ *   .sacscoc-kv       a grid, so label/value rows line up across columns.
+ */
+
+.sacscoc-admin {
+  --si-line: #dcdcde;
+  --si-line-soft: #f0f0f1;
+  --si-surface: #fff;
+  --si-ink: #1d2327;
+  --si-muted: #646970;
+  --si-faint: #8c8f94;
+  --si-accent: #2271b1;
+  --si-ok: #007017;
+  --si-ok-bg: #edfaef;
+  --si-warn: #8a6116;
+  --si-warn-bg: #fcf6e6;
+  --si-crit: #b32d2e;
+  --si-crit-bg: #fcf0f1;
+  --si-info: #1d5b8f;
+  --si-info-bg: #eef4fa;
+
+  --si-gap: 16px;
+  --si-radius: 4px;
+}
+
+.sacscoc-admin .dashicons {
+  font-size: 17px;
+  width: 17px;
+  height: 17px;
+  line-height: 1;
+  vertical-align: text-bottom;
+}
+
+/* ── Back link ───────────────────────────────────────────────── */
+
+.sacscoc-admin__back {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.sacscoc-admin__back a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+}
+
+.sacscoc-admin__back a:hover { text-decoration: underline; }
+
+/* ── Hero ────────────────────────────────────────────────────── */
+
+.sacscoc-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--si-gap) 32px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 22px;
+  margin: 0 0 var(--si-gap);
+  background: var(--si-surface);
+  border: 1px solid var(--si-line);
+  border-left: 4px solid var(--si-accent);
+  border-radius: var(--si-radius);
+}
+
+.sacscoc-hero__main {
+  flex: 1 1 26rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sacscoc-hero__name {
+  margin: 0;
+  padding: 0;
+  font-size: clamp(20px, 1.4vw + 14px, 28px);
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--si-ink);
+  text-wrap: balance;
+}
+
+.sacscoc-hero__former {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--si-muted);
+}
+
+.sacscoc-hero__former .dashicons { flex: none; margin-top: 1px; color: var(--si-faint); }
+
+.sacscoc-hero__where {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.sacscoc-hero__fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--si-muted);
+}
+
+.sacscoc-hero__fact .dashicons { flex: none; color: var(--si-faint); }
+.sacscoc-hero__fact a { text-decoration: none; }
+.sacscoc-hero__fact a:hover { text-decoration: underline; }
+
+/* ── Read-only notice ────────────────────────────────────────── */
+
+.sacscoc-readonly {
+  flex: 0 1 19rem;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 11px 13px;
+  background: var(--si-line-soft);
+  border-radius: var(--si-radius);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--si-muted);
+}
+
+.sacscoc-readonly .dashicons { flex: none; color: var(--si-faint); margin-top: 1px; }
+.sacscoc-readonly strong { color: var(--si-ink); }
+
+/* ── Badges ──────────────────────────────────────────────────── */
+
+.sacscoc-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.sacscoc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.sacscoc-badge .dashicons { font-size: 14px; width: 14px; height: 14px; }
+
+.sacscoc-badge--ok    { background: var(--si-ok-bg);   color: var(--si-ok); }
+.sacscoc-badge--info  { background: var(--si-info-bg); color: var(--si-info); }
+.sacscoc-badge--warn  { background: var(--si-warn-bg); color: var(--si-warn); }
+.sacscoc-badge--crit  { background: var(--si-crit-bg); color: var(--si-crit); }
+.sacscoc-badge--muted { background: var(--si-line-soft); color: var(--si-muted); }
+
+.sacscoc-badge--plain {
+  background: transparent;
+  color: var(--si-muted);
+  border: 1px solid var(--si-line);
+  font-weight: 400;
+}
+
+/* ── Key facts strip ─────────────────────────────────────────────
+   Equal columns, and every tile has exactly three lines in it, so they
+   are the same height without being stretched to match. */
+
+.sacscoc-keyfacts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 var(--si-gap);
+  background: var(--si-line);
+  border: 1px solid var(--si-line);
+  border-radius: var(--si-radius);
+  overflow: hidden;
+}
+
+.sacscoc-keyfact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 16px 14px;
+  background: var(--si-surface);
+}
+
+.sacscoc-keyfact__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--si-muted);
+  line-height: 1.4;
+}
+
+.sacscoc-keyfact__value {
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--si-ink);
+}
+
+.sacscoc-keyfact__note {
+  font-size: 12px;
+  color: var(--si-faint);
+  line-height: 1.4;
+}
+
+.sacscoc-keyfact.is-empty .sacscoc-keyfact__value { color: var(--si-faint); }
+
+@media (max-width: 960px) {
+  .sacscoc-keyfacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .sacscoc-keyfacts { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── The two columns ─────────────────────────────────────────────
+   Main carries what the institution is; side carries what the record
+   is. Every panel fills its column, so no two boxes ever have to agree
+   on a height. */
+
+.sacscoc-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  gap: var(--si-gap);
+  align-items: start;
+}
+
+.sacscoc-record__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--si-gap);
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .sacscoc-record { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Panels ──────────────────────────────────────────────────── */
+
+.sacscoc-panel {
+  background: var(--si-surface);
+  border: 1px solid var(--si-line);
+  border-radius: var(--si-radius);
+  padding: 0 18px 4px;
+}
+
+.sacscoc-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 13px 0 12px;
+  border-bottom: 1px solid var(--si-line-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--si-muted);
+}
+
+.sacscoc-panel__title .dashicons { color: var(--si-faint); }
+
+/* ── Label / value pairs ─────────────────────────────────────── */
+
+.sacscoc-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+}
+
+/* Two per row on a wide main column; the grid keeps the baselines of
+   both columns aligned instead of letting each stack independently. */
+.sacscoc-kv--cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+
+@media (max-width: 782px) {
+  .sacscoc-kv--cols-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.sacscoc-kv__row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--si-line-soft);
+  min-width: 0;
+}
+
+/* The last row of each column has no divider under it. :nth-last-child
+   covers both the one-column and two-column cases. */
+.sacscoc-kv--cols-1 .sacscoc-kv__row:last-child,
+.sacscoc-kv--cols-2 .sacscoc-kv__row:nth-last-child(-n + 2) { border-bottom: 0; }
+
+.sacscoc-kv__row dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--si-muted);
+  line-height: 1.45;
+}
+
+.sacscoc-kv__row dt .dashicons {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--si-faint);
+  flex: none;
+}
+
+.sacscoc-kv__row dd {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--si-ink);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.sacscoc-kv__row dd code {
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--si-line-soft);
+  border-radius: 2px;
+}
+
+.sacscoc-kv__row dd a { text-decoration: none; }
+.sacscoc-kv__row dd a:hover { text-decoration: underline; }
+.sacscoc-kv__row dd a .dashicons { font-size: 13px; width: 13px; height: 13px; opacity: 0.55; }
+
+/* An empty field keeps its label but recedes — present, and clearly unset. */
+.sacscoc-kv__row.is-empty dt { color: var(--si-faint); font-weight: 400; }
+.sacscoc-empty-value { color: var(--si-faint); font-style: normal; cursor: help; }
+
+/* ── Degrees ─────────────────────────────────────────────────────
+   A check list rather than five rows each reading "Approved": the
+   question is what the institution can award, and a list answers it at
+   a glance. */
+
+.sacscoc-degrees {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.sacscoc-degrees li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 0;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--si-line-soft);
+}
+
+.sacscoc-degrees li:last-child { border-bottom: 0; }
+.sacscoc-degrees .dashicons { flex: none; font-size: 17px; width: 17px; height: 17px; }
+.sacscoc-degrees li.is-yes { color: var(--si-ink); }
+.sacscoc-degrees li.is-yes .dashicons { color: var(--si-ok); }
+.sacscoc-degrees li.is-no { color: var(--si-faint); }
+.sacscoc-degrees li.is-no .dashicons { color: #c3c4c7; }
+
+/* ── Flags and hints ─────────────────────────────────────────── */
+
+.sacscoc-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13.5px;
+}
+
+.sacscoc-flag .dashicons { font-size: 16px; width: 16px; height: 16px; }
+.sacscoc-flag.is-yes  { color: var(--si-ok); }
+.sacscoc-flag.is-no   { color: var(--si-faint); }
+.sacscoc-flag.is-crit { color: var(--si-crit); font-weight: 600; }
+
+.sacscoc-tip { color: var(--si-faint); cursor: help; }
+.sacscoc-tip:hover,
+.sacscoc-tip:focus-visible { color: var(--si-accent); }
+
+/* ── History ─────────────────────────────────────────────────── */
+
+.sacscoc-history {
+  margin: 12px 0 14px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.sacscoc-none {
+  margin: 12px 0 14px;
+  font-size: 13px;
+  color: var(--si-faint);
+}
+
+/* ── Narrow screens ──────────────────────────────────────────── */
+
+@media (max-width: 782px) {
+  .sacscoc-hero { border-left-width: 3px; padding: 16px; }
+  .sacscoc-readonly { flex: 1 1 100%; }
+}
