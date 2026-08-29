@@ -32,6 +32,28 @@ jobs:
           rm -rf plugins/ai-documents/docs/downloads
           find plugins/ai-documents -name '.DS_Store' -delete
 
+
+      # `put -r` will not create its destination, and sftp_only: true stops the
+      # action from creating it either ("skip the command to create a
+      # directory"). A plugin's first ever deploy therefore has nowhere to
+      # land — which is exactly how this one failed. The leading dash on
+      # -mkdir tells sftp to carry on when the directory is already there, so
+      # this is a no-op on every deploy after the first.
+      - name: Ensure the remote directory exists
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          sshpass -p "$SFTP_PASSWORD" sftp \
+            -o StrictHostKeyChecking=no \
+            -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<'SFTP'
+          -mkdir /public_html/wp-content/plugins/ai-documents
+          bye
+          SFTP
+
       - name: Deploy to server via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
