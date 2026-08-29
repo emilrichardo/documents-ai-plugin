@@ -47,8 +47,16 @@ jobs:
           SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          # -b implies BatchMode=yes, and BatchMode disables password
+          # authentication outright — which is why the first attempt at this
+          # step was refused with "Permission denied (publickey,password)"
+          # despite holding the same password the deploy itself uses. Turning
+          # it back off is what lets sshpass answer the prompt.
           sshpass -p "$SFTP_PASSWORD" sftp \
             -o StrictHostKeyChecking=no \
+            -o BatchMode=no \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
             -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<'SFTP'
           -mkdir /public_html/wp-content/plugins/sacscoc-institutions
           bye
