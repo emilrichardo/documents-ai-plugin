@@ -1308,18 +1308,376 @@ function aidocs_detect_heading( $line ) {
 }
 
 // ──────────────────────────────────────────────
+// Links
+// ──────────────────────────────────────────────
+
+/**
+ * Hyperlinks.
+ *
+ * A .docx carries real hyperlinks, and the canonical grammar keeps them in
+ * markdown's own inline form so nothing else about the format has to change:
+ *
+ *     [visible text](https://example.org/page)
+ *
+ * assets/js/aidocs-docx-structure.js writes every hyperlink it finds that
+ * way, faithfully and without judging it, and aidocs_inline_runs() turns each
+ * one into a run carrying an `h` key alongside the `b`/`i` it already had.
+ * Whether a given URL is worth keeping is decided in exactly one place —
+ * aidocs_classify_link() below — so there is no second regex anywhere else in
+ * this plugin that has an opinion about a link.
+ *
+ * The decision is applied twice, deliberately: once at parse time, so an
+ * obsolete href is never stored, and once again at render time, so content
+ * stored before the policy existed (or hand-edited afterwards) still cannot
+ * put a dead or unsafe URL on the page. Dropping an href never drops the text
+ * it was attached to — the run stays, only its `h` goes.
+ */
+
+/**
+ * Path fragments that mark a URL as a file living on the previous site.
+ *
+ * These are the upload roots of the CMSes the source documents were written
+ * against. A URL holding one of them points at a file that was migrated,
+ * renamed or simply never came across, and following it from the new site
+ * lands on a 404 — which is worse for a reader than plain text.
+ */
+const AIDOCS_LEGACY_LINK_PATHS = [
+    '/wp-content/uploads/',
+    '/wp-content/blogs.dir/',
+    '/wp-content/plugins/',
+    '/wp-content/themes/',
+    '/sites/default/files/',
+    '/sites/all/files/',
+    '/files/download/',
+];
+
+/**
+ * Downloadable-document extensions.
+ *
+ * Only ever consulted for a URL with no host of its own — a bare
+ * "/2020/policy.pdf" or "appeals.docx" is a relative path into the old site's
+ * file tree. The same extension on a third-party host ("https://www.ed.gov/…
+ * /handbook.pdf") is a perfectly good external link and is left alone.
+ */
+const AIDOCS_LEGACY_LINK_EXTENSIONS = [ 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'zip' ];
+
+/** The only schemes a stored href may use. Everything else is refused outright. */
+const AIDOCS_SAFE_LINK_SCHEMES = [ 'http', 'https', 'mailto', 'tel' ];
+
+/**
+ * The canonical grammar's inline link.
+ *
+ * Deliberately narrow. The URL may hold no whitespace and no parenthesis,
+ * which is what keeps ordinary prose that happens to contain "[a](b)" —
+ * or, far more likely, a bracketed run-in title on a line of its own — from
+ * being read as a link. Group 1 is the visible text, group 2 the URL.
+ */
+const AIDOCS_LINK_PATTERN = '/\[((?:\\\\.|[^\]\\\\])+)\]\(\s*([^()\s]+)\s*\)/';
+
+/**
+ * What kind of link a URL is.
+ *
+ * One of:
+ *   external_valid    — a third-party site, a mailto: or a tel:. Kept.
+ *   anchor            — "#section-name", a jump inside the page. Kept: the
+ *                       plugin's own table of contents and accordion ids are
+ *                       written exactly like this, and a bookmark link the
+ *                       source document carried is navigation, not a file.
+ *   internal_obsolete — a file on the previous site. Dropped.
+ *   invalid           — empty, or a scheme that must never reach an href
+ *                       (javascript:, data:, vbscript:, file:, …). Dropped.
+ *   unknown           — a relative path that is not obviously either. Dropped,
+ *                       because a relative path authored against the old site
+ *                       resolves against this one and almost never lands.
+ *
+ * @param string $url
+ * @return string
+ */
+function aidocs_classify_link( $url ) {
+    $url = trim( (string) $url );
+    if ( $url === '' ) return 'invalid';
+
+    // A scheme is matched against the URL with whitespace and control
+    // characters removed: "java\nscript:alert(1)" is a scheme browsers honour
+    // and a naive strpos() does not see.
+    $probe = preg_replace( '/[\s\x00-\x1F\x7F]+/', '', $url );
+
+    if ( strpos( $url, '#' ) === 0 ) {
+        return strlen( $url ) > 1 ? 'anchor' : 'invalid';
+    }
+
+    $scheme = '';
+    if ( preg_match( '#^([a-z][a-z0-9+.\-]*):#i', $probe, $m ) ) {
+        $scheme = strtolower( $m[1] );
+        if ( ! in_array( $scheme, AIDOCS_SAFE_LINK_SCHEMES, true ) ) return 'invalid';
+    }
+
+    if ( $scheme === 'mailto' ) {
+        return preg_match( '/^mailto:[^@\s]+@[^@\s]+\.[a-z]{2,}/i', $probe ) ? 'external_valid' : 'invalid';
+    }
+    if ( $scheme === 'tel' ) {
+        return preg_match( '/^tel:[+0-9][0-9()\s.\-]{2,}$/i', $probe ) ? 'external_valid' : 'invalid';
+    }
+
+    // "//host/path" is http(s) with the scheme left to the page.
+    $has_host = ( $scheme === 'http' || $scheme === 'https' || strpos( $url, '//' ) === 0 );
+    $path     = $url;
+    if ( $has_host ) {
+        $parts = wp_parse_url( strpos( $url, '//' ) === 0 ? 'https:' . $url : $url );
+        if ( empty( $parts['host'] ) ) return 'invalid';
+        $path = ( $parts['path'] ?? '' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
+    } elseif ( $scheme !== '' ) {
+        // A scheme this function allows but did not handle above cannot happen;
+        // one it does not allow returned 'invalid' already.
+        return 'invalid';
+    }
+
+    if ( aidocs_is_legacy_link_path( $path ) ) return 'internal_obsolete';
+    if ( $has_host ) return 'external_valid';
+
+    // No host: a path relative to whatever site renders it. A document file at
+    // the end of one is a leftover download link from the old site.
+    if ( preg_match( '/\.([a-z0-9]{2,5})(?:[?#]|$)/i', $path, $m )
+         && in_array( strtolower( $m[1] ), AIDOCS_LEGACY_LINK_EXTENSIONS, true ) ) {
+        return 'internal_obsolete';
+    }
+
+    return 'unknown';
+}
+
+/** Whether a path sits under one of the previous site's upload roots. */
+function aidocs_is_legacy_link_path( $path ) {
+    $path = strtolower( (string) $path );
+    if ( $path === '' ) return false;
+    if ( strpos( $path, '/' ) !== 0 ) $path = '/' . $path;
+    foreach ( AIDOCS_LEGACY_LINK_PATHS as $needle ) {
+        if ( strpos( $path, $needle ) !== false ) return true;
+    }
+    return false;
+}
+
+/**
+ * The one decision: does this URL survive as a link?
+ *
+ * @param string $url
+ * @param string $class Filled with the classification, for callers that log.
+ * @return bool
+ */
+function aidocs_keep_link( $url, &$class = null ) {
+    $class = aidocs_classify_link( $url );
+    $keep  = ( $class === 'external_valid' || $class === 'anchor' );
+
+    /**
+     * Filter whether a hyperlink found in a document is kept.
+     *
+     * @param bool   $keep
+     * @param string $class One of the aidocs_classify_link() values.
+     * @param string $url
+     */
+    if ( function_exists( 'apply_filters' ) ) {
+        $keep = (bool) apply_filters( 'aidocs_keep_link', $keep, $class, (string) $url );
+    }
+
+    aidocs_log_link_decision( $url, $class, $keep );
+    return $keep;
+}
+
+/**
+ * The href to store or render for a URL, or '' when it is not kept.
+ *
+ * @param string $url
+ * @return string
+ */
+function aidocs_link_href( $url ) {
+    $url = trim( (string) $url );
+    if ( $url === '' ) return '';
+    // A newline or tab inside an href is never meaningful and is how a blocked
+    // scheme gets smuggled past a naive check; the classifier already saw
+    // through it, and the stored value should not carry it either.
+    $url = preg_replace( '/[\s\x00-\x1F\x7F]+/', '', $url );
+    return aidocs_keep_link( $url ) ? $url : '';
+}
+
+/**
+ * Say once per URL, in debug builds only, what happened to it.
+ *
+ * Deliberately not a WP admin notice or a stored log: the question this
+ * answers ("why is that link gone?") is asked while working on an import, and
+ * an editor should never see it on a normal day.
+ */
+function aidocs_log_link_decision( $url, $class, $keep ) {
+    if ( ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) return;
+
+    static $seen = [];
+    $key = $class . '|' . $url;
+    if ( isset( $seen[ $key ] ) ) return;
+    $seen[ $key ] = true;
+
+    error_log( sprintf(
+        '[aidocs] %s link (%s): %s',
+        $keep ? 'Preserved' : 'Removed',
+        $class,
+        $url
+    ) );
+}
+
+/**
+ * Rewrite the hyperlinks of a canonical text as opaque markers, and hand back
+ * what each marker stood for.
+ *
+ * Used for the one path that puts document text in front of a language model
+ * with the intention of getting it back — the AI restructure. The model is
+ * asked to re-decide the structural role of each piece of text; URLs are not
+ * text it has any business re-typing, and a model that re-types one has an
+ * excellent chance of "fixing" it into a plausible URL that does not exist.
+ * So it never sees one:
+ *
+ *     [the Department of Education](https://www.ed.gov/)
+ *       →  the Department of Education{{L1}}
+ *
+ * The visible text stays exactly where it was, which is what the model is
+ * being asked about, and the marker rides along beside it.
+ * aidocs_restore_link_markers() puts the URLs back afterwards.
+ *
+ * @param string $text  Canonical text.
+ * @param array  $links Filled with [ [ 'text' => …, 'href' => … ], … ], 1-based
+ *                      marker number = index + 1.
+ * @return string
+ */
+function aidocs_link_markers( $text, array &$links ) {
+    $links = [];
+    $text  = (string) $text;
+    if ( strpos( $text, '](' ) === false ) return $text;
+
+    return preg_replace_callback( AIDOCS_LINK_PATTERN, function ( $m ) use ( &$links ) {
+        $href = aidocs_link_href( $m[2] );
+        $label = aidocs_unescape_markers( $m[1] );
+        if ( $href === '' ) return $label;   // dropped: the text stays, alone
+
+        $links[] = [ 'text' => aidocs_plain_text( $m[1] ), 'href' => $href ];
+        return $label . '{{L' . count( $links ) . '}}';
+    }, $text );
+}
+
+/**
+ * Put the URLs aidocs_link_markers() took out back into a piece of AI-returned
+ * text, as canonical link markup.
+ *
+ * Two ways in, in order of confidence:
+ *
+ *  1. The marker survived. Everything the model returned is verbatim source
+ *     text, so the link's own words sit immediately before it — those get the
+ *     href, and the marker itself is removed.
+ *  2. The marker did not survive, but the link's words did. They are matched
+ *     as a whole phrase and wrapped. This is the fallback that makes the whole
+ *     scheme safe to attempt: the worst case for a model that strips the
+ *     markers is the behaviour of not using markers at all.
+ *
+ * A marker that names a link this call has no record of is deleted rather than
+ * left in the text — a stray "{{L7}}" must never reach a reader.
+ *
+ * @param string $text  One piece of text from the model's reply.
+ * @param array  $links The list aidocs_link_markers() produced.
+ * @param array  $used  Marker numbers already restored, shared across the
+ *                      whole reply so a repeated phrase is not linked twice.
+ * @return string Canonical text, with "[text](url)" where links were recovered.
+ */
+function aidocs_restore_link_markers( $text, array $links, array &$used ) {
+    $text = (string) $text;
+    if ( strpos( $text, '{{L' ) === false && ! $links ) return $text;
+    if ( ! $links ) return preg_replace( '/\{\{L\d+\}\}/', '', $text );
+
+    // 1 — markers still in place.
+    $out    = '';
+    $offset = 0;
+    while ( preg_match( '/\{\{L(\d+)\}\}/', $text, $m, PREG_OFFSET_CAPTURE, $offset ) ) {
+        $marker_at = $m[0][1];
+        $number    = (int) $m[1][0];
+        $link      = $links[ $number - 1 ] ?? null;
+        $before    = substr( $text, $offset, $marker_at - $offset );
+
+        if ( $link && ! isset( $used[ $number ] ) && $link['text'] !== ''
+             && aidocs_ends_with_phrase( $before, $link['text'] ) ) {
+            $used[ $number ] = true;
+            $head = substr( $before, 0, strlen( $before ) - strlen( $link['text'] ) );
+            $out .= $head . aidocs_link_markup( $link['text'], $link['href'] );
+        } else {
+            // The words moved, or the marker names a link this reply has no
+            // record of. Drop the marker; pass 2 may still recover the link.
+            $out .= $before;
+        }
+        $offset = $marker_at + strlen( $m[0][0] );
+    }
+    $out .= substr( $text, $offset );
+
+    // 2 — links whose marker the model dropped, matched on their own words.
+    foreach ( $links as $index => $link ) {
+        $number = $index + 1;
+        if ( isset( $used[ $number ] ) || $link['text'] === '' ) continue;
+        $at = strpos( $out, $link['text'] );
+        // Never inside markup this function just wrote: that phrase is spoken for.
+        if ( $at === false || aidocs_offset_in_markup( $out, $at ) ) continue;
+        $used[ $number ] = true;
+        $out = substr( $out, 0, $at )
+             . aidocs_link_markup( $link['text'], $link['href'] )
+             . substr( $out, $at + strlen( $link['text'] ) );
+    }
+
+    return $out;
+}
+
+/** "[text](href)", with the brackets of the text escaped so it round-trips. */
+function aidocs_link_markup( $text, $href ) {
+    return '[' . str_replace( [ '\\', '[', ']' ], [ '\\\\', '\\[', '\\]' ], $text ) . '](' . $href . ')';
+}
+
+/**
+ * Whether $haystack ends with $needle, ignoring a difference in trailing
+ * whitespace only — the model returns text trimmed, the marker sat flush
+ * against the phrase.
+ */
+function aidocs_ends_with_phrase( $haystack, $needle ) {
+    if ( $needle === '' ) return false;
+    return substr( $haystack, - strlen( $needle ) ) === $needle;
+}
+
+/** Whether an offset falls inside a "[…](…)" this pass already wrote. */
+function aidocs_offset_in_markup( $text, $offset ) {
+    if ( ! preg_match_all( AIDOCS_LINK_PATTERN, $text, $m, PREG_OFFSET_CAPTURE ) ) return false;
+    foreach ( $m[0] as $match ) {
+        if ( $offset >= $match[1] && $offset < $match[1] + strlen( $match[0] ) ) return true;
+    }
+    return false;
+}
+
+/**
+ * The canonical text with its link markup flattened to the visible words.
+ *
+ * For the prompts that read a document rather than restructure it — the
+ * teaser, the keywords, the search index. A URL in the middle of a sentence
+ * is noise to all of them, and one copied into a generated teaser is worse
+ * than noise.
+ */
+function aidocs_strip_link_markup( $text ) {
+    $text = (string) $text;
+    if ( strpos( $text, '](' ) === false ) return $text;
+    return preg_replace( AIDOCS_LINK_PATTERN, '$1', $text );
+}
+
+// ──────────────────────────────────────────────
 // Inline runs
 // ──────────────────────────────────────────────
 
 /**
- * Parse the inline emphasis of a canonical line into styled runs.
+ * Parse the inline emphasis and hyperlinks of a canonical line into runs.
  *
- * @return array List of [ 'text' => …, 'b' => 1, 'i' => 1 ]; empty when the
- *               text has no emphasis at all, so plain content stays compact.
+ * @return array List of [ 'text' => …, 'b' => 1, 'i' => 1, 'h' => url ]; empty
+ *               when the text has neither emphasis nor a link, so plain
+ *               content stays compact.
  */
 function aidocs_inline_runs( $text ) {
     $text = (string) $text;
-    if ( strpos( $text, '*' ) === false ) return [];
+    if ( strpos( $text, '*' ) === false && strpos( $text, '[' ) === false ) return [];
 
     $runs   = [];
     $buffer = '';
@@ -1339,8 +1697,27 @@ function aidocs_inline_runs( $text ) {
     for ( $i = 0; $i < $length; $i++ ) {
         $char = $text[ $i ];
 
-        if ( $char === '\\' && $i + 1 < $length && ( $text[ $i + 1 ] === '*' || $text[ $i + 1 ] === '\\' ) ) {
+        if ( $char === '\\' && $i + 1 < $length && strpos( '*\\[]', $text[ $i + 1 ] ) !== false ) {
             $buffer .= $text[ ++$i ];
+            continue;
+        }
+
+        // "[visible text](https://…)" — a hyperlink. Its own text is parsed
+        // for emphasis in turn, so a link inside a bold run, or a bold word
+        // inside a link, both survive; every run it produces carries the href
+        // so the renderer can wrap them in one <a> again. An href the link
+        // policy refuses (aidocs_link_href()) leaves the visible text exactly
+        // where it was and takes nothing but the destination with it.
+        if ( $char === '[' && preg_match( AIDOCS_LINK_PATTERN, substr( $text, $i ), $m ) ) {
+            $push();
+            $href = aidocs_link_href( $m[2] );
+            foreach ( aidocs_label_runs( $m[1] ) as $run ) {
+                if ( $bold )              $run['b'] = 1;
+                if ( $italic )            $run['i'] = 1;
+                if ( $href !== '' )       $run['h'] = $href;
+                if ( $run['text'] !== '' ) $runs[] = $run;
+            }
+            $i += strlen( $m[0] ) - 1;
             continue;
         }
         if ( $char === '*' && $i + 1 < $length && $text[ $i + 1 ] === '*' ) {
@@ -1358,12 +1735,27 @@ function aidocs_inline_runs( $text ) {
     }
     $push();
 
-    // Emphasis that never closed: the asterisks were literal text.
+    // Emphasis that never closed: the asterisks were literal text. A run
+    // holding a link counts as styled even with no emphasis at all — the href
+    // is the whole reason to keep runs for that line.
     $styled = false;
     foreach ( $runs as $run ) {
-        if ( ! empty( $run['b'] ) || ! empty( $run['i'] ) ) { $styled = true; break; }
+        if ( ! empty( $run['b'] ) || ! empty( $run['i'] ) || ! empty( $run['h'] ) ) { $styled = true; break; }
     }
     return $styled ? $runs : [];
+}
+
+/**
+ * The runs of a link's visible text: its own emphasis, or one plain run.
+ *
+ * Split out of aidocs_inline_runs() only because that function returns [] for
+ * text with no emphasis, and a link label always needs at least one run to
+ * hang its href on.
+ */
+function aidocs_label_runs( $label ) {
+    $runs = aidocs_inline_runs( $label );
+    if ( $runs ) return $runs;
+    return [ [ 'text' => aidocs_unescape_markers( $label ) ] ];
 }
 
 /**
@@ -1396,7 +1788,7 @@ function aidocs_runs_unbold( array $runs ) {
     $styled = false;
     foreach ( $runs as $index => $run ) {
         unset( $runs[ $index ]['b'] );
-        if ( ! empty( $run['i'] ) ) $styled = true;
+        if ( ! empty( $run['i'] ) || ! empty( $run['h'] ) ) $styled = true;
     }
     return $styled ? array_values( $runs ) : [];
 }
@@ -1404,12 +1796,18 @@ function aidocs_runs_unbold( array $runs ) {
 /** The text of a canonical line with its emphasis markers removed. */
 function aidocs_plain_text( $text ) {
     $text = (string) $text;
-    if ( strpos( $text, '*' ) === false && strpos( $text, '\\' ) === false ) return trim( $text );
+    if ( strpos( $text, '*' ) === false && strpos( $text, '\\' ) === false
+         && strpos( $text, '[' ) === false ) {
+        return trim( $text );
+    }
     $runs = aidocs_inline_runs( $text );
     if ( $runs ) {
         return trim( implode( '', array_column( $runs, 'text' ) ) );
     }
-    return trim( preg_replace( '/\\\\([*\\\\])/', '$1', $text ) );
+    // No runs: the line had no emphasis, and any link it held was one the
+    // policy refused — its text is still there and its markup has to go, or
+    // the raw "[text](url)" would be stored as the block's own plain text.
+    return trim( preg_replace( '/\\\\([*\\\\\\[\\]])/', '$1', aidocs_strip_link_markup( $text ) ) );
 }
 
 /**
@@ -1429,7 +1827,7 @@ function aidocs_plain_text( $text ) {
 function aidocs_unescape_markers( $text ) {
     $text = (string) $text;
     if ( strpos( $text, '\\' ) === false ) return $text;
-    return preg_replace( '/\\\\([*\\\\])/', '$1', $text );
+    return preg_replace( '/\\\\([*\\\\\\[\\]])/', '$1', $text );
 }
 
 /** A stable anchor id for a heading. */
@@ -1589,27 +1987,69 @@ function aidocs_index_to_roman( $index ) {
     return $out;
 }
 
-/** A block's runs re-rendered as markdown emphasis, falling back to its plain text. */
+/**
+ * A block's runs re-rendered as markdown emphasis and links, falling back to
+ * its plain text.
+ *
+ * Consecutive runs sharing one href are written as a single "[…](url)" —
+ * they came from one <a> in the source and have to go back as one, or every
+ * round trip through the "Edit content" textarea would split a link with a
+ * bold word in it into two.
+ */
 function aidocs_runs_to_markdown( array $block ) {
-    $runs = (array) ( $block['runs'] ?? [] );
+    $runs = array_values( (array) ( $block['runs'] ?? [] ) );
     if ( ! $runs ) return (string) ( $block['text'] ?? '' );
 
-    $out = '';
-    foreach ( $runs as $run ) {
-        $text = (string) ( $run['text'] ?? '' );
-        if ( $text === '' ) continue;
-        $text = str_replace( [ '\\', '*' ], [ '\\\\', '\\*' ], $text );
+    $out   = '';
+    $count = count( $runs );
+    $index = 0;
 
-        if ( empty( $run['b'] ) && empty( $run['i'] ) ) { $out .= $text; continue; }
+    while ( $index < $count ) {
+        $href = (string) ( $runs[ $index ]['h'] ?? '' );
 
-        preg_match( '/^(\s*)(.*?)(\s*)$/s', $text, $m );
+        if ( $href === '' ) {
+            $out .= aidocs_run_to_markdown( $runs[ $index ], false );
+            $index++;
+            continue;
+        }
+
+        $inner = '';
+        while ( $index < $count && (string) ( $runs[ $index ]['h'] ?? '' ) === $href ) {
+            $inner .= aidocs_run_to_markdown( $runs[ $index ], true );
+            $index++;
+        }
+
+        // Whitespace at either end belongs outside the brackets, so re-parsing
+        // gives back the same link text rather than one padded with spaces.
+        preg_match( '/^(\s*)(.*?)(\s*)$/s', $inner, $m );
         [ , $lead, $core, $tail ] = $m + [ '', '', '', '' ];
-        if ( $core === '' ) { $out .= $text; continue; }
-
-        $mark = ( ! empty( $run['b'] ) && ! empty( $run['i'] ) ) ? '***' : ( ! empty( $run['b'] ) ? '**' : '*' );
-        $out .= $lead . $mark . $core . $mark . $tail;
+        $out .= $core === '' ? $inner : $lead . '[' . $core . '](' . $href . ')' . $tail;
     }
+
     return $out !== '' ? $out : (string) ( $block['text'] ?? '' );
+}
+
+/** One run as markdown. Brackets are escaped only inside a link's own text. */
+function aidocs_run_to_markdown( array $run, $inside_link ) {
+    $text = (string) ( $run['text'] ?? '' );
+    if ( $text === '' ) return '';
+
+    $search  = [ '\\', '*' ];
+    $replace = [ '\\\\', '\\*' ];
+    if ( $inside_link ) {
+        $search  = [ '\\', '*', '[', ']' ];
+        $replace = [ '\\\\', '\\*', '\\[', '\\]' ];
+    }
+    $text = str_replace( $search, $replace, $text );
+
+    if ( empty( $run['b'] ) && empty( $run['i'] ) ) return $text;
+
+    preg_match( '/^(\s*)(.*?)(\s*)$/s', $text, $m );
+    [ , $lead, $core, $tail ] = $m + [ '', '', '', '' ];
+    if ( $core === '' ) return $text;
+
+    $mark = ( ! empty( $run['b'] ) && ! empty( $run['i'] ) ) ? '***' : ( ! empty( $run['b'] ) ? '**' : '*' );
+    return $lead . $mark . $core . $mark . $tail;
 }
 
 // ──────────────────────────────────────────────
@@ -1809,21 +2249,79 @@ function aidocs_render_table( array $block ) {
 }
 
 /**
- * Render a block's text, honouring the bold and italic runs of the source.
+ * Render a block's text, honouring the bold, italic and link runs of the source.
+ *
+ * Every href goes through the link policy again here, not only at parse time.
+ * Content stored before that policy existed, or hand-edited since, is checked
+ * on the way to the page rather than trusted because it is in the database —
+ * which is also what keeps a "javascript:" href typed into the "Edit content"
+ * textarea from ever becoming an attribute.
+ *
+ * @param array $block
+ * @param bool  $allow_links Pass false where the output is already inside an
+ *                           <a> — the table of contents — since nesting one
+ *                           anchor in another is not valid HTML and browsers
+ *                           silently break the outer link apart.
  */
-function aidocs_render_runs( array $block ) {
-    $runs = (array) ( $block['runs'] ?? [] );
+function aidocs_render_runs( array $block, $allow_links = true ) {
+    $runs = array_values( (array) ( $block['runs'] ?? [] ) );
     if ( ! $runs ) return esc_html( (string) ( $block['text'] ?? '' ) );
 
-    $html = '';
-    foreach ( $runs as $run ) {
-        $text = esc_html( (string) ( $run['text'] ?? '' ) );
-        if ( $text === '' ) continue;
-        if ( ! empty( $run['b'] ) ) $text = '<strong>' . $text . '</strong>';
-        if ( ! empty( $run['i'] ) ) $text = '<em>' . $text . '</em>';
-        $html .= $text;
+    $html  = '';
+    $count = count( $runs );
+    $index = 0;
+
+    while ( $index < $count ) {
+        $raw  = (string) ( $runs[ $index ]['h'] ?? '' );
+        $href = ( $allow_links && $raw !== '' ) ? aidocs_link_href( $raw ) : '';
+
+        if ( $href === '' ) {
+            $html .= aidocs_render_run( $runs[ $index ] );
+            $index++;
+            continue;
+        }
+
+        // One <a> for the whole stretch that came from one <a>.
+        $inner = '';
+        while ( $index < $count && (string) ( $runs[ $index ]['h'] ?? '' ) === $raw ) {
+            $inner .= aidocs_render_run( $runs[ $index ] );
+            $index++;
+        }
+
+        $open  = aidocs_link_open_tag( $href );
+        $html .= ( $open === '' || trim( $inner ) === '' ) ? $inner : $open . $inner . '</a>';
     }
+
     return $html === '' ? esc_html( (string) ( $block['text'] ?? '' ) ) : $html;
+}
+
+/** One run's emphasis, escaped. */
+function aidocs_render_run( array $run ) {
+    $text = esc_html( (string) ( $run['text'] ?? '' ) );
+    if ( $text === '' ) return '';
+    if ( ! empty( $run['b'] ) ) $text = '<strong>' . $text . '</strong>';
+    if ( ! empty( $run['i'] ) ) $text = '<em>' . $text . '</em>';
+    return $text;
+}
+
+/**
+ * The opening <a> for an href already cleared by the link policy, or '' when
+ * esc_url() rejects it after all — in which case the caller renders the text
+ * on its own rather than emitting an anchor with an empty destination.
+ *
+ * A jump inside the page stays in the page. Everything else opens in a new
+ * tab, with rel="noopener noreferrer" so the opened document gets no handle
+ * on this one.
+ */
+function aidocs_link_open_tag( $href ) {
+    $safe = esc_url( $href );
+    if ( $safe === '' ) return '';
+
+    $target = strpos( $href, '#' ) === 0
+        ? ''
+        : ' target="_blank" rel="noopener noreferrer"';
+
+    return '<a class="aidocs-content-link" href="' . esc_attr( $safe ) . '"' . $target . '>';
 }
 
 /**
@@ -1846,6 +2344,8 @@ function aidocs_content_block_css() {
 }
 .aidocs-content strong{font-weight:700;color:var(--cd-contrast);}
 .aidocs-content em{font-style:italic;}
+.aidocs-content-link{color:var(--cd-secondary);text-decoration:underline;text-underline-offset:2px;}
+.aidocs-content-link:hover,.aidocs-content-link:focus{color:var(--cd-primary);}
 .aidocs-content-h4{font-size:13px;font-weight:700;color:var(--cd-primary);margin:18px 0 6px;}
 
 /* Accordion: every level-2/3 section heading is collapsible, starting closed. */

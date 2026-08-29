@@ -51,6 +51,29 @@ foreach ( glob( __DIR__ . '/test-*.php' ) as $file ) {
     require $file;
 }
 
+// The .docx extractor is JavaScript and cannot be exercised from PHP, so its
+// own runner is shelled out to here rather than left as a second command
+// somebody has to remember. Skipped, with a line saying so, wherever node is
+// not installed — that is a missing tool, not a failing test.
+foreach ( glob( __DIR__ . '/test-*.js' ) as $file ) {
+    $node = trim( (string) @shell_exec( 'command -v node 2>/dev/null' ) );
+    if ( $node === '' ) {
+        echo "SKIP — " . basename( $file ) . " (node is not installed)\n";
+        continue;
+    }
+    $output = [];
+    $status = 0;
+    exec( escapeshellarg( $node ) . ' ' . escapeshellarg( $file ) . ' 2>&1', $output, $status );
+    foreach ( $output as $line ) {
+        if ( preg_match( '/^(PASS|FAIL) — (.*)$/u', $line, $m ) ) {
+            $GLOBALS['__aidocs_test_results'][] = $m[1] === 'PASS'
+                ? [ 'name' => $m[2], 'ok' => true ]
+                : [ 'name' => $m[2], 'ok' => false, 'error' => 'see node output above' ];
+        }
+    }
+    if ( $status !== 0 ) echo implode( "\n", $output ) . "\n";
+}
+
 $total  = count( $GLOBALS['__aidocs_test_results'] );
 $failed = array_filter( $GLOBALS['__aidocs_test_results'], fn( $r ) => ! $r['ok'] );
 

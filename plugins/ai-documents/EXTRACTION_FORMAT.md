@@ -66,6 +66,7 @@ A whole paragraph on one line.
   a further paragraph of the item above (indented, no marker)
 | cell | cell |                 table row
 **bold** and *italic* inline
+[visible text](https://…)      hyperlink (.docx only — a PDF's text layer has none)
 Last Updated: June 2026 (Board of Trustees)
 Document History: Adopted … · Revised …
 ```
@@ -115,11 +116,56 @@ Blocks (JSON in `_document_content`):
 
 - `text` is always plain text: search indexing and AI context
   (`aidocs_blocks_plain_text()`) never need to know about `runs`.
-- `runs` is `[ ['text'=>…, 'b'=>1, 'i'=>1], … ]` and only appears when the
-  original text carried emphasis.
+- `runs` is `[ ['text'=>…, 'b'=>1, 'i'=>1, 'h'=>'https://…'], … ]` and only
+  appears when the original text carried emphasis or a hyperlink. `h` is a
+  link's destination; consecutive runs sharing one `h` came from one `<a>` and
+  are rendered as one again.
 - List `style`: `decimal`, `lower-alpha`, `upper-alpha`, `lower-roman`,
   `upper-roman`, `bullet`. `start` keeps the numbering going when a paragraph
   interrupts a list (procedures often number 1…12 straight through).
+
+### Hyperlinks
+
+A .docx carries real hyperlinks and `aidocs-docx-structure.js` writes every one
+of them into the canonical text as `[visible text](url)`, without judging it.
+Which of them is worth keeping is decided in exactly one place —
+`aidocs_classify_link()` in `includes/aidocs-doc-parser.php` — so there is no
+second set of rules anywhere that could disagree with it:
+
+| Class | Example | Kept |
+| --- | --- | --- |
+| `external_valid` | `https://www.ed.gov/`, `https://example.com/p?id=1&s=x`, `mailto:…`, `tel:…` | yes |
+| `anchor` | `#appeals-procedure` | yes |
+| `internal_obsolete` | `https://oldsite.com/wp-content/uploads/2020/policy.pdf`, `/wp-content/uploads/old.pdf`, `old-policy.docx` | no |
+| `invalid` | `javascript:…`, `data:…`, `vbscript:…`, `file:…`, a URL with no host | no |
+| `unknown` | `/about/staff` — a relative path authored against the old site | no |
+
+The rules the classification turns on are `AIDOCS_LEGACY_LINK_PATHS` (the
+previous site's upload roots), `AIDOCS_LEGACY_LINK_EXTENSIONS` (only ever
+consulted for a URL with **no host of its own** — the same extension on a
+third-party host is a perfectly good external link) and
+`AIDOCS_SAFE_LINK_SCHEMES`. A site can override any single decision with the
+`aidocs_keep_link` filter.
+
+**Dropping an href never drops the text it was attached to.** `See the
+[Appeals Procedures](/wp-content/uploads/old.pdf) document.` is stored as the
+paragraph `See the Appeals Procedures document.` — the whole sentence, with no
+link.
+
+The decision is applied twice on purpose: once at parse time, so an obsolete
+href is never stored, and again in `aidocs_render_runs()`, so content saved
+before the policy existed — or hand-edited in the "Edit content" textarea
+since — still cannot put a dead or unsafe URL on the page. An external link
+renders with `target="_blank" rel="noopener noreferrer"`; an anchor renders
+with neither, and the table of contents renders heading text with links
+stripped, since it is already an `<a>`.
+
+The AI restructure never sees a URL at all. `aidocs_link_markers()` replaces
+each one with an opaque `{{Ln}}` marker before the prompt is built, and
+`aidocs_restore_links_in_pieces()` puts the originals back into the reply —
+by marker where the model kept it, by matching the link's own words where it
+did not. A model cannot "correct" a URL it was never shown, and cannot lose one
+that was not in its answer to begin with.
 
 ### Notes
 

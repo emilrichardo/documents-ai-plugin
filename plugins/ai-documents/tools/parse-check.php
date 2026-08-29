@@ -24,6 +24,28 @@ if ( ! function_exists( 'esc_html' ) ) {
     function esc_attr( $text ) { return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' ); }
 }
 
+// The link policy (aidocs_classify_link() and the renderer around it) reaches
+// for these three. Only esc_url() needs to actually do something: it is the
+// last gate on an href, and a stub that waved everything through would make
+// this tool disagree with the site about what a document renders as.
+if ( ! function_exists( 'wp_parse_url' ) ) {
+    function wp_parse_url( $url, $component = -1 ) {
+        return $component === -1 ? parse_url( $url ) : parse_url( $url, $component );
+    }
+}
+if ( ! function_exists( 'apply_filters' ) ) {
+    function apply_filters( $hook, $value, ...$args ) { return $value; }
+}
+if ( ! function_exists( 'esc_url' ) ) {
+    function esc_url( $url ) {
+        $url = preg_replace( '/[\r\n\t\x00]+/', '', trim( (string) $url ) );
+        if ( $url === '' ) return '';
+        if ( $url[0] === '#' || $url[0] === '/' ) return $url;
+        if ( ! preg_match( '#^([a-z][a-z0-9+.\-]*):#i', $url, $m ) ) return $url;
+        return in_array( strtolower( $m[1] ), [ 'http', 'https', 'mailto', 'tel' ], true ) ? $url : '';
+    }
+}
+
 require __DIR__ . '/../includes/aidocs-doc-parser.php';
 
 $argv  = $_SERVER['argv'];

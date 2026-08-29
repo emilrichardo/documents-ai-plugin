@@ -20,6 +20,7 @@
  *     - bulleted item
  *     | cell | cell |             table row
  *     **bold** and *italic* inline runs
+ *     [visible text](https://…)   a hyperlink
  *
  * Usable from the browser (window.AidocsDocxStructure) and from Node, same
  * as the PDF module, so it can be checked against sample files offline.
@@ -43,24 +44,72 @@
         return text.replace( /([*\\])/g, '\\$1' );
     }
 
+    /** Inside a link's own text, the brackets have to be escaped as well. */
+    function escapeLinkText( text ) {
+        return text.replace( /([*\\\[\]])/g, '\\$1' );
+    }
+
+    /**
+     * A hyperlink's destination, as it should appear in the canonical text.
+     *
+     * Nothing is judged here. mammoth gives back whatever Word stored —
+     * an external site, a leftover link to a file on the previous site, a
+     * bookmark inside the document — and all three are written out the same
+     * way. Which of them is worth keeping is decided in exactly one place,
+     * aidocs_classify_link() in includes/aidocs-doc-parser.php, on the server
+     * that also renders them; duplicating that judgement here would mean two
+     * sets of rules that could disagree, and would throw away the original
+     * URL before an editor could ever see it in "Edit content".
+     *
+     * A URL holding whitespace or a parenthesis cannot be written in this
+     * grammar, so such a link is emitted as its text alone.
+     */
+    function linkHref( el ) {
+        var href = ( el.getAttribute( 'href' ) || '' ).trim();
+        if ( href === '' ) return '';               // <a id="…"> — a bookmark target, not a link
+        if ( /[\s()<>"']/.test( href ) ) return '';
+        return href;
+    }
+
     function tidy( text ) {
         return text.replace( /\s+/g, ' ' ).trim();
     }
 
-    /** Inline text of a node, with **bold** / *italic* markup for emphasis runs. */
-    function inline( node ) {
+    /**
+     * Inline text of a node, with **bold** / *italic* markup for emphasis runs
+     * and [text](url) for hyperlinks.
+     *
+     * @param {Node}    node
+     * @param {boolean} inLink Whether this call is already inside an <a>, in
+     *                         which case square brackets in the text need
+     *                         escaping too so they cannot close the link early.
+     */
+    function inline( node, inLink ) {
         var out = '';
         ( node.childNodes || [] ).forEach( function ( child ) {
             if ( child.nodeType === 3 ) { // Text
-                out += escapeMarkers( child.textContent );
+                out += inLink ? escapeLinkText( child.textContent ) : escapeMarkers( child.textContent );
                 return;
             }
             if ( child.nodeType !== 1 ) return; // skip comments etc.
             var tag  = child.tagName.toLowerCase();
-            var text = inline( child );
+            var text = inline( child, inLink || tag === 'a' );
             if ( text === '' ) return;
 
             if ( tag === 'br' ) { out += ' '; return; }
+
+            if ( tag === 'a' ) {
+                var href = linkHref( child );
+                if ( href === '' ) { out += text; return; }
+                // Leading and trailing spaces stay outside the brackets, so a
+                // link never renders with padding inside its own underline.
+                var pre  = text.match( /^\s*/ )[ 0 ];
+                var post = text.match( /\s*$/ )[ 0 ];
+                var body = text.slice( pre.length, text.length - post.length );
+                if ( body === '' ) { out += text; return; }
+                out += pre + '[' + body + '](' + href + ')' + post;
+                return;
+            }
 
             var bold   = tag === 'strong' || tag === 'b';
             var italic = tag === 'em' || tag === 'i';

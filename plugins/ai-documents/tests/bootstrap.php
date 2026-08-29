@@ -119,7 +119,24 @@ function esc_attr_e( $str, $domain = null ) { echo esc_attr( $str ); }
 function esc_attr__( $str, $domain = null ) { return $str; }
 function esc_js( $str ) { return addslashes( (string) $str ); }
 function esc_textarea( $str ) { return htmlspecialchars( (string) $str, ENT_QUOTES ); }
-function esc_url( $str ) { return $str; }
+/**
+ * Close enough to the real esc_url() for the link tests: it is the last gate
+ * on an href, and a stub that returns everything unchanged would let a test
+ * pass on markup WordPress itself would have refused to emit.
+ */
+function esc_url( $str ) {
+    $str = trim( (string) $str );
+    $str = preg_replace( '/[\r\n\t\x00]+/', '', $str );
+    if ( $str === '' ) return '';
+    if ( strpos( $str, '#' ) === 0 || strpos( $str, '/' ) === 0 ) return $str;
+    if ( ! preg_match( '#^([a-z][a-z0-9+.\-]*):#i', $str, $m ) ) return $str;
+    $allowed = [ 'http', 'https', 'mailto', 'tel', 'ftp', 'ftps', 'news', 'feed', 'webcal', 'sms' ];
+    return in_array( strtolower( $m[1] ), $allowed, true ) ? $str : '';
+}
+
+function wp_parse_url( $url, $component = -1 ) {
+    return $component === -1 ? parse_url( $url ) : parse_url( $url, $component );
+}
 function __( $str, $domain = null ) { return $str; }
 function _e( $str, $domain = null ) { echo $str; }
 function absint( $n ) { return abs( (int) $n ); }

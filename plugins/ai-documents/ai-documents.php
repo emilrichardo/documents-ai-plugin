@@ -1813,7 +1813,7 @@ function aidocs_meta_box_html( $post ) {
                 minHeight: '380px',
                 toolbar: [
                     'bold', 'italic', 'heading-2', 'heading-3', '|',
-                    'unordered-list', 'ordered-list', 'table', '|',
+                    'unordered-list', 'ordered-list', 'table', 'link', '|',
                     'undo', 'redo'
                 ]
             });
@@ -3090,8 +3090,13 @@ function aidocs_ai_complete_fields( $raw_text, array $fields, $api_key, $model, 
     // The whole document goes in: every offered model takes a 1M-token context,
     // and a field like Document Type is often only decidable from a section
     // buried past whatever an arbitrary 30,000-character cut would have kept.
-    $sent      = mb_substr( $raw_text, 0, AIDOCS_AI_TEXT_LIMIT );
-    $truncated = mb_strlen( $raw_text ) > mb_strlen( $sent );
+    // The link markup goes: this prompt writes a teaser and picks keywords, and
+    // a URL sitting mid-sentence is noise to both — one copied into a generated
+    // description is worse than noise. The visible words stay, so nothing the
+    // model reads is lost. (The restructure path does the opposite and keeps
+    // the links, as markers — it is re-typing the text, not summarising it.)
+    $sent      = aidocs_strip_link_markup( mb_substr( $raw_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
+    $truncated = mb_strlen( $raw_text ) > AIDOCS_AI_TEXT_LIMIT;
 
     $prompt  = "You are a professional document analyst. Read the document text and fill in each field.\n\n";
     $prompt .= "DOCUMENT TEXT:\n" . $sent . "\n\n";
@@ -3157,7 +3162,9 @@ function aidocs_ai_process() {
         if ( $summary ) {
             update_post_meta( $post_id, '_document_summary', $summary );
         }
-        $index_text = trim( $summary . "\n" . mb_substr( $raw_text, 0, 8000 ) );
+        // Plain words only — a search embedding built over "](https://…)"
+        // is an embedding of the plugin's own markup, not of the document.
+        $index_text = trim( $summary . "\n" . mb_substr( aidocs_strip_link_markup( $raw_text ), 0, 8000 ) );
         $embedding  = aidocs_gemini_embed( $index_text, $api_key, $embed_error );
         if ( $embedding ) {
             update_post_meta( $post_id, '_document_embedding', wp_slash( wp_json_encode( $embedding ) ) );
@@ -3988,9 +3995,12 @@ function aidocs_import_status_ajax() {
  * aidocs_ai_restructure_ajax() to keep that function about the request/review
  * flow rather than the prompt and the reply's repair.
  *
+ * @param string $sent    The body text, with its hyperlinks already replaced
+ *                        by "{{Ln}}" markers (aidocs_link_markers()).
+ * @param array  $links   What those markers stand for.
  * @return array|WP_Error [ 'blocks' => Block[] ] or the failure.
  */
-function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
+function aidocs_ai_restructure_call( $sent, $api_key, $model, array $links = [] ) {
     $prompt  = "You are re-structuring text already extracted from an accreditation policy document.\n";
     $prompt .= "You are not writing. For each piece of that text you decide one thing: what structural role it has.\n";
     $prompt .= "The text is correct and final. Only its structure was lost on the way out of the source file.\n\n";
@@ -4014,7 +4024,8 @@ function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
     $prompt .= "- Two spaces of indent per list level.\n";
     $prompt .= "- '| a | b |': a table row.\n";
     $prompt .= "- '[Something]' alone on a line: a section heading, with the brackets dropped from the text.\n";
-    $prompt .= "Strip every '**' and '*' marker from the text you return. They describe the source; they are not part of it.\n\n";
+    $prompt .= "Strip every '**' and '*' marker from the text you return. They describe the source; they are not part of it.\n";
+    $prompt .= "- '{{L1}}', '{{L2}}', …: a hyperlink marker. The source text carried a link at that exact spot and this system will put it back. COPY EVERY MARKER THROUGH UNCHANGED, in the same place in the same sentence, including its braces. Never renumber one, never invent one, never write a web address of your own — there are no URLs in this text and there must be none in your reply.\n\n";
 
     $prompt .= "HEADING LEVELS\n";
     $prompt .= "Use 3 for a top-level section of the document and 4 for a sub-section inside one. Use 2 only for a heading that divides the document into major parts above its sections — most of these documents have none, so prefer 3. Keep levels consistent: two sections of equal standing get the same level, and never skip a level going down.\n\n";
@@ -4083,7 +4094,45 @@ function aidocs_ai_restructure_call( $sent, $api_key, $model ) {
             : __( 'Could not read the AI reply as structured content. Try again.' ) );
     }
 
-    return [ 'blocks' => aidocs_blocks_from_ai( $parsed_reply['blocks'] ) ];
+    // The URLs go back in before anything is built from the reply, so the
+    // blocks the model's answer turns into are ordinary content blocks with
+    // ordinary link runs — nothing downstream needs to know a marker existed.
+    $pieces = aidocs_restore_links_in_pieces( $parsed_reply['blocks'], $links );
+
+    return [ 'blocks' => aidocs_blocks_from_ai( $pieces ) ];
+}
+
+/**
+ * Put the hyperlinks back into the model's reply.
+ *
+ * Walks the reply in order and hands every string that carries document text
+ * — a piece's "text", a table row's "cells" — to aidocs_restore_link_markers(),
+ * sharing one $used ledger across all of them so a link is restored exactly
+ * once even when its words appear again later in the document.
+ *
+ * @param array $pieces Raw "blocks" array from the model.
+ * @param array $links  What aidocs_link_markers() took out.
+ * @return array The same pieces, with "[text](url)" where links were recovered.
+ */
+function aidocs_restore_links_in_pieces( array $pieces, array $links ) {
+    $used = [];
+
+    foreach ( $pieces as $index => $piece ) {
+        if ( ! is_array( $piece ) ) continue;
+
+        if ( isset( $piece['text'] ) && is_string( $piece['text'] ) ) {
+            $pieces[ $index ]['text'] = aidocs_restore_link_markers( $piece['text'], $links, $used );
+        }
+
+        if ( ! empty( $piece['cells'] ) && is_array( $piece['cells'] ) ) {
+            foreach ( $piece['cells'] as $cell_index => $cell ) {
+                if ( ! is_string( $cell ) ) continue;
+                $pieces[ $index ]['cells'][ $cell_index ] = aidocs_restore_link_markers( $cell, $links, $used );
+            }
+        }
+    }
+
+    return $pieces;
 }
 
 /**
@@ -4162,6 +4211,16 @@ function aidocs_ai_restructure_ajax() {
     $sent      = aidocs_unescape_markers( mb_substr( $body_text, 0, AIDOCS_AI_TEXT_LIMIT ) );
     $truncated = mb_strlen( $body_text ) > AIDOCS_AI_TEXT_LIMIT;
 
+    // Hyperlinks are the one thing in this text the model is not asked about.
+    // Their destinations come out first and are replaced by opaque markers, so
+    // the model re-types sentences without ever seeing a URL it could
+    // "correct" into a plausible address that does not exist — and cannot
+    // silently turn a working link into plain text either, because the URL is
+    // not in its reply to lose. aidocs_restore_links_in_pieces() puts every
+    // one back afterwards, from the source, unchanged.
+    $links = [];
+    $sent  = aidocs_link_markers( $sent, $links );
+
     // Both sides of the fidelity comparison below are the body and only the
     // body: the blocks the regex extractor produced for it, against the
     // Both sides of every comparison below are the body and only the body: the
@@ -4171,7 +4230,7 @@ function aidocs_ai_restructure_ajax() {
     $current  = aidocs_get_content_blocks( $post_id );
     $baseline_blocks = $current ?: $parsed['blocks'];
 
-    $result = aidocs_ai_restructure_call( $sent, $api_key, $model );
+    $result = aidocs_ai_restructure_call( $sent, $api_key, $model, $links );
     if ( is_wp_error( $result ) ) wp_send_json_error( $result->get_error_message() );
 
     // The body's echo of the document title is dropped here for the same reason
@@ -6136,7 +6195,10 @@ function aidocs_render_toc( array $blocks ) {
           . '<div class="aidocs-toc-label">' . esc_html__( 'In this document' ) . '</div><ul>';
     foreach ( $sections as $section ) {
         $heading = $section['heading'];
-        $html   .= '<li><a href="#' . esc_attr( $heading['id'] ) . '">' . aidocs_render_runs( $heading ) . '</a></li>';
+        // Links inside the heading's own text are dropped here, not because
+        // they are unwanted but because this is already an <a>: a nested one
+        // is invalid HTML and browsers tear the outer link apart over it.
+        $html   .= '<li><a href="#' . esc_attr( $heading['id'] ) . '">' . aidocs_render_runs( $heading, false ) . '</a></li>';
     }
     return $html . '</ul></nav>';
 }

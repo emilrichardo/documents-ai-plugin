@@ -211,8 +211,9 @@ saved and whether the entry has been indexed for AI search.
 
 The text in **Edit content** is the same canonical format the parsers produce
 from a PDF or a Word file: `##` for headings, `-` for list items, `|` for table
-rows, `**bold**` and `*italic*`. Fixing a misread line here is usually faster
-than fixing the source document and re-uploading it.
+rows, `**bold**` and `*italic*`, and `[the text](https://example.org)` for a
+link. Fixing a misread line here is usually faster than fixing the source
+document and re-uploading it.
 
 **Preview shows exactly what the published page will show.** It re-parses the
 text in the editor rather than reading what is stored, so the two used to be
@@ -228,6 +229,28 @@ the same text.
 > style — so entries that used to publish as one long run of paragraphs now
 > carry their own outline. Bold *inside* a sentence is still emphasis, and a
 > bold label opening a paragraph (`Note:`) is still a callout.
+
+### Hyperlinks in a Word document
+
+A Word file carries real hyperlinks, and they come through extraction, editing
+and publishing intact — but the plugin does not keep all of them, because many
+of these documents were written against a previous site and link to files on it
+that no longer exist.
+
+- **A link to another website stays clickable** on the published page — an
+  external site, a URL with a query string, a jump to a section, an email
+  address, a phone number. It opens in a new tab.
+- **A link to a file on the old site is removed** — anything under
+  `/wp-content/uploads/`, or a path ending in `.pdf`, `.docx`, `.xls` and the
+  like. Following one from the new site lands on a "page not found", which is
+  worse for a reader than no link at all.
+- **The words are never removed with it.** A sentence reading *"See the Appeals
+  Procedures document"*, linked to an old PDF, publishes as that same
+  sentence — every word of it, just no longer a link.
+
+Links appear in **Edit content** as `[the text](https://example.org)`, and the
+editor's toolbar has a button for inserting one. To restore a link that was
+dropped, type the new address there and click **Apply edited content**.
 
 ### The source file is never published
 
@@ -392,6 +415,14 @@ Because of that, a correct run always reports some words left out, and the repor
 says so. What it must never report is words **added** — that is the failure the
 verdict is watching for. The dropped rows in the list of corrections are there so
 you can confirm they were only those two things.
+
+### It cannot touch a hyperlink
+
+Web addresses are never sent to the AI. Each one is taken out of the text before
+the request is built, and put back into the result afterwards, from the original
+document. A restructure therefore cannot invent an address, change where a link
+points, or quietly turn a working link into plain text — there were no addresses
+in its answer to alter.
 
 ### Why it finds headings the extractor cannot
 
