@@ -1,0 +1,44 @@
+name: Deploy Documents
+
+# One workflow per plugin. The `paths` filter is what keeps the two plugins
+# independent: touching plugins/sacscoc-institutions never redeploys
+# ai-documents, and vice versa. Each can also be pushed on its own from the
+# Actions tab via workflow_dispatch.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/ai-documents/**'
+      - '.github/workflows/deploy-ai-documents.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-ai-documents
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Everything dev-only (.git, .github, .claude, .gitignore) now lives at
+      # the repository root, outside the plugin directory, so it is already
+      # excluded by local_path. Only the built zip and macOS cruft remain.
+      - name: Strip dev-only files before deploy
+        run: |
+          rm -rf plugins/ai-documents/docs/downloads
+          find plugins/ai-documents -name '.DS_Store' -delete
+
+      - name: Deploy to server via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: './plugins/ai-documents/*'
+          remote_path: '/public_html/wp-content/plugins/ai-documents'
+          sftp_only: true
