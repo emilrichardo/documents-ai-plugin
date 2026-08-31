@@ -17,6 +17,21 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 const SACSCOC_INST_CRON_HOOK = 'sacscoc_institutions_sync';
 
+/**
+ * The related-data event: off-campus sites and reviews/meetings.
+ *
+ * Separate from the main sync and on its own, much shorter interval, because
+ * the two endpoints it drives have no bulk form — see includes/sync.php's
+ * sacscoc_inst_sync_related_batch(), which processes a small, fixed batch of
+ * institutions per tick rather than all 1,201 at once. At
+ * SACSCOC_INST_RELATED_BATCH_SIZE institutions every 5 minutes, a full cycle
+ * through the directory takes roughly half a day — related data changes far
+ * less often than the main directory, so this is a background trickle rather
+ * than something tuned to match the main sync's frequency.
+ */
+const SACSCOC_INST_RELATED_CRON_HOOK = 'sacscoc_institutions_sync_related';
+const SACSCOC_INST_RELATED_INTERVAL  = 5 * MINUTE_IN_SECONDS;
+
 /** Default schedule for a fresh install. */
 const SACSCOC_INST_DEFAULT_SCHEDULE = 'sacscoc_inst_6hours';
 
@@ -46,6 +61,10 @@ function sacscoc_inst_register_schedules( array $schedules ): array {
     $schedules['sacscoc_inst_6hours'] = [
         'interval' => 6 * HOUR_IN_SECONDS,
         'display'  => __( 'Every 6 hours (SACSCOC Institutions)', 'sacscoc-institutions' ),
+    ];
+    $schedules['sacscoc_inst_related'] = [
+        'interval' => SACSCOC_INST_RELATED_INTERVAL,
+        'display'  => __( 'Every 5 minutes (SACSCOC Institutions related data)', 'sacscoc-institutions' ),
     ];
     return $schedules;
 }
@@ -83,6 +102,17 @@ function sacscoc_inst_unschedule_sync(): void {
     wp_unschedule_hook( SACSCOC_INST_CRON_HOOK );
 }
 
+/** Schedule the related-data event if it is not already scheduled. */
+function sacscoc_inst_schedule_related_sync(): void {
+    if ( wp_next_scheduled( SACSCOC_INST_RELATED_CRON_HOOK ) ) return;
+    wp_schedule_event( time() + MINUTE_IN_SECONDS, 'sacscoc_inst_related', SACSCOC_INST_RELATED_CRON_HOOK );
+}
+
+/** Clear the related-data event. Called on deactivation; leaves the data alone. */
+function sacscoc_inst_unschedule_related_sync(): void {
+    wp_unschedule_hook( SACSCOC_INST_RELATED_CRON_HOOK );
+}
+
 // Self-healing: a plugin deployed over SFTP never fires its activation hook, so
 // the event would otherwise never exist on staging. This costs one option read
 // per request and puts the schedule back whenever it is missing or stale.
@@ -90,12 +120,21 @@ add_action( 'plugins_loaded', 'sacscoc_inst_ensure_scheduled', 20 );
 function sacscoc_inst_ensure_scheduled(): void {
     if ( ! is_admin() && ! wp_doing_cron() ) return;
     sacscoc_inst_schedule_sync();
+    sacscoc_inst_schedule_related_sync();
 }
 
-// The event itself.
+// The events themselves.
 add_action( SACSCOC_INST_CRON_HOOK, 'sacscoc_inst_run_scheduled_sync' );
 function sacscoc_inst_run_scheduled_sync(): void {
     sacscoc_inst_sync_institutions( 'cron' );
+}
+
+add_action( SACSCOC_INST_RELATED_CRON_HOOK, 'sacscoc_inst_run_scheduled_related_sync' );
+function sacscoc_inst_run_scheduled_related_sync(): void {
+    if ( function_exists( 'set_time_limit' ) ) {
+        @set_time_limit( 90 );
+    }
+    sacscoc_inst_sync_related_batch( 'cron' );
 }
 
 /** When the next automatic sync is due, as a Unix timestamp, or 0. */

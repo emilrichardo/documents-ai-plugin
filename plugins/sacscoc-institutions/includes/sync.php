@@ -292,3 +292,257 @@ function sacscoc_inst_last_error(): ?array {
     $error = get_option( 'sacscoc_inst_last_error' );
     return is_array( $error ) ? $error : null;
 }
+
+// ──────────────────────────────────────────────
+// Related data: off-campus sites and reviews/meetings
+//
+// The API has no bulk endpoint for these — only "sites/meetings for this one
+// sf_institution_id" — so there is no single request to compare a fingerprint
+// against the way sacscoc_inst_sync_institutions() does. Instead this walks the
+// institutions table in fixed-size batches, one batch per cron tick, cycling
+// through all of them over time rather than making 1,201 × 3 requests in one
+// run. See sacscoc_inst_related_sync_targets() in includes/repository.php for
+// the cursor that tracks where the last batch left off.
+// ──────────────────────────────────────────────
+
+/**
+ * Institutions per related-data sync tick.
+ *
+ * Three HTTP requests per institution, measured at roughly 0.7–1 s each against
+ * the live API — a batch of 8 takes well under 30 seconds, which matters
+ * because WP-Cron's pseudo-cron runs inside an ordinary page request on hosts
+ * without a real system cron, and 30 seconds is a common host-imposed
+ * max_execution_time.
+ */
+const SACSCOC_INST_RELATED_BATCH_SIZE = 8;
+
+const SACSCOC_INST_RELATED_LOCK_TTL = 10 * MINUTE_IN_SECONDS;
+
+/**
+ * Sync off-campus sites and reviews for the next batch of institutions.
+ *
+ * Never throws and never empties existing related data: an endpoint failing
+ * for one institution is recorded as an error for that institution and its
+ * previously synced sites/meetings are left exactly as they were — the same
+ * "a failing API must never destroy data" rule sacscoc_inst_sync_institutions()
+ * follows for the main directory.
+ *
+ * @param string $trigger 'cron' | 'manual'
+ * @return array{status:string,message:string,institutions:int,sites:array,recent:array,inprogress:array,errors:string[],duration_ms:int}
+ */
+function sacscoc_inst_sync_related_batch( string $trigger = 'cron' ): array {
+    $started = microtime( true );
+
+    $result = [
+        'status'       => 'success',
+        'message'      => '',
+        'institutions' => 0,
+        'sites'        => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'recent'       => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'inprogress'   => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'errors'       => [],
+        'duration_ms'  => 0,
+        'trigger'      => $trigger,
+    ];
+
+    if ( ! sacscoc_inst_tables_ready() ) {
+        sacscoc_inst_install_tables();
+    }
+
+    if ( get_transient( 'sacscoc_inst_related_sync_lock' ) ) {
+        $result['status']  = 'skipped';
+        $result['message'] = __( 'Another related-data sync is already running; this one was skipped.', 'sacscoc-institutions' );
+        return $result;
+    }
+    set_transient( 'sacscoc_inst_related_sync_lock', time(), SACSCOC_INST_RELATED_LOCK_TTL );
+
+    try {
+        $cursor  = (int) get_option( 'sacscoc_inst_related_cursor', 0 );
+        $targets = sacscoc_inst_related_sync_targets( $cursor, SACSCOC_INST_RELATED_BATCH_SIZE );
+
+        if ( ! $targets ) {
+            // No institutions at all yet — nothing to do until the main sync runs.
+            $result['message'] = __( 'No institutions to sync related data for yet.', 'sacscoc-institutions' );
+        } else {
+            foreach ( $targets as $target ) {
+                $sf_id = (string) $target['sf_id'];
+
+                foreach ( sacscoc_inst_sync_related_one( $sf_id ) as $key => $counts ) {
+                    if ( $key === 'errors' ) {
+                        foreach ( $counts as $error ) {
+                            $result['errors'][] = sprintf( '%s: %s', $sf_id, $error );
+                        }
+                        continue;
+                    }
+                    foreach ( $counts as $stat => $n ) {
+                        $result[ $key ][ $stat ] += $n;
+                    }
+                }
+
+                $result['institutions']++;
+            }
+
+            // sacscoc_inst_related_sync_targets() always returns rows ordered by
+            // id ASC — whether this is a plain slice past the old cursor or a
+            // wrapped-around read from the start of the table — so the last
+            // row's id is always the correct next cursor position.
+            $last = end( $targets );
+            update_option( 'sacscoc_inst_related_cursor', (int) $last['id'], false );
+
+            $result['message'] = sprintf(
+                /* translators: 1: institutions processed, 2: number of errors */
+                __( '%1$d institutions checked for related data — %2$d errors.', 'sacscoc-institutions' ),
+                $result['institutions'],
+                count( $result['errors'] )
+            );
+
+            update_option( 'sacscoc_inst_related_last_sync', current_time( 'mysql', true ), false );
+        }
+
+    } catch ( Throwable $e ) {
+        $result['status']  = 'failed';
+        $result['message'] = sprintf(
+            /* translators: %s: error message */
+            __( 'The related-data sync stopped on an unexpected error: %s', 'sacscoc-institutions' ),
+            $e->getMessage()
+        );
+    } finally {
+        delete_transient( 'sacscoc_inst_related_sync_lock' );
+    }
+
+    $result['duration_ms'] = (int) round( ( microtime( true ) - $started ) * 1000 );
+    update_option( 'sacscoc_inst_related_last_sync_result', $result, false );
+
+    return $result;
+}
+
+/**
+ * Fetch and write one institution's sites, recent meetings and in-progress
+ * meetings. Each of the three endpoints is independent: one failing does not
+ * stop the other two, and its own previously-synced rows are left untouched.
+ *
+ * @return array{sites:array,recent:array,inprogress:array,errors:string[]}
+ */
+function sacscoc_inst_sync_related_one( string $sf_id ): array {
+    $out = [
+        'sites'      => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'recent'     => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'inprogress' => [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ],
+        'errors'     => [],
+    ];
+
+    $sites = sacscoc_inst_api_fetch_sites( $sf_id );
+    if ( is_wp_error( $sites ) ) {
+        $out['errors'][] = 'sites: ' . $sites->get_error_message();
+    } else {
+        $out['sites'] = sacscoc_inst_sync_sites_for( $sf_id, $sites );
+    }
+
+    $recent = sacscoc_inst_api_fetch_recent_meetings( $sf_id );
+    if ( is_wp_error( $recent ) ) {
+        $out['errors'][] = 'recentmeetings: ' . $recent->get_error_message();
+    } else {
+        $out['recent'] = sacscoc_inst_sync_meetings_for( $sf_id, 'recent', $recent );
+    }
+
+    $inprogress = sacscoc_inst_api_fetch_inprogress_meetings( $sf_id );
+    if ( is_wp_error( $inprogress ) ) {
+        $out['errors'][] = 'inprogressmeetings: ' . $inprogress->get_error_message();
+    } else {
+        $out['inprogress'] = sacscoc_inst_sync_meetings_for( $sf_id, 'inprogress', $inprogress );
+    }
+
+    return $out;
+}
+
+/** Apply one institution's /api/v1/sites response. @return array{created:int,updated:int,unchanged:int,missing:int} */
+function sacscoc_inst_sync_sites_for( string $sf_id, array $records ): array {
+    $stats = [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ];
+    $index = sacscoc_inst_site_hash_index( $sf_id );
+    $now   = current_time( 'mysql', true );
+
+    $batch   = [];
+    $present = [];
+
+    foreach ( $records as $record ) {
+        if ( ! is_array( $record ) ) continue;
+
+        $record_sf_id = sacscoc_inst_parse_text( $record['sf_id'] ?? null );
+        if ( $record_sf_id === null ) continue;
+
+        $present[] = $record_sf_id;
+        $hash      = sacscoc_inst_site_content_hash( $record );
+
+        if ( ( $index[ $record_sf_id ] ?? null ) === $hash ) {
+            $stats['unchanged']++;
+            continue;
+        }
+
+        $row                 = sacscoc_inst_map_site_record( $record );
+        $row['raw_json']     = wp_json_encode( $record );
+        $row['content_hash'] = $hash;
+        $row['last_synced']  = $now;
+
+        $batch[] = $row;
+        $stats[ isset( $index[ $record_sf_id ] ) ? 'updated' : 'created' ]++;
+    }
+
+    sacscoc_inst_write_sites_batch( $batch );
+    $stats['missing'] = sacscoc_inst_mark_sites_presence( $sf_id, $present );
+
+    return $stats;
+}
+
+/**
+ * Apply one institution's /api/v1/recentmeetings or /api/v1/inprogressmeetings
+ * response. @return array{created:int,updated:int,unchanged:int,missing:int}
+ */
+function sacscoc_inst_sync_meetings_for( string $sf_id, string $kind, array $records ): array {
+    $stats = [ 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'missing' => 0 ];
+    $index = sacscoc_inst_meeting_hash_index( $sf_id, $kind );
+    $now   = current_time( 'mysql', true );
+
+    $batch   = [];
+    $present = [];
+
+    foreach ( $records as $record ) {
+        if ( ! is_array( $record ) ) continue;
+
+        // `original_data` is the 10–16 KB raw Salesforce blob — dropped before
+        // it ever reaches the hash, the mapping or raw_json. See
+        // docs/API-FIELD-MAP.md.
+        unset( $record['original_data'] );
+
+        $api_id = isset( $record['id'] ) && is_numeric( $record['id'] ) ? (int) $record['id'] : null;
+        if ( $api_id === null ) continue;
+
+        $present[] = $api_id;
+        $hash      = sacscoc_inst_meeting_content_hash( $record );
+
+        if ( ( $index[ $api_id ] ?? null ) === $hash ) {
+            $stats['unchanged']++;
+            continue;
+        }
+
+        $row                 = sacscoc_inst_map_meeting_record( $record );
+        $row['kind']         = $kind;
+        $row['display_year'] = sacscoc_inst_meeting_display_year( $record );
+        $row['raw_json']     = wp_json_encode( $record );
+        $row['content_hash'] = $hash;
+        $row['last_synced']  = $now;
+
+        $batch[] = $row;
+        $stats[ isset( $index[ $api_id ] ) ? 'updated' : 'created' ]++;
+    }
+
+    sacscoc_inst_write_meetings_batch( $batch );
+    $stats['missing'] = sacscoc_inst_mark_meetings_presence( $sf_id, $kind, $present );
+
+    return $stats;
+}
+
+/** The last recorded related-data sync result, or null before the first run. */
+function sacscoc_inst_related_last_result(): ?array {
+    $result = get_option( 'sacscoc_inst_related_last_sync_result' );
+    return is_array( $result ) ? $result : null;
+}

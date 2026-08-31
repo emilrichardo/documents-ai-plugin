@@ -185,7 +185,7 @@ The public directory as it stands today returns all 1,201.
 | `last_synced` | The last time its data was actually written. Unchanged records deliberately keep an older value. |
 | `missing_since` | Set when the API stops returning the institution, cleared if it returns. Never a reason to delete the row. |
 
-## Related data (tables created, sync in the next milestone)
+## Related data (synced separately — includes/sync.php's sacscoc_inst_sync_related_batch())
 
 ### `sacscoc_institution_sites` — off-campus instructional sites
 

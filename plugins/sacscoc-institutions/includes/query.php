@@ -251,6 +251,27 @@ function sacscoc_inst_get_by_slug( string $slug ): ?array {
     return $row ?: null;
 }
 
+/**
+ * One institution by its API numeric id.
+ *
+ * The id the `[sacscoc_institution]` shortcode takes. It comes from the API, so
+ * it survives the local table being dropped and rebuilt — which the surrogate
+ * `id` column would not, and which is why that one is never published.
+ */
+function sacscoc_inst_get_by_api_id( int $api_id ): ?array {
+    global $wpdb;
+
+    if ( $api_id <= 0 || ! sacscoc_inst_tables_ready() ) return null;
+
+    $table = sacscoc_inst_table( 'institutions' );
+    $row   = $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM $table WHERE api_id = %d", $api_id ),
+        ARRAY_A
+    );
+
+    return $row ?: null;
+}
+
 // ──────────────────────────────────────────────
 // Presentation helpers
 // ──────────────────────────────────────────────

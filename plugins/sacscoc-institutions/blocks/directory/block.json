@@ -1,0 +1,39 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 2,
+	"name": "sacscoc-institutions/directory",
+	"title": "Institutions Directory",
+	"category": "widgets",
+	"icon": "list-view",
+	"description": "The institution search and results — the same directory as the [sacscoc_institutions] shortcode, configured here instead of by typing attributes.",
+	"keywords": [ "sacscoc", "institutions", "directory", "accreditation" ],
+	"textdomain": "sacscoc-institutions",
+	"attributes": {
+		"layout": { "type": "string", "default": "" },
+		"perPage": { "type": "number", "default": 0 },
+		"showCount": { "type": "boolean", "default": true },
+		"showSearch": { "type": "boolean", "default": true },
+		"group": { "type": "string", "default": "default" },
+		"searchHeading": { "type": "string", "default": "" },
+		"resultsHeading": { "type": "string", "default": "" },
+		"filterState": { "type": "string", "default": "" },
+		"filterDegree": { "type": "string", "default": "" },
+		"filterYear": { "type": "string", "default": "" }
+	},
+	"supports": {
+		"html": false,
+		"color": {
+			"background": true,
+			"text": true,
+			"gradients": true
+		},
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	}
+}

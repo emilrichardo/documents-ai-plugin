@@ -6,6 +6,21 @@
  *   $results     array{rows,total,pages,paged,per_page} from sacscoc_inst_search()
  *   $filters     array{q,state,degree,year,paged} the active filters
  *   $show_count  bool
+ *   $show_search bool — false when the search form is rendered separately by
+ *                [sacscoc_institutions_search] instead of inline here
+ *   $group       string — pairs this directory with that separate form; see
+ *                sacscoc_inst_clean_group()
+ *   $search_heading  string — replaces "Institution Search" above the inline
+ *                form; passed straight through to search-form.php
+ *   $results_heading string — replaces "Results" above the list; passed
+ *                straight through to results.php, and carried across every
+ *                live filter as `data-results-heading` on the wrapper below
+ *   $locked      string[] — filter keys ('state','degree','year') this
+ *                directory always restricts results to, from the block's own
+ *                Inspector Controls or the shortcode's filter_* attributes.
+ *                Each one is dropped from the inline form: a field a visitor
+ *                could change without it doing anything is worse than no
+ *                field at all. See sacscoc_inst_render_directory().
  *
  * Structure follows the existing sacscoc.org/institutions/ directory: search
  * panel and results side by side, search on the right at a third of the width,
@@ -13,6 +28,11 @@
  * screen-reader users reach it before a screenful of results; the visual swap is
  * done in CSS, which is also why it collapses to search-then-results on narrow
  * screens with no markup change.
+ *
+ * The form itself is templates/search-form.php, included below and also by
+ * [sacscoc_institutions_search] directly when `$show_search` is false — the
+ * same file either way, so the two can never render different markup for what
+ * is meant to be the same form.
  *
  * ── Progressive enhancement ────────────────────────────────────────────────
  *
@@ -33,140 +53,68 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 /** @var string $layout */
 /** @var int    $per_page */
 /** @var bool   $show_count */
+/** @var bool   $show_search */
+/** @var string $group */
+/** @var string $search_heading */
+/** @var string $results_heading */
+/** @var array  $locked */
 
 $rows   = $results['rows'];
 $action = sacscoc_inst_directory_url();
-$active = sacscoc_inst_has_filters( $filters );
+
+$show_search     = $show_search ?? true;
+$group           = $group ?? 'default';
+$search_heading  = (string) ( $search_heading ?? '' );
+$results_heading = (string) ( $results_heading ?? '' );
+$locked          = (array) ( $locked ?? [] );
 
 // One template, two layouts: the difference is a class. `--stacked` puts the
 // search in a bar across the top with the results full width beneath, which is
 // what the site's own Find an Institution page does; the default keeps the
-// results left and the search panel right, as sacscoc.org has it.
-$stacked = ( $layout ?? 'two-column' ) === 'one-column';
+// results left and the search panel right, as sacscoc.org has it. Meaningless
+// with no inline search to arrange, so it never applies when $show_search is
+// false — a stray `layout="one-column"` on a search-less shortcode does nothing.
+$stacked = $show_search && ( ( $layout ?? 'two-column' ) === 'one-column' );
 
-/**
- * The × that clears one filter.
- *
- * A real link to the same results without that filter, so it works with
- * JavaScript off; the script intercepts it. Rendered only when the filter has a
- * value, so there is never a control that does nothing.
- */
-$clear = static function ( array $filters, string $key, string $label ): void {
-    $url = sacscoc_inst_filter_url( $filters, [ $key => '', 'paged' => 1 ] );
-    printf(
-        '<a class="sacscoc-field__clear" href="%s" data-sacscoc-clear="%s" aria-label="%s" title="%s">&times;</a>',
-        esc_url( $url ),
-        esc_attr( $key ),
-        esc_attr( $label ),
-        esc_attr( $label )
-    );
-};
+$layout_classes = [ 'sacscoc-layout' ];
+if ( $stacked ) {
+    $layout_classes[] = 'sacscoc-layout--stacked';
+} elseif ( ! $show_search ) {
+    // No <aside> is rendered at all below, so the grid's second column has to
+    // be told to go away rather than sit there empty.
+    $layout_classes[] = 'sacscoc-layout--no-search';
+} elseif ( ! $rows ) {
+    $layout_classes[] = 'sacscoc-layout--solo';
+}
 ?>
 <?php
-// per-page and show-count travel with the markup: the live filter posts them
-// back, so a page listing 50 keeps listing 50 after the first keystroke.
+// per-page, show-count and group travel with the markup: the live filter posts
+// them back, so a page listing 50 keeps listing 50 after the first keystroke,
+// and a directory paired with a separate search form stays paired with it.
 ?>
-<div class="sacscoc-directory<?php echo $stacked ? ' sacscoc-directory--stacked' : ''; ?>" id="sacscoc-directory"
+<div class="sacscoc-directory sacscoc-contain-width<?php echo $stacked ? ' sacscoc-directory--stacked' : ''; ?>" id="sacscoc-directory"
      data-sacscoc-directory
+     data-sacscoc-group="<?php echo esc_attr( $group ); ?>"
      data-action="<?php echo esc_url( $action ); ?>"
      data-per-page="<?php echo esc_attr( (string) $per_page ); ?>"
-     data-show-count="<?php echo $show_count ? 'yes' : 'no'; ?>">
-    <div class="sacscoc-layout<?php echo $stacked ? ' sacscoc-layout--stacked' : ''; ?><?php echo $rows || $stacked ? '' : ' sacscoc-layout--solo'; ?>" data-sacscoc-layout>
+     data-show-count="<?php echo $show_count ? 'yes' : 'no'; ?>"
+     <?php if ( $results_heading !== '' ) : ?>data-results-heading="<?php echo esc_attr( $results_heading ); ?>"<?php endif; ?>>
+    <div class="<?php echo esc_attr( implode( ' ', $layout_classes ) ); ?>" data-sacscoc-layout>
 
-        <aside class="sacscoc-layout__aside">
-            <form class="sacscoc-block sacscoc-search" method="get"
-                  action="<?php echo esc_url( $action ); ?>" role="search"
-                  data-sacscoc-form>
-                <h2 class="sacscoc-block__heading">
-                    <?php echo sacscoc_inst_icon( 'search', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
-                    <span><?php esc_html_e( 'Institution Search', 'sacscoc-institutions' ); ?></span>
-                </h2>
-
-                <div class="sacscoc-search__fields">
-                    <p class="sacscoc-field">
-                        <label class="sacscoc-field__label" for="si_q"><?php esc_html_e( 'Institution Name', 'sacscoc-institutions' ); ?></label>
-                        <span class="sacscoc-field__control">
-                            <input class="sacscoc-control" type="search" id="si_q" name="si_q"
-                                   value="<?php echo esc_attr( $filters['q'] ); ?>"
-                                   autocomplete="off"
-                                   placeholder="<?php esc_attr_e( 'Search…', 'sacscoc-institutions' ); ?>" />
-                            <?php if ( $filters['q'] !== '' ) {
-                                $clear( $filters, 'q', __( 'Clear the name search', 'sacscoc-institutions' ) );
-                            } ?>
-                        </span>
-                    </p>
-
-                    <p class="sacscoc-field">
-                        <label class="sacscoc-field__label" for="si_state"><?php esc_html_e( 'State', 'sacscoc-institutions' ); ?></label>
-                        <span class="sacscoc-field__control">
-                            <select class="sacscoc-control sacscoc-control--select" id="si_state" name="si_state">
-                                <option value=""><?php esc_html_e( 'Any State', 'sacscoc-institutions' ); ?></option>
-                                <?php foreach ( sacscoc_inst_states() as $code => $label ) : ?>
-                                    <option value="<?php echo esc_attr( $code ); ?>" <?php selected( $filters['state'], $code ); ?>>
-                                        <?php echo esc_html( $label ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <?php if ( $filters['state'] !== '' ) {
-                                $clear( $filters, 'state', __( 'Clear the state filter', 'sacscoc-institutions' ) );
-                            } ?>
-                        </span>
-                    </p>
-
-                    <p class="sacscoc-field">
-                        <label class="sacscoc-field__label" for="si_degree"><?php esc_html_e( 'Highest Degree Offered', 'sacscoc-institutions' ); ?></label>
-                        <span class="sacscoc-field__control">
-                            <select class="sacscoc-control sacscoc-control--select" id="si_degree" name="si_degree">
-                                <option value=""><?php esc_html_e( 'Any Degree', 'sacscoc-institutions' ); ?></option>
-                                <?php
-                                // Lowest to highest, the order the current site lists them in.
-                                foreach ( array_reverse( sacscoc_inst_degrees(), true ) as $key => $label ) : ?>
-                                    <option value="<?php echo esc_attr( $key ); ?>" <?php selected( $filters['degree'], $key ); ?>>
-                                        <?php echo esc_html( $label ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <?php if ( $filters['degree'] !== '' ) {
-                                $clear( $filters, 'degree', __( 'Clear the degree filter', 'sacscoc-institutions' ) );
-                            } ?>
-                        </span>
-                    </p>
-
-                    <p class="sacscoc-field">
-                        <label class="sacscoc-field__label" for="si_year"><?php esc_html_e( 'Next Reaffirmation Year', 'sacscoc-institutions' ); ?></label>
-                        <span class="sacscoc-field__control">
-                            <select class="sacscoc-control sacscoc-control--select" id="si_year" name="si_year">
-                                <option value=""><?php esc_html_e( 'Any Year', 'sacscoc-institutions' ); ?></option>
-                                <?php foreach ( sacscoc_inst_reaffirm_years() as $year ) : ?>
-                                    <option value="<?php echo esc_attr( (string) $year ); ?>" <?php selected( $filters['year'], (string) $year ); ?>>
-                                        <?php echo esc_html( (string) $year ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <?php if ( $filters['year'] !== '' ) {
-                                $clear( $filters, 'year', __( 'Clear the year filter', 'sacscoc-institutions' ) );
-                            } ?>
-                        </span>
-                    </p>
-                </div>
-
-                <p class="sacscoc-search__actions">
-                    <?php // Hidden once the script takes over — filtering is live by then. ?>
-                    <button type="submit" class="sacscoc-btn" data-sacscoc-submit>
-                        <?php echo sacscoc_inst_icon( 'search' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
-                        <?php esc_html_e( 'Search', 'sacscoc-institutions' ); ?>
-                    </button>
-
-                    <a class="sacscoc-plus-link sacscoc-reset<?php echo $active ? '' : ' is-hidden'; ?>"
-                       href="<?php echo esc_url( $action ); ?>" data-sacscoc-reset>
-                        <?php echo sacscoc_inst_icon( 'reset' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
-                        <?php esc_html_e( 'Reset filters', 'sacscoc-institutions' ); ?>
-                    </a>
-
-                    <span class="sacscoc-spinner" data-sacscoc-spinner aria-hidden="true"></span>
-                </p>
-            </form>
-        </aside>
+        <?php if ( $show_search ) : ?>
+            <aside class="sacscoc-layout__aside">
+                <?php
+                sacscoc_inst_load_template( 'search-form.php', [
+                    'filters' => $filters,
+                    'action'  => $action,
+                    'group'   => $group,
+                    'stacked' => $stacked,
+                    'heading' => $search_heading,
+                    'locked'  => $locked,
+                ] );
+                ?>
+            </aside>
+        <?php endif; ?>
 
         <?php // Always rendered: with no results this column is what says so. ?>
         <div class="sacscoc-layout__main" data-sacscoc-main>
@@ -176,6 +124,7 @@ $clear = static function ( array $filters, string $key, string $label ): void {
                     'results'    => $results,
                     'filters'    => $filters,
                     'show_count' => $show_count,
+                    'heading'    => $results_heading,
                 ] );
                 ?>
             </div>

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SACSCOC Institutions
  * Description: Keeps a local copy of the SACSCOC institution directory in WordPress, synchronised from the SACSCOC API, and publishes it.
- * Version: 0.2.0
+ * Version: 0.9.0
  * Requires PHP: 8.0
  * Text Domain: sacscoc-institutions
  *
@@ -29,9 +29,23 @@
  *
  * ── What the visitor sees ──────────────────────────────────────────────────
  *
- * The [sacscoc_institutions] shortcode turns any WordPress page into the
- * directory, and /institutions/<slug>/ serves one institution inside the
- * theme's own header and footer. Both live in includes/frontend.php and render
+ * Three Gutenberg blocks — Institutions Directory, Institutions Search and
+ * Institution (includes/blocks.php, assets/js/blocks.js) — are the native way
+ * to publish the directory: every attribute below is an Inspector Control
+ * instead, plus background colour, text colour, padding and font size from
+ * each block's own toolbar. The Institutions Directory block also offers a
+ * hard state/degree/reaffirmation-year restriction ("just Texas"), and the
+ * Institution block finds a record by searching its name rather than typing
+ * an id. The [sacscoc_institutions] shortcode remains fully supported
+ * underneath, turning any WordPress page into the directory — in two columns
+ * or one, whichever Settings says — and /institutions/<slug>/ serves one
+ * institution inside the theme's own header and footer.
+ * [sacscoc_institution id="…"] puts a single record on any other page, from
+ * the same template as that page uses. show_search="no" on the directory
+ * (block or shortcode), paired at runtime with an Institutions Search
+ * block/[sacscoc_institutions_search] placed elsewhere, splits the search form
+ * out for a sidebar or column the directory's own layout cannot reach. All of
+ * it lives in includes/frontend.php and includes/blocks.php, and renders
  * templates/ files a theme can override. Nothing in the public path talks to
  * the API; it all reads the local tables.
  *
@@ -40,7 +54,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'SACSCOC_INST_VERSION', '0.2.0' );
+define( 'SACSCOC_INST_VERSION', '0.9.0' );
 define( 'SACSCOC_INST_FILE', __FILE__ );
 define( 'SACSCOC_INST_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SACSCOC_INST_URL', plugin_dir_url( __FILE__ ) );
@@ -58,11 +72,13 @@ require_once SACSCOC_INST_DIR . 'includes/sync.php';
 require_once SACSCOC_INST_DIR . 'includes/query.php';
 require_once SACSCOC_INST_DIR . 'includes/icons.php';
 require_once SACSCOC_INST_DIR . 'includes/frontend.php';
+require_once SACSCOC_INST_DIR . 'includes/blocks.php';
 require_once SACSCOC_INST_DIR . 'includes/settings.php';
 require_once SACSCOC_INST_DIR . 'includes/cron.php';
 require_once SACSCOC_INST_DIR . 'includes/admin.php';
 require_once SACSCOC_INST_DIR . 'includes/admin-record.php';
 require_once SACSCOC_INST_DIR . 'includes/documentation.php';
+require_once SACSCOC_INST_DIR . 'includes/onboarding.php';
 
 // ──────────────────────────────────────────────
 // Activation / deactivation
@@ -73,22 +89,34 @@ require_once SACSCOC_INST_DIR . 'includes/documentation.php';
 // an administrator presses Sync Now.
 
 register_activation_hook( __FILE__, 'sacscoc_inst_activate' );
-function sacscoc_inst_activate() {
+function sacscoc_inst_activate( $network_wide = false ) {
     sacscoc_inst_install_tables();
     sacscoc_inst_schedule_sync();
+    sacscoc_inst_schedule_related_sync();
 
     // Not flush_rewrite_rules() here: activation runs before `init`, so our
     // rule is not registered yet and the flush would write a rule set without
     // it. sacscoc_inst_maybe_flush_rules() does it on the next load.
     sacscoc_inst_request_flush();
+
+    // The setup wizard is a one-admin, one-site walkthrough — sync, choose a
+    // layout and page size, choose or create the directory page. A network
+    // activation has no single site to send anyone to, so it is skipped there;
+    // see sacscoc_inst_maybe_activation_redirect() in includes/onboarding.php
+    // for where this flag is read and cleared.
+    if ( ! $network_wide ) {
+        update_option( 'sacscoc_inst_activation_redirect', '1', false );
+    }
 }
 
 // Deactivation clears the schedule and nothing else. The tables and their data
 // survive, so deactivating and reactivating does not throw the directory away
-// and does not force a full re-download.
+// and does not force a full re-download. Deleting the plugin is the only thing
+// that can remove them, and only when Settings says so — see uninstall.php.
 register_deactivation_hook( __FILE__, 'sacscoc_inst_deactivate' );
 function sacscoc_inst_deactivate() {
     sacscoc_inst_unschedule_sync();
+    sacscoc_inst_unschedule_related_sync();
 
     // Drop our institution URLs from the rule set, so nothing keeps claiming
     // /institutions/<slug>/ once the plugin is off.

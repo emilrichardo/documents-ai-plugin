@@ -289,6 +289,38 @@
 
 .sacscoc-panel__title .dashicons { color: var(--si-faint); }
 
+/* ── Embed panel ─────────────────────────────────────────────── */
+
+.sacscoc-panel__note {
+  margin: 12px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--si-muted);
+}
+
+.sacscoc-panel__note code {
+  padding: 1px 4px;
+  font-size: 11.5px;
+}
+
+.sacscoc-embed {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--si-line);
+  border-radius: 4px;
+  background: var(--si-line-soft);
+  font-family: Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--si-ink);
+  cursor: text;
+}
+
+.sacscoc-embed:focus {
+  border-color: var(--si-accent);
+  box-shadow: 0 0 0 1px var(--si-accent);
+  outline: none;
+}
+
 /* ── Label / value pairs ─────────────────────────────────────── */
 
 .sacscoc-kv {

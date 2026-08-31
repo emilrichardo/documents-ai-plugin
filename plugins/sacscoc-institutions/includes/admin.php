@@ -117,8 +117,38 @@ function sacscoc_inst_handle_sync_now(): void {
 
     sacscoc_inst_sync_institutions( 'manual' );
 
+    // Where "Sync Now" sends the admin back to: the Sync screen normally, or
+    // the onboarding screen when its own Sync step is what submitted this —
+    // a real page slug, not an arbitrary URL, and checked against a fixed
+    // list rather than trusted from the request, so this can never become an
+    // open redirect.
+    $page = (string) ( $_POST['redirect_page'] ?? 'sacscoc-institutions-sync' );
+    if ( ! in_array( $page, [ 'sacscoc-institutions-sync', 'sacscoc-institutions-onboarding' ], true ) ) {
+        $page = 'sacscoc-institutions-sync';
+    }
+
     wp_safe_redirect( add_query_arg(
-        [ 'page' => 'sacscoc-institutions-sync', 'synced' => 1 ],
+        [ 'page' => $page, 'synced' => 1 ],
+        admin_url( 'admin.php' )
+    ) );
+    exit;
+}
+
+add_action( 'admin_post_sacscoc_inst_sync_related_now', 'sacscoc_inst_handle_sync_related_now' );
+function sacscoc_inst_handle_sync_related_now(): void {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'You are not allowed to run a sync.', 'sacscoc-institutions' ) );
+    }
+    check_admin_referer( 'sacscoc_inst_sync_related_now' );
+
+    if ( function_exists( 'set_time_limit' ) ) {
+        @set_time_limit( 120 );
+    }
+
+    sacscoc_inst_sync_related_batch( 'manual' );
+
+    wp_safe_redirect( add_query_arg(
+        [ 'page' => 'sacscoc-institutions-sync', 'related_synced' => 1 ],
         admin_url( 'admin.php' )
     ) );
     exit;
@@ -227,6 +257,60 @@ function sacscoc_inst_sync_page(): void {
             <?php submit_button( __( 'Sync Now', 'sacscoc-institutions' ), 'primary large', 'submit', false ); ?>
             <span class="description" style="margin-left:1em">
                 <?php esc_html_e( 'Downloads the full directory and applies only what changed. A first sync takes longer than the rest.', 'sacscoc-institutions' ); ?>
+            </span>
+        </form>
+
+        <h2><?php esc_html_e( 'Related data', 'sacscoc-institutions' ); ?></h2>
+        <p class="description">
+            <?php esc_html_e( 'Off-campus instructional sites and reviews/meetings have no bulk API endpoint — each institution is fetched on its own, a small batch at a time, on a separate 5-minute schedule. A full pass over every institution takes roughly half a day.', 'sacscoc-institutions' ); ?>
+        </p>
+        <?php
+        $related_stats = sacscoc_inst_related_stats();
+        $related_last  = sacscoc_inst_related_last_result();
+        $related_ok    = get_option( 'sacscoc_inst_related_last_sync' );
+        ?>
+        <?php if ( isset( $_GET['related_synced'] ) && $related_last !== null ) : ?>
+            <div class="notice notice-<?php echo $related_last['status'] === 'success' ? 'success' : 'warning'; ?>">
+                <p><?php echo esc_html( $related_last['message'] ); ?></p>
+            </div>
+        <?php endif; ?>
+        <table class="widefat striped" style="max-width:52em">
+            <tbody>
+                <tr>
+                    <th scope="row" style="width:16em"><?php esc_html_e( 'Open Sites Stored', 'sacscoc-institutions' ); ?></th>
+                    <td><?php echo esc_html( number_format_i18n( $related_stats['sites'] ) ); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'In-Progress Reviews Stored', 'sacscoc-institutions' ); ?></th>
+                    <td><?php echo esc_html( number_format_i18n( $related_stats['inprogress'] ) ); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Recent History Records Stored', 'sacscoc-institutions' ); ?></th>
+                    <td><?php echo esc_html( number_format_i18n( $related_stats['recent'] ) ); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Last Related-Data Batch', 'sacscoc-institutions' ); ?></th>
+                    <td><?php echo esc_html( sacscoc_inst_format_time( $related_ok ) ); ?></td>
+                </tr>
+                <?php if ( $related_last !== null && $related_last['errors'] ) : ?>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Last Batch Errors', 'sacscoc-institutions' ); ?></th>
+                    <td style="color:#d63638">
+                        <?php foreach ( array_slice( $related_last['errors'], 0, 10 ) as $error ) : ?>
+                            <div><?php echo esc_html( $error ); ?></div>
+                        <?php endforeach; ?>
+                    </td>
+                </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:1.5em 0">
+            <input type="hidden" name="action" value="sacscoc_inst_sync_related_now" />
+            <?php wp_nonce_field( 'sacscoc_inst_sync_related_now' ); ?>
+            <?php submit_button( __( 'Sync Related Data Now', 'sacscoc-institutions' ), 'secondary', 'submit', false ); ?>
+            <span class="description" style="margin-left:1em">
+                <?php esc_html_e( 'Runs one batch immediately, same as the 5-minute schedule.', 'sacscoc-institutions' ); ?>
             </span>
         </form>
 

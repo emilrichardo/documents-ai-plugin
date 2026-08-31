@@ -58,7 +58,7 @@ jobs:
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<'SFTP'
-          -mkdir /public_html/wp-content/plugins/sacscoc-institutions
+          -mkdir public_html/wp-content/plugins/sacscoc-institutions
           bye
           SFTP
 
@@ -70,5 +70,5 @@ jobs:
           username: ${{ secrets.SFTP_USERNAME }}
           password: ${{ secrets.SFTP_PASSWORD }}
           local_path: './plugins/sacscoc-institutions/*'
-          remote_path: '/public_html/wp-content/plugins/sacscoc-institutions'
+          remote_path: 'public_html/wp-content/plugins/sacscoc-institutions'
           sftp_only: true

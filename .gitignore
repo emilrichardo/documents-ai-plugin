@@ -4,3 +4,8 @@
 # whatever packs a plugin for hand-installation. Never source.
 plugins/*/docs/downloads/
 plugins/*.zip
+
+# scripts/deploy-plugin.sh reads the demo site's SFTP credentials from here.
+# Real values only ever belong in this file (or the shell environment) and in
+# this repo's GitHub Actions secrets — never committed. See .env.example.
+.env

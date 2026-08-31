@@ -189,6 +189,21 @@ function sacscoc_inst_api_fetch_institutions() {
     ] );
 }
 
+/** Off-campus instructional sites for one institution. */
+function sacscoc_inst_api_fetch_sites( string $sf_institution_id ) {
+    return sacscoc_inst_api_get( '/api/v1/sites', [ 'sf_institution_id' => $sf_institution_id ] );
+}
+
+/** Completed reviews / meetings for one institution. */
+function sacscoc_inst_api_fetch_recent_meetings( string $sf_institution_id ) {
+    return sacscoc_inst_api_get( '/api/v1/recentmeetings', [ 'sf_institution_id' => $sf_institution_id ] );
+}
+
+/** Reviews currently under way for one institution. */
+function sacscoc_inst_api_fetch_inprogress_meetings( string $sf_institution_id ) {
+    return sacscoc_inst_api_get( '/api/v1/inprogressmeetings', [ 'sf_institution_id' => $sf_institution_id ] );
+}
+
 /**
  * A cheap connectivity check for the Settings and Sync screens.
  *

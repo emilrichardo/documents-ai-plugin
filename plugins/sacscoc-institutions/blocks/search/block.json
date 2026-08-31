@@ -1,0 +1,33 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 2,
+	"name": "sacscoc-institutions/search",
+	"title": "Institutions Search",
+	"category": "widgets",
+	"icon": "search",
+	"description": "Just the institution search form — the panel the Institutions Directory block renders inline — for placing somewhere that block's own layout cannot reach: a sidebar, a header, another column.",
+	"keywords": [ "sacscoc", "institutions", "search" ],
+	"textdomain": "sacscoc-institutions",
+	"attributes": {
+		"group": { "type": "string", "default": "default" },
+		"heading": { "type": "string", "default": "" },
+		"layout": { "type": "string", "default": "vertical" },
+		"containWidth": { "type": "boolean", "default": true }
+	},
+	"supports": {
+		"html": false,
+		"color": {
+			"background": true,
+			"text": true,
+			"gradients": true
+		},
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	}
+}

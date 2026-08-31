@@ -7,7 +7,7 @@ The API is the source of truth; WordPress holds a copy. Visitors are never sent
 to the API — the directory reads local tables, so it stays fast and stays up
 when the API does not.
 
-- **Version** 0.2.0
+- **Version** 0.9.0
 - **Requires** PHP 8.0, WordPress 6.0
 - **Depends on nothing.** No shared code, tables, options or hooks with the AI
   Documents plugin in this repository. Either can be installed, activated,
@@ -18,6 +18,71 @@ when the API does not.
 
 The synchronisation layer, the admin screens, and the public directory.
 
+**0.9.0**:
+
+- Activating the plugin now opens a one-time **setup wizard** — sync,
+  choose a layout and page size, choose or create the Directory Page — instead
+  of leaving all three to be found separately in Settings and Sync. Reachable
+  again any time from **Run Setup Wizard** on the Settings screen. See
+  `includes/onboarding.php`.
+- A third Gutenberg block, **Institution**: one record, found by searching its
+  name in the block's own Inspector Controls rather than typing an id — the
+  native alternative to `[sacscoc_institution id="…"]`.
+- The **Institutions Directory** block can restrict itself to one state,
+  degree or reaffirmation year — "just Texas" — instead of only ever showing
+  the unrestricted directory. The matching field disappears from the inline
+  search, since changing it would do nothing.
+- The **Institutions Search** block/`[sacscoc_institutions_search]` gained
+  **Constrain width to match the directory** (on by default): capped at the
+  same measure the directory itself uses and centred, so a search panel placed
+  above a directory lines up with it instead of stretching full width.
+- **Settings → Directory Page** and the setup wizard now always insert the
+  **Institutions Directory** block itself into the chosen/created page — never
+  a shortcode — so what Settings configures and what the page shows can never
+  drift apart, and the block is there to click and customise the moment the
+  page opens.
+
+**0.8.0** gives the Institutions Search block/`[sacscoc_institutions_search]` a
+Layout control of its own — Vertical (the panel) or Horizontal (a single
+search bar) — independent of whatever layout a directory elsewhere on the page
+is using. The two blocks also carry distinct icons in the inserter now, rather
+than sharing one.
+
+**0.7.0** adds two Gutenberg blocks — Institutions Directory and Institutions
+Search — as a native alternative to typing out the shortcodes: every attribute
+either shortcode takes is an Inspector Control instead, plus background
+colour, text colour, padding and font size from the block's own standard
+toolbar. **Create Institutions Page** now builds a page around the block
+rather than a Shortcode block wrapping shortcode text, and the two headings
+above the search panel and the results list are customisable, on both blocks
+and both shortcodes. See [The public directory](#the-public-directory).
+
+**0.6.0** adds **Create Institutions Page** to Settings — a page created,
+published and pre-filled with the directory, in one click instead of leaving
+Settings to build one by hand. An existing Directory Page whose content is
+missing it gets a warning and an **Add the directory to this page now** button
+in its place.
+
+**0.4.0** splits the search form out of the directory: `show_search="no"` on
+`[sacscoc_institutions]`, paired with `[sacscoc_institutions_search]` rendered
+wherever that shortcode's own layout cannot reach — a custom block, a sidebar, a
+template part. See
+[The search form on its own](#the-search-form-on-its-own).
+
+**0.3.0** is a frontend release. The directory was redressed in the Cirlot
+site's own design language rather than the old sacscoc.org one — see
+[Design and theme integration](#design-and-theme-integration) — and three things
+were added around it:
+
+- a **choice of layout**, two columns or one, in Settings or per page;
+- **Results Per Page** as a setting rather than a constant;
+- **`[sacscoc_institution id="…"]`**, which puts a single record on any page,
+  offered ready to copy on that institution's own admin screen.
+
+Two defects found while building it were fixed: a search matching nothing
+printed no message at all, and a page set to a non-default page size silently
+reverted to 25 on the first keystroke of a live filter.
+
 Not yet included: **off-campus instructional sites** and the **review / meeting
 history** on institution pages. Both need per-institution API calls — about
 3,600 requests for the full dataset — so they need a batched, resumable sync
@@ -25,41 +90,114 @@ rather than the single request the institutions themselves take.
 
 | Screen | What it is for |
 | --- | --- |
-| Institutions → All Institutions | The local copy, searchable and filterable. Clicking one opens its record: a read-only screen showing every stored field, grouped into what the institution is (main column) and what the record is (side column). Inspection, not editing. |
+| Institutions → All Institutions | The local copy, searchable and filterable. Clicking one opens its record: a read-only screen showing every stored field, grouped into what the institution is (main column) and what the record is (side column), with that institution's embed shortcode ready to copy. Inspection, not editing. |
 | Institutions → Sync | Status, `Sync Now`, and the log of recent runs. |
-| Institutions → Settings | API Base URL, Sync Frequency, API Timeout, the directory page, layout and page size, the URL base, and the shared footer content. |
-| Institutions → Documentation | The API, the field map, and how a sync decides what to write. |
+| Institutions → Settings | API Base URL, Sync Frequency, API Timeout, the directory page, layout and page size, the URL base, the shared footer content, whether deleting the plugin takes the data with it, and a confirmed reset that empties the tables without uninstalling. |
+| Institutions → Documentation | How to publish the directory — the three blocks, the three shortcodes underneath them, and what the settings currently say — then the API, the field map, and how a sync decides what to write. |
 
 ## The public directory
 
-Put the shortcode on any WordPress page and that page becomes the directory:
+The no-code way to publish it: **Settings → Directory Page → Create
+Institutions Page** creates a new, published page named "Institutions" with an
+**Institutions Directory** block already on it, and opens the page for editing
+straight away. Click the block to configure it from its own Inspector Controls
+— no attribute is ever typed by hand — and use the block's own toolbar for
+background colour, text colour, padding and font size, the same as any other
+block on the page.
+
+A `[sacscoc_institutions]` shortcode sits underneath the block and remains
+fully supported on its own, for a page with no block editor or for the odd
+attribute a control does not offer:
 
 ```
 [sacscoc_institutions]
 ```
 
+### The Gutenberg blocks
+
+Three blocks, added from the inserter like any other:
+
+**Institutions Directory** — the whole thing: search, results, pagination.
+Its Inspector Controls panel offers:
+
+| Control | What it does |
+| --- | --- |
+| Show the search form | Off drops the inline form entirely, for pairing with a separate Institutions Search block — see below |
+| Layout | Two columns or one — leave unset to follow **Settings → Directory Layout** |
+| Results per page | Leave blank to follow **Settings → Results Per Page** |
+| Show the result count | Toggles the "Showing 1–25 of 1,201" line |
+| State / Highest degree offered / Next reaffirmation year | Restricts every result — and drops the matching field from the inline search — to one value. Leave all three on "Any" for the ordinary, unrestricted directory. |
+| Search panel heading / Results heading | Replace "Institution Search" / "Results" with any text |
+| Group | Only shown once the search form is off; see pairing below |
+
+**Institutions Search** — just the form, for a page that wants it somewhere
+the directory block's own layout cannot reach: a sidebar, a header, another
+column. Its Inspector Controls offer a **Layout** (Vertical, the panel, or
+Horizontal, a single bar — independent of whatever layout the directory
+elsewhere on the page is using), a **Heading**, a **Group**, and **Constrain
+width to match the directory** (on by default) — capped at the directory's own
+1200px measure and centred, so a search panel placed above a directory lines
+up with it instead of stretching full width; turn it off for a panel placed
+somewhere narrower, like a sidebar.
+
+**Institution** — one record. Type a name into its own Inspector Controls and
+pick it from the matches — the native alternative to typing
+`[sacscoc_institution id="…"]` — plus toggles for the "Back to Results" button
+and the "About SACSCOC" block, the same two things the shortcode's `back` and
+`about` attributes control.
+
+The Directory and Search blocks pair up purely in the browser — the same
+runtime pairing `[sacscoc_institutions_search]` and `show_search="no"` already
+use, by matching **Group** (default "default" on both, so an ordinary
+one-of-each page needs neither field touched; set both to the same value only
+when a page carries more than one pair).
+
+All three blocks are dynamic: what shows in the editor is exactly what a
+visitor gets, fetched from the same PHP the shortcodes call —
+`sacscoc_inst_render_directory()` / `sacscoc_inst_render_search()` /
+`sacscoc_inst_render_institution()` in `includes/frontend.php` — so a block
+and its shortcode can never disagree about what a given set of settings
+produces.
+
+### The shortcodes underneath
+
 Attributes, all optional — each one overrides its Settings value for that page
-only:
+only, and maps one-to-one to a block Inspector Control above:
 
 | Attribute | Values | Default |
 | --- | --- | --- |
 | `layout` | `two-column`, `one-column` | **Settings → Directory Layout** |
 | `per_page` | 1–200 | **Settings → Results Per Page** (25) |
 | `show_count` | `yes`, `no` | `yes` |
+| `show_search` | `yes`, `no` | `yes` |
+| `group` | any string | `default` |
+| `search_heading` | any text | the built-in "Institution Search" |
+| `results_heading` | any text | the built-in "Results" |
 
 ```
 [sacscoc_institutions layout="one-column" per_page="50"]
 ```
 
-Both travel with the markup as data attributes and are posted back with every
-live filter, so a page listing 50 keeps listing 50 after the first keystroke
-instead of quietly reverting to the default.
+`show_search` and `group` are for [The search form on its own](#the-search-form-on-its-own):
+`show_search="no"` drops the inline form, and `group` pairs this shortcode with
+a `[sacscoc_institutions_search]` rendering it elsewhere.
+
+`layout`, `per_page`, `show_count`, `group` and `results_heading` travel with
+the markup as data attributes and are posted back with every live filter, so a
+page listing 50 under a custom heading keeps listing 50 under that same
+heading after the first keystroke, instead of quietly reverting to the default.
+
+A page picked as Directory Page whose content has neither the shortcode nor the
+block yet — one chosen before this existed, or emptied out afterwards — gets a
+warning right on the Settings screen with an **Add the directory to this page
+now** button, so nothing is ever silently rewritten: the only two ways the
+directory lands in a page's content are these two explicit clicks, or pasting
+the block or the shortcode in yourself.
 
 Institution pages are served at `/institutions/<slug>/` — the base is
 configurable in Settings — and render inside the theme's own `get_header()` and
-`get_footer()`, so they inherit the site's chrome and typography. Set
-**Settings → Directory Page** so institution pages know where to link "back to
-all institutions".
+`get_footer()`, so they inherit the site's chrome and typography.
+**Settings → Directory Page** is also what institution pages link back to.
 
 The four filters are the ones the existing site offers: institution name, state
 (including the *International* pseudo-option), highest degree offered, and next
@@ -70,6 +208,47 @@ dropped rather than passed to the query.
 The reaffirmation-year dropdown is built from the years that actually have
 institutions behind them. The current site hardcodes 2021–2036 and the first
 five of those now return nothing.
+
+### One institution on any page
+
+Every institution also has a shortcode of its own, which renders its full record
+wherever it is pasted:
+
+```
+[sacscoc_institution id="1246"]
+```
+
+It is printed ready to copy on the institution's own admin screen —
+**Institutions → All Institutions → (any institution) → Embed this record** — so
+the id never has to be looked up by hand.
+
+| Attribute | Values | Default |
+| --- | --- | --- |
+| `id` | the API numeric id | — |
+| `slug` | the URL slug | — |
+| `sf_id` | the Salesforce id | — |
+| `back` | `yes`, `no` | `no` |
+| `about` | `yes`, `no` | `yes` |
+
+The id is the **API numeric id**, not the row's local `id`: it comes from the
+source of truth, so it survives the local table being dropped and rebuilt. A
+page written against a URL or against Salesforce can use `slug` or `sf_id`
+instead; they are tried in that order.
+
+It renders from `templates/institution.php` — the same file the
+`/institutions/<slug>/` page uses, so an embedded record and a record on its own
+page cannot drift apart. Two things differ, and both are attributes:
+
+- **`back`** is off. The "Back to Results" button assumes the visitor arrived
+  from the directory, which is not true of a record dropped into an editorial
+  page.
+- **`about`** is on, because the shared About SACSCOC block is a disclosure that
+  belongs with the record — but turn it off when several records share a page
+  and it would otherwise print the same 1,500 words for each.
+
+An id that matches nothing renders nothing at all for a visitor. Anyone who can
+edit posts gets a one-line note instead, because a blank space where a record
+should be is the kind of mistake nobody notices until someone else does.
 
 ### Two layouts
 
@@ -97,6 +276,62 @@ layout:
   once.
 
 Below 720px the strip becomes ordinary stacked fields with their labels back.
+
+### The search form on its own
+
+`show_search="no"` drops the form from `[sacscoc_institutions]` entirely — no
+`<aside>`, results take the full width — for a page that wants the search
+somewhere that shortcode's own layout cannot reach: a custom block, a sidebar, a
+template part. `[sacscoc_institutions_search]` renders that form there instead:
+
+```
+[sacscoc_institutions show_search="no"]
+```
+
+placed anywhere else on the same page, in a custom block or widget, gives
+
+```
+[sacscoc_institutions_search]
+```
+
+Both are optional and both default to working exactly as before: leave
+`show_search` out and `[sacscoc_institutions]` keeps its own inline form, the
+same markup it has always rendered.
+
+They find each other **purely at runtime**, by matching a `group` attribute —
+default `"default"` on both, which is why the ordinary one-of-each case needs no
+attribute on either shortcode at all. There is no server-side link between them;
+`assets/js/directory.js` pairs them in the browser: a directory looks for a form
+nested inside itself first, and only when there is none does it look elsewhere
+on the page for an unclaimed `[sacscoc_institutions_search]` sharing its group.
+A page with more than one directory/search pair needs `group="…"` on both halves
+of each pair to keep them from claiming each other's form; everyone else never
+touches the attribute.
+
+Both render `templates/search-form.php` — the same file, the same markup,
+whichever shortcode is asking for it — so an inline form and a standalone one
+can never drift apart. What differs is entirely outside that file: where the
+plain-GET, no-JavaScript fallback submits to, and the styling wrapper the
+standalone shortcode puts around it. On the wrapper: it carries the class
+`sacscoc-directory` — the stylesheet's general-purpose scoping class, not a
+claim that this is literally a directory — purely so the standalone form picks
+up the same colours, type, controls and buttons the inline one does, without
+carrying the `data-sacscoc-directory` marker that tells the script "this is a
+results region," which would make the script mistake it for one.
+
+The standalone form's fallback action is always **Settings → Directory Page** —
+never "whatever page this shortcode happens to be on" — because when the two
+shortcodes are on different pages (or the setting is what actually locates the
+results), guessing from the current request would point the form at itself.
+
+It also offers the one-column "bar" visual on its own terms: `layout="horizontal"`
+(default `vertical`), independent of `[sacscoc_institutions]`'s own layout —
+where that attribute is a statement about how the *directory's* search sits next
+to *its* results, this one is just about the shape of *this* form, wherever it
+ends up. Both values render through the same `.sacscoc-search--stacked` CSS the
+directory's own inline bar uses, so a standalone bar and an inline one look
+identical; see [The Gutenberg blocks](#the-gutenberg-blocks) for the same choice
+as an Inspector Control on the Institutions Search block.
 
 ### Live filtering
 
@@ -283,6 +518,29 @@ normally answers in about 3 seconds.
 in *and* on the way out, so a value written straight to the database by a
 migration or WP-CLI still cannot produce a query for the whole table.
 
+**Directory Page** — the page the directory lives on. **Create Institutions
+Page** creates one from scratch, published, with the shortcode already written
+into its content as a real, editable Shortcode block. Picking an existing page
+here instead only sets where institution pages link back to; if that page's
+content does not already have the shortcode, a warning and an **Add the
+shortcode to this page now** button appear right below the dropdown. See
+[The public directory](#the-public-directory).
+
+**Institution URL Base** — one path segment, `institutions` by default. See
+[URLs under the same base keep working](#urls-under-the-same-base-keep-working).
+Changing it changes every institution URL, so old links stop resolving;
+permalinks are refreshed automatically.
+
+**Institution Footer Content** — the shared About SACSCOC block, stored once
+rather than 1,201 times. See
+[Content shown on every institution page](#content-shown-on-every-institution-page).
+Leave it empty and the block does not render at all.
+
+**Delete everything when this plugin is deleted** — off by default. See
+[Deleting the plugin](#deleting-the-plugin). The same section holds
+**Delete all stored data now…**, which empties the tables without uninstalling —
+see [Starting over without deleting](#starting-over-without-deleting).
+
 ## How the sync works
 
 ```
@@ -381,13 +639,64 @@ has already linked to or bookmarked.
 Deactivating the plugin clears the cron event and nothing else. The tables and
 their data survive, so deactivating and reactivating costs no re-download.
 
+### Deleting the plugin
+
+Deleting is the only thing that can remove the data, and by default it does not:
+a delete-and-reinstall is usually a repair, so reinstalling picks the
+institutions back up instead of re-downloading 1.7 MB.
+
+To start from scratch instead, tick **Settings → Deleting this plugin → Delete
+everything when this plugin is deleted** *before* deleting it. `uninstall.php`
+then drops the four tables and every `sacscoc_inst_*` option and transient —
+matched by prefix rather than from a hand-kept list, so it cannot fall behind
+the code — and clears the cron event. Nothing outside the plugin is touched.
+
+It is a setting rather than a prompt because WordPress asks "are you sure you
+want to delete this plugin?" and nothing else: there is no hook that can add a
+second question to that dialog, and `uninstall.php` cannot ask one either, since
+by the time it runs there is no screen left to answer on. So the question is
+asked in advance, and the screen says which way it is currently answered.
+
+Note that a deploy is not a delete. Uploading the plugin files again over SFTP —
+which is what the deploy workflow does — never runs `uninstall.php`, so the data
+survives a redeploy whatever the box says. Only **Plugins → Delete** runs it.
+
+### Starting over without deleting
+
+**Settings → Deleting this plugin → Delete all stored data now…** empties the
+four tables and clears the last sync's result, keeping the tables and every
+setting, so the next sync refills the directory from the API. It is the answer
+to "resync everything from nothing" that does not involve deleting the plugin.
+
+It asks first, on a screen of its own rather than through a JavaScript
+`confirm()` — a browser with the script blocked would otherwise run a
+confirm-less delete. The confirmation is also where the one real cost is stated:
+institution URLs are assigned on first insert, so they are assigned again on the
+next sync, and institutions whose names collide take their numeric suffix in
+whatever order they arrive. That order may differ, so a link to one of those
+could end up pointing at the other.
+
+`TRUNCATE` rather than `DELETE`, so the refilled tables number from 1 again,
+with `DELETE` as the fallback for hosts that withhold the `DROP` privilege
+`TRUNCATE` needs.
+
 ## Documentation
 
 - `docs/API-FIELD-MAP.md` — every API field, its column, and what the existing
   frontend does with it, plus the related-data schemas and what is deliberately
   not stored.
 - Institutions → Documentation renders the same map from the plugin's own field
-  definitions, so it describes the mapping actually in force.
+  definitions, so it describes the mapping actually in force. It opens with
+  **Putting it on the site**: the two blocks and both their Inspector Controls,
+  the three shortcodes underneath them and their attributes, then the live
+  values of the layout, page size, directory page and URL base — read from the
+  settings rather than written down, so that screen cannot describe a
+  configuration this site does not have.
+- Every file carries its reasoning in its own header comment. The ones worth
+  reading first are `includes/frontend.php` (the shortcodes and the institution
+  URLs), `includes/blocks.php` and `assets/js/blocks.js` (the two Gutenberg
+  blocks), `assets/css/sacscoc-institutions.css` (where the design comes from)
+  and `includes/icons.php` (the icon set and how to replace it).
 
 ## Deployment
 

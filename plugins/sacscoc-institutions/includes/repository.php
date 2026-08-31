@@ -234,6 +234,311 @@ function sacscoc_inst_unique_slug( string $name, string $sf_id, array &$taken ):
 }
 
 // ──────────────────────────────────────────────
+// Off-campus instructional sites and reviews/meetings
+//
+// Unlike the institutions table, these two have no single bulk endpoint: the
+// API only answers "sites/meetings for this one sf_institution_id", so they
+// are synced institution by institution (see sacscoc_inst_sync_related_batch()
+// in includes/sync.php) rather than all at once. Every write and presence
+// check below is scoped to one institution's sf_id for the same reason: a
+// batch that only fetched 40 institutions this tick must never mark the other
+// 1,161 institutions' sites as missing.
+// ──────────────────────────────────────────────
+
+/** Columns sacscoc_institution_sites writes, and how each is quoted. */
+function sacscoc_inst_site_writable_columns(): array {
+    static $columns = null;
+    if ( $columns !== null ) return $columns;
+
+    $columns = [];
+    foreach ( sacscoc_inst_site_field_map() as [ $column ] ) {
+        $columns[ $column ] = $column === 'api_id' ? 'int' : 'text';
+    }
+    $columns['raw_json']      = 'text';
+    $columns['content_hash']  = 'text';
+    $columns['last_synced']   = 'text';
+    $columns['missing_since'] = 'text';
+
+    return $columns;
+}
+
+/** Every local site row for one institution, keyed by sf_id — for change detection. */
+function sacscoc_inst_site_hash_index( string $sf_institution_id ): array {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_sites' );
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT sf_id, content_hash FROM $table WHERE sf_institution_id = %s", $sf_institution_id
+    ), ARRAY_A );
+
+    $index = [];
+    foreach ( (array) $rows as $row ) {
+        $index[ $row['sf_id'] ] = (string) $row['content_hash'];
+    }
+    return $index;
+}
+
+/** Insert the new sites and rewrite the changed ones. See sacscoc_inst_write_batch(). */
+function sacscoc_inst_write_sites_batch( array $rows ): int {
+    global $wpdb;
+    if ( ! $rows ) return 0;
+
+    $table   = sacscoc_inst_table( 'institution_sites' );
+    $types   = sacscoc_inst_site_writable_columns();
+    $columns = array_keys( $types );
+
+    $assignments = [];
+    foreach ( $columns as $column ) {
+        if ( $column === 'sf_id' ) continue;
+        $assignments[] = "`$column` = VALUES(`$column`)";
+    }
+
+    $column_list = '`' . implode( '`, `', $columns ) . '`';
+    $assign_list = implode( ', ', $assignments );
+    $affected    = 0;
+
+    foreach ( array_chunk( $rows, 100 ) as $chunk ) {
+        $tuples = [];
+        foreach ( $chunk as $row ) {
+            $values = [];
+            foreach ( $columns as $column ) {
+                $values[] = sacscoc_inst_sql_literal( $row[ $column ] ?? null, $types[ $column ] );
+            }
+            $tuples[] = '(' . implode( ', ', $values ) . ')';
+        }
+
+        $sql = "INSERT INTO $table ($column_list) VALUES "
+             . implode( ', ', $tuples )
+             . " ON DUPLICATE KEY UPDATE $assign_list";
+
+        $result = $wpdb->query( $sql );
+        if ( $result === false ) {
+            throw new RuntimeException( sprintf( 'Database write failed: %s', $wpdb->last_error ?: 'unknown error' ) );
+        }
+        $affected += (int) $result;
+    }
+
+    return $affected;
+}
+
+/**
+ * Mark sites the API stopped returning for this one institution, and clear the
+ * mark on any that came back. Never deletes — same policy as
+ * sacscoc_inst_mark_presence().
+ */
+function sacscoc_inst_mark_sites_presence( string $sf_institution_id, array $present_sf_ids ): int {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_sites' );
+    $now   = current_time( 'mysql', true );
+
+    if ( ! $present_sf_ids ) {
+        return (int) $wpdb->query( $wpdb->prepare(
+            "UPDATE $table SET missing_since = %s WHERE sf_institution_id = %s AND missing_since IS NULL",
+            $now, $sf_institution_id
+        ) );
+    }
+
+    $placeholders = implode( ', ', array_fill( 0, count( $present_sf_ids ), '%s' ) );
+
+    $wpdb->query( $wpdb->prepare(
+        "UPDATE $table SET missing_since = NULL WHERE sf_institution_id = %s AND sf_id IN ($placeholders)",
+        array_merge( [ $sf_institution_id ], $present_sf_ids )
+    ) );
+
+    return (int) $wpdb->query( $wpdb->prepare(
+        "UPDATE $table SET missing_since = %s
+          WHERE sf_institution_id = %s AND missing_since IS NULL AND sf_id NOT IN ($placeholders)",
+        array_merge( [ $now, $sf_institution_id ], $present_sf_ids )
+    ) );
+}
+
+/**
+ * The open off-campus sites shown on an institution's page, alphabetically.
+ * Closed sites are stored (the API sends them) but never displayed — the
+ * production site's own rule, in the sites legend.
+ */
+function sacscoc_inst_sites_for_institution( string $sf_institution_id ): array {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_sites' );
+
+    return (array) $wpdb->get_results( $wpdb->prepare(
+        "SELECT * FROM $table
+          WHERE sf_institution_id = %s AND missing_since IS NULL AND status = 'Open'
+          ORDER BY name ASC",
+        $sf_institution_id
+    ), ARRAY_A );
+}
+
+/** Columns sacscoc_institution_meetings writes, and how each is quoted. */
+function sacscoc_inst_meeting_writable_columns(): array {
+    static $columns = null;
+    if ( $columns !== null ) return $columns;
+
+    $columns = [];
+    foreach ( sacscoc_inst_meeting_field_map() as [ $column ] ) {
+        $columns[ $column ] = $column === 'api_id' ? 'int' : 'text';
+    }
+    // Local bookkeeping: not from the API map, see includes/fields.php.
+    $columns['kind']          = 'text';
+    $columns['display_year']  = 'text';
+    $columns['raw_json']      = 'text';
+    $columns['content_hash']  = 'text';
+    $columns['last_synced']   = 'text';
+    $columns['missing_since'] = 'text';
+
+    return $columns;
+}
+
+/** Every local meeting row for one institution and kind, keyed by api_id. */
+function sacscoc_inst_meeting_hash_index( string $sf_institution_id, string $kind ): array {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_meetings' );
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT api_id, content_hash FROM $table WHERE sf_institution_id = %s AND kind = %s",
+        $sf_institution_id, $kind
+    ), ARRAY_A );
+
+    $index = [];
+    foreach ( (array) $rows as $row ) {
+        $index[ (int) $row['api_id'] ] = (string) $row['content_hash'];
+    }
+    return $index;
+}
+
+/** Insert the new meetings and rewrite the changed ones. See sacscoc_inst_write_batch(). */
+function sacscoc_inst_write_meetings_batch( array $rows ): int {
+    global $wpdb;
+    if ( ! $rows ) return 0;
+
+    $table   = sacscoc_inst_table( 'institution_meetings' );
+    $types   = sacscoc_inst_meeting_writable_columns();
+    $columns = array_keys( $types );
+
+    $assignments = [];
+    foreach ( $columns as $column ) {
+        if ( $column === 'api_id' || $column === 'kind' ) continue;
+        $assignments[] = "`$column` = VALUES(`$column`)";
+    }
+
+    $column_list = '`' . implode( '`, `', $columns ) . '`';
+    $assign_list = implode( ', ', $assignments );
+    $affected    = 0;
+
+    foreach ( array_chunk( $rows, 100 ) as $chunk ) {
+        $tuples = [];
+        foreach ( $chunk as $row ) {
+            $values = [];
+            foreach ( $columns as $column ) {
+                $values[] = sacscoc_inst_sql_literal( $row[ $column ] ?? null, $types[ $column ] );
+            }
+            $tuples[] = '(' . implode( ', ', $values ) . ')';
+        }
+
+        $sql = "INSERT INTO $table ($column_list) VALUES "
+             . implode( ', ', $tuples )
+             . " ON DUPLICATE KEY UPDATE $assign_list";
+
+        $result = $wpdb->query( $sql );
+        if ( $result === false ) {
+            throw new RuntimeException( sprintf( 'Database write failed: %s', $wpdb->last_error ?: 'unknown error' ) );
+        }
+        $affected += (int) $result;
+    }
+
+    return $affected;
+}
+
+/** Mark meetings of one kind the API stopped returning for this institution. Never deletes. */
+function sacscoc_inst_mark_meetings_presence( string $sf_institution_id, string $kind, array $present_api_ids ): int {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_meetings' );
+    $now   = current_time( 'mysql', true );
+
+    if ( ! $present_api_ids ) {
+        return (int) $wpdb->query( $wpdb->prepare(
+            "UPDATE $table SET missing_since = %s WHERE sf_institution_id = %s AND kind = %s AND missing_since IS NULL",
+            $now, $sf_institution_id, $kind
+        ) );
+    }
+
+    $placeholders = implode( ', ', array_fill( 0, count( $present_api_ids ), '%d' ) );
+
+    $wpdb->query( $wpdb->prepare(
+        "UPDATE $table SET missing_since = NULL
+          WHERE sf_institution_id = %s AND kind = %s AND api_id IN ($placeholders)",
+        array_merge( [ $sf_institution_id, $kind ], $present_api_ids )
+    ) );
+
+    return (int) $wpdb->query( $wpdb->prepare(
+        "UPDATE $table SET missing_since = %s
+          WHERE sf_institution_id = %s AND kind = %s AND missing_since IS NULL AND api_id NOT IN ($placeholders)",
+        array_merge( [ $now, $sf_institution_id, $kind ], $present_api_ids )
+    ) );
+}
+
+/**
+ * One institution's meetings of one kind, for the frontend.
+ *
+ * `inprogress` sorts soonest-first (what's coming up); `recent` sorts
+ * newest-first (what happened most recently) — matching the production
+ * "In-Progress Reviews" and "Most Recent History with SACSCOC" sections.
+ */
+function sacscoc_inst_meetings_for_institution( string $sf_institution_id, string $kind ): array {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institution_meetings' );
+    $order = $kind === 'recent' ? 'DESC' : 'ASC';
+
+    return (array) $wpdb->get_results( $wpdb->prepare(
+        "SELECT * FROM $table
+          WHERE sf_institution_id = %s AND kind = %s AND missing_since IS NULL
+          ORDER BY display_year $order, action_date $order",
+        $sf_institution_id, $kind
+    ), ARRAY_A );
+}
+
+/** Headline counts for the related-data section of the Sync screen. */
+function sacscoc_inst_related_stats(): array {
+    global $wpdb;
+
+    if ( ! sacscoc_inst_tables_ready() ) {
+        return [ 'sites' => 0, 'inprogress' => 0, 'recent' => 0 ];
+    }
+
+    $sites    = sacscoc_inst_table( 'institution_sites' );
+    $meetings = sacscoc_inst_table( 'institution_meetings' );
+
+    return [
+        'sites'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM $sites WHERE missing_since IS NULL AND status = 'Open'" ),
+        'inprogress' => (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM $meetings WHERE missing_since IS NULL AND kind = %s", 'inprogress'
+        ) ),
+        'recent'     => (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM $meetings WHERE missing_since IS NULL AND kind = %s", 'recent'
+        ) ),
+    ];
+}
+
+/** Institutions due for a related-data refresh, oldest cursor position first. */
+function sacscoc_inst_related_sync_targets( int $cursor, int $limit ): array {
+    global $wpdb;
+    $table = sacscoc_inst_table( 'institutions' );
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT id, sf_id FROM $table WHERE id > %d ORDER BY id ASC LIMIT %d", $cursor, $limit
+    ), ARRAY_A );
+
+    // Reached the end of the table: wrap around and start the next cycle.
+    if ( ! $rows ) {
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, sf_id FROM $table WHERE id > 0 ORDER BY id ASC LIMIT %d", $limit
+        ), ARRAY_A );
+    }
+
+    return (array) $rows;
+}
+
+// ──────────────────────────────────────────────
 // Reads for the admin screens
 // ──────────────────────────────────────────────
 
@@ -434,4 +739,60 @@ function sacscoc_inst_log_prune(): void {
     if ( $cutoff > 0 ) {
         $wpdb->query( $wpdb->prepare( "DELETE FROM $table WHERE id <= %d", $cutoff ) );
     }
+}
+
+// ──────────────────────────────────────────────
+// Starting over
+// ──────────────────────────────────────────────
+
+/**
+ * Empty every table this plugin fills, and forget everything derived from them.
+ *
+ * The tables stay — this is "start from scratch", not "uninstall": the next sync
+ * repopulates them from the API. Configuration is untouched for the same reason;
+ * wiping the API base URL along with the data would leave a plugin that cannot
+ * refill itself.
+ *
+ * What goes with the rows is the state that only describes them: the cached year
+ * list behind the reaffirmation filter, the last sync's result and error, and
+ * the lock, in case a run died holding it and would otherwise block the sync
+ * that is about to be wanted.
+ *
+ * TRUNCATE, so the next sync starts numbering from 1 rather than from 1,202 —
+ * with DELETE as the fallback, because TRUNCATE needs the DROP privilege and
+ * some managed hosts do not grant it.
+ *
+ * @return array<string,int> rows removed, per table
+ */
+function sacscoc_inst_delete_all_data(): array {
+    global $wpdb;
+
+    $removed = [];
+
+    foreach ( [ 'institutions', 'institution_sites', 'institution_meetings', 'sync_log' ] as $name ) {
+        $table = sacscoc_inst_table( $name );
+
+        if ( ! $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) ) {
+            $removed[ $name ] = 0;
+            continue;
+        }
+
+        $removed[ $name ] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table" );
+
+        if ( $wpdb->query( "TRUNCATE TABLE $table" ) === false ) {
+            $wpdb->query( "DELETE FROM $table" );
+        }
+    }
+
+    delete_transient( 'sacscoc_inst_reaffirm_years' );
+    delete_transient( 'sacscoc_inst_sync_lock' );
+    delete_transient( 'sacscoc_inst_related_sync_lock' );
+    delete_option( 'sacscoc_inst_last_sync_result' );
+    delete_option( 'sacscoc_inst_last_error' );
+    delete_option( 'sacscoc_inst_last_successful_sync' );
+    delete_option( 'sacscoc_inst_related_cursor' );
+    delete_option( 'sacscoc_inst_related_last_sync' );
+    delete_option( 'sacscoc_inst_related_last_sync_result' );
+
+    return $removed;
 }

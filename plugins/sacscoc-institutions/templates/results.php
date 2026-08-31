@@ -6,6 +6,13 @@
  *   $results     array{rows,total,pages,paged,per_page} from sacscoc_inst_search()
  *   $filters     array{q,state,degree,year,paged} the active filters
  *   $show_count  bool
+ *   $heading     string the list's own heading; empty means the built-in
+ *                "Results". Set from the shortcode's `results_heading`
+ *                attribute or the Institutions Directory block's own
+ *                Inspector Control, and carried across every live filter as
+ *                `data-results-heading` on the directory's wrapper — without
+ *                that, a customised heading would revert to "Results" the
+ *                moment someone typed into the search box.
  *
  * Split out from directory.php so that the first page load and every live
  * filter afterwards render from the same file — the AJAX endpoint returns
@@ -18,11 +25,14 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-/** @var array $results */
-/** @var array $filters */
-/** @var bool  $show_count */
+/** @var array  $results */
+/** @var array  $filters */
+/** @var bool   $show_count */
+/** @var string $heading */
 
-$rows = $results['rows'];
+$rows    = $results['rows'];
+$heading = trim( (string) ( $heading ?? '' ) );
+$heading = $heading !== '' ? $heading : __( 'Results', 'sacscoc-institutions' );
 
 if ( ! $rows ) :
     ?>
@@ -37,7 +47,7 @@ endif;
 <div class="sacscoc-block sacscoc-results">
     <h2 class="sacscoc-block__heading">
         <?php echo sacscoc_inst_icon( 'results', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
-        <span><?php esc_html_e( 'Results', 'sacscoc-institutions' ); ?></span>
+        <span><?php echo esc_html( $heading ); ?></span>
     </h2>
 
     <?php // Instruction and tally share a line: one is guidance, the other is context. ?>

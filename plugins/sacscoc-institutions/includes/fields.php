@@ -111,33 +111,37 @@ function sacscoc_inst_field_map(): array {
 const SACSCOC_INST_HASH_EXCLUDE = [ 'created_at', 'updated_at' ];
 
 /**
- * A stable fingerprint of one institution's data.
+ * A stable fingerprint of a record's data, given the fields to leave out.
  *
  * Keys are sorted so the API reordering its JSON does not read as a change,
  * and the excluded fields are removed before hashing. Two records with the
  * same hash carry the same information and the local row is left untouched.
  */
-function sacscoc_inst_content_hash( array $record ): string {
-    foreach ( SACSCOC_INST_HASH_EXCLUDE as $key ) {
+function sacscoc_inst_hash_record( array $record, array $exclude ): string {
+    foreach ( $exclude as $key ) {
         unset( $record[ $key ] );
     }
     ksort( $record );
     return sha1( (string) wp_json_encode( $record ) );
 }
 
+/** A stable fingerprint of one institution's data. */
+function sacscoc_inst_content_hash( array $record ): string {
+    return sacscoc_inst_hash_record( $record, SACSCOC_INST_HASH_EXCLUDE );
+}
+
 /**
- * Turn one API record into a row of column => value, cast per the map above.
+ * Turn one API record into a row of column => value, cast per a field map.
  *
- * Every record the API sends carries all forty-three fields — verified across
- * the full dataset, where not one record omits a key. A field that is absent
- * anyway is left out of the result rather than mapped to NULL, so the writer
- * can tell "the API stopped sending this" apart from "the API sent an empty
- * value", and a truncated record cannot quietly blank a column.
+ * A field absent from the record is left out of the result rather than mapped
+ * to NULL, so the writer can tell "the API stopped sending this" apart from
+ * "the API sent an empty value", and a truncated record cannot quietly blank
+ * a column.
  */
-function sacscoc_inst_map_record( array $record ): array {
+function sacscoc_inst_apply_field_map( array $record, array $map ): array {
     $row = [];
 
-    foreach ( sacscoc_inst_field_map() as $api_field => [ $column, $cast ] ) {
+    foreach ( $map as $api_field => [ $column, $cast ] ) {
         if ( ! array_key_exists( $api_field, $record ) ) continue;
 
         $row[ $column ] = match ( $cast ) {
@@ -149,6 +153,102 @@ function sacscoc_inst_map_record( array $record ): array {
     }
 
     return $row;
+}
+
+/**
+ * Every record the API sends for an institution carries all forty-three
+ * fields — verified across the full dataset, where not one record omits a
+ * key — so sacscoc_inst_apply_field_map()'s "absent means the API stopped
+ * sending it" distinction is safe to rely on here.
+ */
+function sacscoc_inst_map_record( array $record ): array {
+    return sacscoc_inst_apply_field_map( $record, sacscoc_inst_field_map() );
+}
+
+// ──────────────────────────────────────────────
+// Off-campus instructional sites — /api/v1/sites?sf_institution_id=…
+// ──────────────────────────────────────────────
+
+/** API field name => [ local column, cast ]. See docs/API-FIELD-MAP.md. */
+function sacscoc_inst_site_field_map(): array {
+    return [
+        'sf_id'             => [ 'sf_id', 'text' ],
+        'id'                => [ 'api_id', 'int' ],
+        'sf_institution_id' => [ 'sf_institution_id', 'text' ],
+        'name'              => [ 'name', 'text' ],
+        'status'            => [ 'status', 'text' ],
+        'type'              => [ 'type', 'text' ],
+        'street'            => [ 'street', 'text' ],
+        'city'              => [ 'city', 'text' ],
+        'state'             => [ 'state', 'text' ],
+        'zip'               => [ 'zip', 'text' ],
+        'country'           => [ 'country', 'text' ],
+        'created_at'        => [ 'api_created_at', 'datetime' ],
+        'updated_at'        => [ 'api_updated_at', 'datetime' ],
+        'deleted_at'        => [ 'api_deleted_at', 'datetime' ],
+    ];
+}
+
+function sacscoc_inst_map_site_record( array $record ): array {
+    return sacscoc_inst_apply_field_map( $record, sacscoc_inst_site_field_map() );
+}
+
+/** Same reasoning as SACSCOC_INST_HASH_EXCLUDE: timestamps the API rewrites every refresh. */
+function sacscoc_inst_site_content_hash( array $record ): string {
+    return sacscoc_inst_hash_record( $record, [ 'created_at', 'updated_at' ] );
+}
+
+// ──────────────────────────────────────────────
+// Reviews / meetings — /api/v1/recentmeetings, /api/v1/inprogressmeetings
+// ──────────────────────────────────────────────
+
+/**
+ * API field name => [ local column, cast ].
+ *
+ * `original_data` is deliberately not mapped: it carries the entire raw
+ * Salesforce Committee_Review__c record (10–16 KB, none of it public-facing)
+ * and is dropped before this ever sees the record — see
+ * sacscoc_inst_prepare_meeting_record() in includes/sync.php.
+ */
+function sacscoc_inst_meeting_field_map(): array {
+    return [
+        'id'                     => [ 'api_id', 'int' ],
+        'sf_institution_id'      => [ 'sf_institution_id', 'text' ],
+        'sf_meeting_id'          => [ 'sf_meeting_id', 'text' ],
+        'sf_committee_review_id' => [ 'sf_committee_review_id', 'text' ],
+        'name'                   => [ 'name', 'text' ],
+        'description'            => [ 'description', 'text' ],
+        'stage'                  => [ 'stage', 'text' ],
+        'action_date'            => [ 'action_date', 'date' ],
+        'end_date'               => [ 'end_date', 'text' ],
+        'created_at'             => [ 'api_created_at', 'datetime' ],
+        'updated_at'             => [ 'api_updated_at', 'datetime' ],
+        'deleted_at'             => [ 'api_deleted_at', 'datetime' ],
+    ];
+}
+
+function sacscoc_inst_map_meeting_record( array $record ): array {
+    return sacscoc_inst_apply_field_map( $record, sacscoc_inst_meeting_field_map() );
+}
+
+function sacscoc_inst_meeting_content_hash( array $record ): string {
+    return sacscoc_inst_hash_record( $record, [ 'created_at', 'updated_at' ] );
+}
+
+/**
+ * What the frontend shows next to a meeting's name: `end_date` when the API
+ * sent one, otherwise the year of `action_date`. Matches the existing
+ * production directory, per docs/API-FIELD-MAP.md.
+ */
+function sacscoc_inst_meeting_display_year( array $record ): ?string {
+    $end = sacscoc_inst_parse_text( $record['end_date'] ?? null );
+    if ( $end !== null ) return $end;
+
+    $action = sacscoc_inst_parse_text( $record['action_date'] ?? null );
+    if ( $action === null ) return null;
+
+    $ts = strtotime( $action );
+    return $ts === false ? null : gmdate( 'Y', $ts );
 }
 
 /** Trimmed string, or NULL for anything that is not usable text. */

@@ -11,11 +11,12 @@
  *   sacscoc_institution_meetings    reviews / meetings with SACSCOC
  *   sacscoc_sync_log                one row per sync run, for the admin screens
  *
- * Only `sacscoc_institutions` is written to in this release. The two related
- * tables are created now because their shape is already known from the API
- * (see docs/API-FIELD-MAP.md) and because settling the schema once is cheaper
- * than migrating a live directory later; they are populated when the related
- * data is synced, in the next milestone.
+ * `sacscoc_institution_sites` and `sacscoc_institution_meetings` are filled by
+ * a separate related-data sync (includes/sync.php,
+ * sacscoc_inst_sync_related_batch()), because neither has a bulk API endpoint —
+ * only "sites/meetings for this one sf_institution_id" — so they are synced a
+ * batch of institutions at a time on their own 5-minute schedule rather than
+ * all at once with the main directory.
  *
  * ── Why real columns and not postmeta ──────────────────────────────────────
  *

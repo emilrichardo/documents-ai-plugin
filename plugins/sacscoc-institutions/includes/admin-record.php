@@ -396,6 +396,10 @@ function sacscoc_inst_record_body( array $row ): void {
 
         <div class="sacscoc-record__col sacscoc-record__col--side">
             <?php
+            // First in the side column: it is the one thing on this read-only
+            // screen anybody can *do* with the record.
+            sacscoc_inst_record_embed_panel( $row );
+
             foreach ( $sections as $key => $section ) {
                 if ( $section['column'] !== 'side' ) continue;
                 sacscoc_inst_record_panel( $key, $section, $row );
@@ -432,6 +436,55 @@ function sacscoc_inst_record_panel( string $key, array $section, array $row ): v
                     <?php sacscoc_inst_record_field( $label, $row[ $column ] ?? null, $type, $icon, $row ); ?>
                 <?php endforeach; ?>
             </dl>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+/**
+ * The shortcode that puts this record on a page, ready to copy.
+ *
+ * Every institution has one and it is addressed by the API id, so the way to
+ * embed a record is on the record rather than in a document somebody has to go
+ * and find. Read-only and selected on click: the value is meant to be copied,
+ * never typed over — and it is not a form field, so nothing here can be saved.
+ */
+function sacscoc_inst_record_embed_panel( array $row ): void {
+    $shortcode = sacscoc_inst_embed_shortcode( $row );
+    $permalink = sacscoc_inst_permalink( $row );
+    ?>
+    <section class="sacscoc-panel sacscoc-panel--embed">
+        <h2 class="sacscoc-panel__title">
+            <span class="dashicons dashicons-shortcode"></span>
+            <?php esc_html_e( 'Embed this record', 'sacscoc-institutions' ); ?>
+        </h2>
+
+        <p class="sacscoc-panel__note">
+            <?php esc_html_e( 'Paste this into any page or post to render this institution’s record there.', 'sacscoc-institutions' ); ?>
+        </p>
+
+        <input class="sacscoc-embed" type="text" readonly
+               value="<?php echo esc_attr( $shortcode ); ?>"
+               onclick="this.select();"
+               aria-label="<?php esc_attr_e( 'Shortcode for this institution', 'sacscoc-institutions' ); ?>" />
+
+        <p class="sacscoc-panel__note">
+            <?php
+            printf(
+                /* translators: 1: back attribute, 2: about attribute */
+                esc_html__( 'Add %1$s for the “Back to Results” button, or %2$s to leave off the shared About SACSCOC block.', 'sacscoc-institutions' ),
+                '<code>back="yes"</code>',
+                '<code>about="no"</code>'
+            );
+            ?>
+        </p>
+
+        <?php if ( $permalink !== '' ) : ?>
+            <p class="sacscoc-panel__note">
+                <?php esc_html_e( 'Its own page:', 'sacscoc-institutions' ); ?>
+                <a href="<?php echo esc_url( $permalink ); ?>" target="_blank" rel="noopener noreferrer">
+                    <?php echo esc_html( sacscoc_inst_short_url( $permalink, 38 ) ); ?></a>
+            </p>
         <?php endif; ?>
     </section>
     <?php

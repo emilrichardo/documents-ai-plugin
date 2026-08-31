@@ -4,6 +4,13 @@
  *
  * Available:
  *   $institution  array — a full row from the institutions table
+ *   $embedded     bool  — rendered inside another page by [sacscoc_institution]
+ *   $show_back    bool  — print the "Back to Results" button
+ *   $show_about   bool  — print the shared About SACSCOC block
+ *
+ * The three flags only ever arrive from the embed shortcode. The institution
+ * page passes none of them, so their defaults below are what that page has
+ * always done: not embedded, back button, About block.
  *
  * Section order, headings and wording follow the existing
  * sacscoc.org/institutions/ detail view: the identity block, General
@@ -16,9 +23,13 @@
  * sanction, and the reaffirmation fields show a year while the rest show a full
  * date.
  *
- * Two sections the current site has are deliberately absent, because the data
- * they need is not synced yet: Off-campus Instructional Sites and the review /
- * meeting history. They arrive with the related-data sync.
+ * Off-campus Instructional Sites and the two review/meeting sections (matching
+ * production's "In-Progress Reviews" and "Most Recent History with SACSCOC")
+ * come from the related-data sync (includes/sync.php,
+ * sacscoc_inst_sync_related_batch()) rather than the main institutions sync, so
+ * they can be empty for an institution whose related data has not been synced
+ * yet, or that genuinely has none — each section is hidden entirely when there
+ * is nothing to show, same as every other conditional block on this page.
  *
  * Override by copying this file to `sacscoc-institutions/institution.php` in
  * the theme.
@@ -27,7 +38,14 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 /** @var array $institution */
+/** @var bool  $embedded */
+/** @var bool  $show_back */
+/** @var bool  $show_about */
 $row = $institution;
+
+$embedded   = $embedded ?? false;
+$show_back  = $show_back ?? true;
+$show_about = $show_about ?? true;
 
 $name      = sacscoc_inst_display_name( $row );
 $sanction  = sacscoc_inst_sanction( $row );
@@ -36,6 +54,11 @@ $level_tip = $level !== null ? ( sacscoc_inst_level_tooltips()[ $level ] ?? null
 $approved  = sacscoc_inst_approved_degrees( $row );
 $history   = sacscoc_inst_history_lines( $row );
 $footer    = sacscoc_inst_footer_content();
+
+$sf_id      = sacscoc_inst_parse_text( $row['sf_id'] );
+$sites      = $sf_id !== null ? sacscoc_inst_sites_for_institution( $sf_id ) : [];
+$inprogress = $sf_id !== null ? sacscoc_inst_meetings_for_institution( $sf_id, 'inprogress' ) : [];
+$recent     = $sf_id !== null ? sacscoc_inst_meetings_for_institution( $sf_id, 'recent' ) : [];
 
 /**
  * One label-and-value pair, skipped entirely when there is no value.
@@ -53,14 +76,16 @@ $fact = static function ( string $label, ?string $value, string $icon = '' ): vo
     );
 };
 ?>
-<article class="sacscoc-single">
+<article class="sacscoc-single<?php echo $embedded ? ' sacscoc-single--embedded' : ''; ?>">
 
+    <?php if ( $show_back ) : ?>
     <p class="sacscoc-back">
         <a class="sacscoc-btn sacscoc-btn--back" href="<?php echo esc_url( sacscoc_inst_directory_url() ); ?>">
             <?php echo sacscoc_inst_icon( 'back' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
             <?php esc_html_e( 'Back to Results', 'sacscoc-institutions' ); ?>
         </a>
     </p>
+    <?php endif; ?>
 
     <!-- ── Identity ── -->
     <section class="sacscoc-block">
@@ -263,8 +288,84 @@ $fact = static function ( string $label, ?string $value, string $icon = '' ): vo
         <?php endif; ?>
     <?php endif; ?>
 
+    <!-- ── In-Progress Reviews ── -->
+    <?php if ( $inprogress ) : ?>
+        <section class="sacscoc-block sacscoc-block--no-heading">
+            <h2 class="sacscoc-block__subheading">
+                <?php echo sacscoc_inst_icon( 'calendar', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+                <?php esc_html_e( 'In-Progress Reviews', 'sacscoc-institutions' ); ?>
+            </h2>
+            <ul class="sacscoc-meetings">
+                <?php foreach ( $inprogress as $meeting ) : ?>
+                    <li>
+                        <?php if ( $meeting['display_year'] ) : ?><strong><?php echo esc_html( $meeting['display_year'] ); ?></strong> <?php endif; ?>
+                        <?php echo esc_html( sacscoc_inst_parse_text( $meeting['name'] ) ?? '' ); ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+    <?php endif; ?>
+
+    <!-- ── Most Recent History with SACSCOC ── -->
+    <?php if ( $recent ) : ?>
+        <section class="sacscoc-block sacscoc-block--no-heading">
+            <h2 class="sacscoc-block__subheading">
+                <?php echo sacscoc_inst_icon( 'calendar', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+                <?php esc_html_e( 'Most Recent History with SACSCOC', 'sacscoc-institutions' ); ?>
+            </h2>
+            <ul class="sacscoc-meetings">
+                <?php foreach ( $recent as $meeting ) : ?>
+                    <li>
+                        <?php if ( $meeting['display_year'] ) : ?><strong><?php echo esc_html( $meeting['display_year'] ); ?></strong> <?php endif; ?>
+                        <?php echo esc_html( sacscoc_inst_parse_text( $meeting['name'] ) ?? '' ); ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+    <?php endif; ?>
+
+    <!-- ── Off-campus Instructional Sites ── -->
+    <?php if ( $sites ) : ?>
+        <section class="sacscoc-block sacscoc-block--no-heading">
+            <h2 class="sacscoc-block__subheading">
+                <?php echo sacscoc_inst_icon( 'building', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+                <?php esc_html_e( 'Off-campus Instructional Sites (Additional Locations)', 'sacscoc-institutions' ); ?>
+            </h2>
+
+            <div class="sacscoc-sites-legend">
+                <?php echo sacscoc_inst_sites_legend_content(); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+            </div>
+
+            <ul class="sacscoc-sites">
+                <?php foreach ( $sites as $site ) :
+                    $site_locality = trim( implode( ', ', array_filter( [
+                        sacscoc_inst_parse_text( $site['city'] ),
+                        trim( ( (string) $site['state'] ) . ' ' . ( (string) $site['zip'] ) ),
+                    ] ) ), ', ' );
+                    ?>
+                    <li class="sacscoc-site">
+                        <strong class="sacscoc-site__name"><?php echo esc_html( sacscoc_inst_parse_text( $site['name'] ) ?? '' ); ?></strong>
+                        <address>
+                            <?php if ( $site['street'] ) : ?><span><?php echo esc_html( $site['street'] ); ?></span><?php endif; ?>
+                            <?php if ( $site_locality !== '' ) : ?><span><?php echo esc_html( $site_locality ); ?></span><?php endif; ?>
+                            <?php if ( $site['country'] ) : ?><span><?php echo esc_html( $site['country'] ); ?></span><?php endif; ?>
+                        </address>
+                        <p class="sacscoc-site__meta">
+                            <?php if ( $site['type'] ) : ?>
+                                <span><?php printf( /* translators: %s: site type */ esc_html__( 'Type: %s', 'sacscoc-institutions' ), esc_html( $site['type'] ) ); ?></span>
+                            <?php endif; ?>
+                            <?php if ( $site['status'] ) : ?>
+                                <span><?php printf( /* translators: %s: site status */ esc_html__( 'Status: %s', 'sacscoc-institutions' ), esc_html( $site['status'] ) ); ?></span>
+                            <?php endif; ?>
+                        </p>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+    <?php endif; ?>
+
     <!-- ── About SACSCOC ── -->
-    <?php if ( $footer !== '' ) : ?>
+    <?php if ( $show_about && $footer !== '' ) : ?>
         <section class="sacscoc-block sacscoc-block--no-heading sacscoc-about">
             <?php
             // Set once in Institutions → Settings rather than stored 1,201 times.

@@ -30,6 +30,19 @@
  *
  * Re-branding the site therefore re-brands the directory, with no edit here.
  * A theme without Elementor gets the literals, which are the SACSCOC palette.
+ *
+ * ── Three contexts, one set of tokens ────────────────────────────────────────
+ *
+ * .sacscoc-directory and .sacscoc-single are not just the two page templates —
+ * they are this stylesheet's two scoping classes, carrying every token, reset
+ * and component style below. [sacscoc_institutions_search] reuses the first of
+ * them on the wrapper it puts around a standalone search form (see
+ * .sacscoc-search-standalone, and sacscoc_inst_search_shortcode() in
+ * includes/frontend.php), purely so that wrapper gets the same tokens, the same
+ * element reset, the same button/control/link styling as the form does inside
+ * the ordinary two-column directory — without also carrying the
+ * `data-sacscoc-directory` attribute that tells assets/js/directory.js "this is
+ * a results region to initialise". Only the <form> inside carries that marker.
  */
 
 .sacscoc-directory,
@@ -131,8 +144,23 @@
 }
 
 /* Air above and below, so the directory never butts up against the page banner
-   or the footer the way it did inside the theme's zero-padding container. */
-.sacscoc-directory { margin: clamp(32px, 5vw, 72px) 0; }
+   or the footer the way it did inside the theme's zero-padding container. The
+   embedded record needs the same: the generous page padding it gets on its own
+   page is set per page in PHP and does not follow it into a shortcode. */
+.sacscoc-directory,
+.sacscoc-single--embedded { margin: clamp(32px, 5vw, 72px) 0; }
+
+/* One measure — the theme's own 1200px container — centred inside whatever
+   full-width section it is dropped into. The directory itself always carries
+   this (templates/directory.php); a standalone search panel opts in per
+   instance, since it is not always paired with a directory below it that it
+   should line up with — see the `contain_width` argument of
+   sacscoc_inst_render_search() in includes/frontend.php. */
+.sacscoc-contain-width {
+  max-width: min(1200px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
 
 /* ── Sections ────────────────────────────────────────────────────
    What used to be `.sacscoc-block`: an outlined rounded panel. Now just a
@@ -224,15 +252,20 @@
 .sacscoc-layout__aside { grid-column: 2; grid-row: 1; }
 .sacscoc-layout__main  { grid-column: 1; grid-row: 1; min-width: 0; }
 
-/* With no results the search panel is the whole page. The class comes from the
-   template rather than from :has(), which would have needed an @supports
-   fallback that could not tell this case apart from the two-column one. */
 /* No results: one column, the search panel at a sane measure, and the message
    under it — the results column is still in the page, because that is where the
-   message is. */
+   message is. The class comes from the template rather than from :has(), which
+   would have needed an @supports fallback that could not tell this case apart
+   from the two-column one. */
 .sacscoc-layout--solo { grid-template-columns: minmax(0, 1fr); }
 .sacscoc-layout--solo .sacscoc-layout__aside { grid-column: 1; max-width: 520px; }
 .sacscoc-layout--solo .sacscoc-layout__main { grid-column: 1; grid-row: 2; }
+
+/* [sacscoc_institutions show_search="no"]: no <aside> is rendered at all — the
+   form lives elsewhere, in its own [sacscoc_institutions_search] — so the
+   grid's reserved second column has to be told to go away rather than sit
+   there empty. Results simply take the full width. */
+.sacscoc-layout--no-search { grid-template-columns: minmax(0, 1fr); }
 
 @media (max-width: 899px) {
   .sacscoc-layout { grid-template-columns: minmax(0, 1fr); }
@@ -659,6 +692,69 @@
 
 .sacscoc-hint__note { display: block; margin-top: 2px; font-size: var(--sacscoc-text-sm); color: var(--sacscoc-muted); }
 
+/* ── Reviews / meetings ──────────────────────────────────────── */
+
+.sacscoc-meetings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--sacscoc-text-sm);
+}
+
+.sacscoc-meetings li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sacscoc-line);
+}
+
+.sacscoc-meetings li:last-child { border-bottom: none; }
+
+/* ── Off-campus instructional sites ─────────────────────────────── */
+
+.sacscoc-sites-legend {
+  margin-bottom: 20px;
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+.sacscoc-sites-legend h3 {
+  margin: 16px 0 6px;
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-size: var(--sacscoc-text-sm);
+  font-weight: var(--sacscoc-font-heading-weight);
+  color: var(--sacscoc-navy);
+}
+
+.sacscoc-sites-legend h3:first-child { margin-top: 0; }
+.sacscoc-sites-legend ul { margin: 0 0 8px; padding-left: 1.2em; }
+.sacscoc-sites-legend li { margin-bottom: 6px; }
+
+.sacscoc-sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 16px;
+}
+
+.sacscoc-site {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--sacscoc-line);
+  font-size: var(--sacscoc-text-sm);
+}
+
+.sacscoc-site:last-child { border-bottom: none; }
+.sacscoc-site__name { display: block; margin-bottom: 4px; }
+.sacscoc-site address { font-style: normal; }
+.sacscoc-site address span { display: block; }
+
+.sacscoc-site__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  color: var(--sacscoc-muted);
+}
+
 /* ── States ──────────────────────────────────────────────────── */
 
 .sacscoc-error { color: var(--sacscoc-error); }
@@ -802,8 +898,13 @@
    the two-column panel. It is left in the DOM and reachable, so a mid-session
    script failure still leaves a form that submits.
    The one-column bar keeps its button: there it is part of the shape of the
-   bar, and pressing it simply applies the filters at once. */
-.sacscoc-directory.is-live:not(.sacscoc-directory--stacked) [data-sacscoc-submit] {
+   bar, and pressing it simply applies the filters at once.
+   Scoped to the form itself (`is-live`/`--stacked` are added to the <form> by
+   assets/js/directory.js and templates/search-form.php, never to an ancestor
+   directory) because the form is not always nested inside one — a
+   [sacscoc_institutions_search] form on its own has no .sacscoc-directory
+   ancestor to key off at all. */
+.sacscoc-search.is-live:not(.sacscoc-search--stacked) [data-sacscoc-submit] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -865,14 +966,19 @@
    controls and the button at the same specificity, so source order is what
    decides them. Moving this block higher would silently give the two-column
    styles back.
-   Chosen in Institutions → Settings, or per page with
-   `[sacscoc_institutions layout="one-column"]`. The search becomes a single
-   bar across the top and the results run the full width beneath it — the
-   arrangement the site's own Find an Institution page uses, down to the joined
-   square fields and the navy button welded to the end of them.
 
-   It is the same markup: the form is still first in source order, so nothing
-   about the keyboard order or the screen-reader order changes. */
+   Two independent things share this name. `.sacscoc-layout--stacked` is the
+   directory's own grid — chosen in Institutions → Settings, or per page with
+   `[sacscoc_institutions layout="one-column"]` — putting its inline search
+   above the results instead of beside them. `.sacscoc-search--stacked` is the
+   search FORM's own shape — a single bar instead of a panel — and is scoped to
+   the form itself rather than to any ancestor, which is what lets the same bar
+   apply to a form that is not part of a directory at all: the Institutions
+   Search block/[sacscoc_institutions_search] offers it as its own Layout
+   control (Vertical/Horizontal), independent of where the form ends up living.
+   The directory's inline form still gets `--stacked` exactly when the overall
+   page layout is one-column, same as before — the two just no longer require
+   each other. */
 
 .sacscoc-layout--stacked { grid-template-columns: minmax(0, 1fr); }
 .sacscoc-layout--stacked .sacscoc-layout__aside { grid-column: 1; grid-row: 1; max-width: none; }
@@ -880,7 +986,7 @@
 
 /* The bar carries its own edges, so the tinted panel goes. The form itself is
    the row: the strip of fields, then the button welded to the end of it. */
-.sacscoc-directory--stacked .sacscoc-search {
+.sacscoc-search--stacked {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
@@ -889,10 +995,13 @@
   border-radius: 0;
 }
 
-/* The page's own title names this search — as it does on Find an Institution,
-   where the bar sits under the page heading with no label of its own. It stays
-   in the markup for anyone who is not looking at the page. */
-.sacscoc-directory--stacked .sacscoc-search .sacscoc-block__heading {
+/* Visually hidden rather than removed: on the directory's inline bar the
+   page's own title already names the search, matching the site's own Find an
+   Institution page, where the bar sits under the page heading with no label of
+   its own. A standalone search block in the same layout keeps that same look
+   on purpose — a bar reads as a search bar without needing a caption — and the
+   heading stays in the markup for anyone who is not looking at the page. */
+.sacscoc-search--stacked .sacscoc-block__heading {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -906,7 +1015,7 @@
 }
 
 /* One strip: fields divided by hairlines rather than separated by gaps. */
-.sacscoc-directory--stacked .sacscoc-search__fields {
+.sacscoc-search--stacked .sacscoc-search__fields {
   flex: 1 1 480px;
   display: flex;
   flex-wrap: wrap;
@@ -915,17 +1024,17 @@
   background: #fff;
 }
 
-.sacscoc-directory--stacked .sacscoc-field {
+.sacscoc-search--stacked .sacscoc-field {
   flex: 1 1 190px;
   min-width: 0;
   border-left: 1px solid var(--sacscoc-line);
 }
 
-.sacscoc-directory--stacked .sacscoc-field:first-child { border-left: 0; }
+.sacscoc-search--stacked .sacscoc-field:first-child { border-left: 0; }
 
 /* Labels are read, not seen: the fields say what they are through their
    placeholder and their "Any …" first option, exactly as on the reference. */
-.sacscoc-directory--stacked .sacscoc-field__label {
+.sacscoc-search--stacked .sacscoc-field__label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -938,25 +1047,25 @@
   border: 0;
 }
 
-.sacscoc-directory--stacked .sacscoc-control {
+.sacscoc-search--stacked .sacscoc-control {
   height: 54px;
   border: 0;
   border-radius: 0;
   font-size: var(--sacscoc-text);
 }
 
-.sacscoc-directory--stacked .sacscoc-control:focus {
+.sacscoc-search--stacked .sacscoc-control:focus {
   box-shadow: inset 0 0 0 2px var(--sacscoc-blue);
 }
 
-.sacscoc-directory--stacked .sacscoc-search__actions {
+.sacscoc-search--stacked .sacscoc-search__actions {
   flex: 0 0 auto;
   align-items: center;
   gap: 0 18px;
   margin: 0;
 }
 
-.sacscoc-directory--stacked .sacscoc-btn {
+.sacscoc-search--stacked .sacscoc-btn {
   align-self: stretch;
   min-height: 54px;
   border-radius: 0;
@@ -964,12 +1073,12 @@
 }
 
 /* Reset and the spinner ride alongside the button, not inside the strip. */
-.sacscoc-directory--stacked .sacscoc-reset,
-.sacscoc-directory--stacked .sacscoc-spinner { margin-left: 0; }
+.sacscoc-search--stacked .sacscoc-reset,
+.sacscoc-search--stacked .sacscoc-spinner { margin-left: 0; }
 
 @media (max-width: 719px) {
   /* Too narrow for a strip: back to stacked fields, each with its label. */
-  .sacscoc-directory--stacked .sacscoc-search__fields {
+  .sacscoc-search--stacked .sacscoc-search__fields {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 14px;
@@ -977,9 +1086,9 @@
     background: none;
   }
 
-  .sacscoc-directory--stacked .sacscoc-field { border-left: 0; }
+  .sacscoc-search--stacked .sacscoc-field { border-left: 0; }
 
-  .sacscoc-directory--stacked .sacscoc-field__label {
+  .sacscoc-search--stacked .sacscoc-field__label {
     position: static;
     width: auto;
     height: auto;
@@ -990,12 +1099,12 @@
     white-space: normal;
   }
 
-  .sacscoc-directory--stacked .sacscoc-control {
+  .sacscoc-search--stacked .sacscoc-control {
     border: 1px solid var(--sacscoc-line-strong);
     border-radius: 999px;
   }
 
-  .sacscoc-directory--stacked .sacscoc-search { display: block; }
-  .sacscoc-directory--stacked .sacscoc-search__actions { margin-top: 22px; }
-  .sacscoc-directory--stacked .sacscoc-btn { border-radius: 999px; }
+  .sacscoc-search--stacked.sacscoc-search { display: block; }
+  .sacscoc-search--stacked .sacscoc-search__actions { margin-top: 22px; }
+  .sacscoc-search--stacked .sacscoc-btn { border-radius: 999px; }
 }
