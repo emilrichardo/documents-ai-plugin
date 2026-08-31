@@ -36,7 +36,21 @@ sacscoc_inst_page_header();
      */
     do_action( 'sacscoc_inst_single_before', $institution );
 
-    sacscoc_inst_load_template( 'institution.php', [ 'institution' => $institution ] );
+    sacscoc_inst_load_template( 'institution.php', [
+        'institution' => $institution,
+        // The theme's own footer already carries this same "About SACSCOC and
+        // Accreditation" disclosure — plus "Components of the Review Process"
+        // and "Complaints Against SACSCOC Accredited Institutions" — on every
+        // institution page specifically (an Elementor Theme Builder footer
+        // scoped to this template, not the site's global footer: it is absent
+        // from the homepage). sacscoc_inst_page_footer() below prints that
+        // same theme footer, so showing ours too repeated the identical
+        // paragraph twice on the page. Embedded elsewhere via
+        // [sacscoc_institution] or the Institution block, there is no such
+        // footer to collide with, so $show_about there keeps its default of
+        // true — this override is this page only.
+        'show_about'  => false,
+    ] );
 
     do_action( 'sacscoc_inst_single_after', $institution );
     ?>
