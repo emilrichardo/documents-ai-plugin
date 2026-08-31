@@ -819,10 +819,10 @@
 
 /* Prose, not layout: the element reset at the top of the file is handed back
    inside this block, so paragraphs and lists from Settings space themselves the
-   way they would anywhere else. Same weight as the reset, later in the file. */
-/* A reading measure for the prose itself, not for the block — the rule above
-   it should still run the full width of the record. */
-.sacscoc-single .sacscoc-about :where(p, ul, ol, dl, table) { margin: 0 0 1.1em; max-width: 78ch; }
+   way they would anywhere else. Same weight as the reset, later in the file.
+   Runs the full width of the record, same as everything above it — no reading
+   measure cap here, on request. */
+.sacscoc-single .sacscoc-about :where(p, ul, ol, dl, table) { margin: 0 0 1.1em; }
 .sacscoc-single .sacscoc-about :where(ul, ol) { padding-left: 1.4em; }
 .sacscoc-single .sacscoc-about :where(li) { margin: 0 0 0.4em; }
 .sacscoc-single .sacscoc-about > *:first-child { margin-top: 0; }
