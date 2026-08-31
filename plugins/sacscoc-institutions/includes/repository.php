@@ -480,19 +480,23 @@ function sacscoc_inst_mark_meetings_presence( string $sf_institution_id, string 
 /**
  * One institution's meetings of one kind, for the frontend.
  *
- * `inprogress` sorts soonest-first (what's coming up); `recent` sorts
- * newest-first (what happened most recently) — matching the production
- * "In-Progress Reviews" and "Most Recent History with SACSCOC" sections.
+ * Both `recent` and `inprogress` sort by `display_year` descending — verified
+ * against production for institutions with several reviews of the same kind
+ * (e.g. Chipola College: "2033 Fifth-Year Interim Report" before "2028
+ * Reaffirmation Committee" in In-Progress Reviews). Ties within the same year
+ * follow `api_id` ascending, which is the order the API itself returns records
+ * in — production's tie-break for two same-year reviews matches that order
+ * exactly rather than any date field, so this mirrors it instead of guessing
+ * at a date to sort by.
  */
 function sacscoc_inst_meetings_for_institution( string $sf_institution_id, string $kind ): array {
     global $wpdb;
     $table = sacscoc_inst_table( 'institution_meetings' );
-    $order = $kind === 'recent' ? 'DESC' : 'ASC';
 
     return (array) $wpdb->get_results( $wpdb->prepare(
         "SELECT * FROM $table
           WHERE sf_institution_id = %s AND kind = %s AND missing_since IS NULL
-          ORDER BY display_year $order, action_date $order",
+          ORDER BY display_year DESC, api_id ASC",
         $sf_institution_id, $kind
     ), ARRAY_A );
 }
