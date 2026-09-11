@@ -9,3 +9,10 @@ plugins/*.zip
 # Real values only ever belong in this file (or the shell environment) and in
 # this repo's GitHub Actions secrets — never committed. See .env.example.
 .env
+
+# This repo only ever sources ai-documents and sacscoc-institutions. Any other
+# plugin folder here (e.g. copied down from prod for local testing) is
+# third-party/vendor code and must never be tracked in this repo.
+plugins/*
+!plugins/ai-documents
+!plugins/sacscoc-institutions
