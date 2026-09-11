@@ -7,7 +7,7 @@ plugin requires another to be installed or active.
 
 ```
 plugins/
-├── ai-documents/          AI Documents — document library with AI-assisted
+├── ai-documents/          AI Policies — policy library with AI-assisted
 │                          metadata, semantic search and a conversational finder
 └── sacscoc-institutions/  SACSCOC Institutions — synchronises the SACSCOC
                            institution directory into WordPress and publishes it
@@ -15,9 +15,15 @@ plugins/
 
 | Plugin                  | Directory / slug            | Main file                       | Version |
 | ----------------------- | --------------------------- | ------------------------------- | ------- |
-| AI Documents            | `ai-documents`              | `ai-documents.php`              | 1.4.0   |
-| SACSCOC Institutions    | `sacscoc-institutions`      | `sacscoc-institutions.php`      | 0.9.0   |
+| AI Policies             | `ai-documents`              | `ai-documents.php`              | 1.5.0   |
+| SACSCOC Institutions    | `sacscoc-institutions`      | `sacscoc-institutions.php`      | 0.10.0  |
 |                         |                             |                                 |         |
+
+AI Policies was called AI Documents through 1.4.0. Everything a reader or an
+editor sees — the plugin's name, its menu, its public URLs — was renamed in
+1.5.0; the directory, the slug, the text domain and every internal identifier
+stayed `ai-documents` / `aidocs_*` on purpose, so the rename needed no data
+migration. See that plugin's own `README.md` for the full reasoning.
 
 Versions move independently. A release of one plugin never requires a version
 bump of the other; each plugin's version lives only in its own plugin header
