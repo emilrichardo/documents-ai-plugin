@@ -18,7 +18,8 @@
 		"resultsHeading": { "type": "string", "default": "" },
 		"filterState": { "type": "string", "default": "" },
 		"filterDegree": { "type": "string", "default": "" },
-		"filterYear": { "type": "string", "default": "" }
+		"filterYear": { "type": "string", "default": "" },
+		"resultsMode": { "type": "string", "default": "always" }
 	},
 	"supports": {
 		"html": false,

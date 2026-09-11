@@ -1,18 +1,24 @@
 <?php
 /**
- * The results half of the directory: the list and its pagination.
+ * The results half of the directory — or, in 'on-search' mode, a compact
+ * dropdown of matches meant to float under a search field rather than take
+ * a place on the page.
  *
  * Available:
  *   $results     array{rows,total,pages,paged,per_page} from sacscoc_inst_search()
  *   $filters     array{q,state,degree,year,paged} the active filters
- *   $show_count  bool
+ *   $show_count  bool — ignored in 'on-search' mode; a floating dropdown has
+ *                no room for a tally and nowhere it would sit
+ *   $results_mode string 'always' or 'on-search'; see
+ *                sacscoc_inst_clean_results_mode()
  *   $heading     string the list's own heading; empty means the built-in
  *                "Results". Set from the shortcode's `results_heading`
  *                attribute or the Institutions Directory block's own
  *                Inspector Control, and carried across every live filter as
  *                `data-results-heading` on the directory's wrapper — without
  *                that, a customised heading would revert to "Results" the
- *                moment someone typed into the search box.
+ *                moment someone typed into the search box. Ignored in
+ *                'on-search' mode, which has no heading to replace.
  *
  * Split out from directory.php so that the first page load and every live
  * filter afterwards render from the same file — the AJAX endpoint returns
@@ -28,8 +34,77 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 /** @var array  $results */
 /** @var array  $filters */
 /** @var bool   $show_count */
+/** @var string $results_mode */
 /** @var string $heading */
 
+$results_mode = (string) ( $results_mode ?? 'always' );
+
+// ── The dropdown ──────────────────────────────────────────────────────────
+// A different shape entirely, not a smaller version of the block below: no
+// heading, no count, no pagination — floating under a search field is the
+// whole point, and none of those make sense there. See templates/directory.php
+// for how this gets positioned, and the "Typeahead / on-search dropdown"
+// section of assets/css/sacscoc-institutions.css for how it is hidden and
+// shown.
+if ( $results_mode === 'on-search' ) {
+    $rows = $results['rows'];
+
+    // Nothing asked yet. Printing nothing at all — not even an invitation —
+    // is deliberate: a dropdown with a prompt sitting open under an untouched
+    // navbar search is exactly the "why is there a box floating here" a
+    // typeahead is supposed to avoid. The panel itself is hidden by the same
+    // signal (no active filter) on the CSS/JS side, so this and that are one
+    // decision made twice, not two different ones.
+    if ( ! sacscoc_inst_has_filters( $filters ) ) return;
+
+    if ( ! $rows ) :
+        ?>
+        <p class="sacscoc-typeahead__empty">
+            <?php esc_html_e( 'No institutions match that search.', 'sacscoc-institutions' ); ?>
+        </p>
+        <?php
+        return;
+    endif;
+
+    $more = max( 0, (int) $results['total'] - count( $rows ) );
+    ?>
+    <ul class="sacscoc-typeahead__list">
+        <?php foreach ( $rows as $row ) :
+            $name  = sacscoc_inst_display_name( $row );
+            $where = trim( implode( ', ', array_filter( [
+                (string) ( $row['address_city']  ?? '' ),
+                (string) ( $row['address_state'] ?? '' ),
+            ] ) ) );
+            ?>
+            <li class="sacscoc-typeahead__item">
+                <a class="sacscoc-typeahead__link" href="<?php echo esc_url( sacscoc_inst_permalink( $row ) ); ?>">
+                    <span class="sacscoc-typeahead__text">
+                        <span class="sacscoc-typeahead__name"><?php echo esc_html( $name ); ?></span>
+                        <?php if ( $where !== '' ) : ?>
+                            <span class="sacscoc-typeahead__meta"><?php echo esc_html( $where ); ?></span>
+                        <?php endif; ?>
+                    </span>
+                    <?php echo sacscoc_inst_icon( 'chevron-right', 'sacscoc-typeahead__chevron' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+                </a>
+            </li>
+        <?php endforeach; ?>
+    </ul>
+    <?php if ( $more > 0 ) : ?>
+        <p class="sacscoc-typeahead__more">
+            <?php
+            printf(
+                /* translators: %s: how many more institutions match, beyond the ones shown above */
+                esc_html__( '+ %s more — narrow your search to see them', 'sacscoc-institutions' ),
+                esc_html( number_format_i18n( $more ) )
+            );
+            ?>
+        </p>
+    <?php endif; ?>
+    <?php
+    return;
+}
+
+// ── The ordinary results block ───────────────────────────────────────────
 $rows    = $results['rows'];
 $heading = trim( (string) ( $heading ?? '' ) );
 $heading = $heading !== '' ? $heading : __( 'Results', 'sacscoc-institutions' );
@@ -145,9 +220,9 @@ endif;
                                 <dd>
                                     <?php echo esc_html( $level ); ?>
                                     <?php if ( $tip ) : ?>
-                                        <span class="sacscoc-hint" tabindex="0"
+                                        <span class="sacscoc-hint" tabindex="0" role="note"
                                               aria-label="<?php echo esc_attr( $tip ); ?>"
-                                              title="<?php echo esc_attr( $tip ); ?>">i</span>
+                                        >i<span class="sacscoc-hint__bubble" aria-hidden="true"><?php echo esc_html( $tip ); ?></span></span>
                                     <?php endif; ?>
                                 </dd></div>
                         <?php endif; ?>

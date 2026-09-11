@@ -227,9 +227,9 @@ $fact = static function ( string $label, ?string $value, string $icon = '' ): vo
                         <dd>
                             <?php echo esc_html( $level ); ?>
                             <?php if ( $level_tip ) : ?>
-                                <span class="sacscoc-hint" tabindex="0"
+                                <span class="sacscoc-hint" tabindex="0" role="note"
                                       aria-label="<?php echo esc_attr( $level_tip ); ?>"
-                                      title="<?php echo esc_attr( $level_tip ); ?>">i</span>
+                                >i<span class="sacscoc-hint__bubble" aria-hidden="true"><?php echo esc_html( $level_tip ); ?></span></span>
                                 <small class="sacscoc-hint__note">
                                     <?php esc_html_e( 'See Approved to Offer above for the complete list.', 'sacscoc-institutions' ); ?>
                                 </small>
@@ -332,7 +332,7 @@ $fact = static function ( string $label, ?string $value, string $icon = '' ): vo
                 <?php esc_html_e( 'Off-campus Instructional Sites (Additional Locations)', 'sacscoc-institutions' ); ?>
             </h2>
 
-            <div class="sacscoc-sites-legend">
+            <div class="sacscoc-sites-legend sacscoc-prose">
                 <?php echo sacscoc_inst_sites_legend_content(); // phpcs:ignore WordPress.Security.EscapeOutput ?>
             </div>
 
@@ -366,7 +366,7 @@ $fact = static function ( string $label, ?string $value, string $icon = '' ): vo
 
     <!-- ── About SACSCOC ── -->
     <?php if ( $show_about && $footer !== '' ) : ?>
-        <section class="sacscoc-block sacscoc-block--no-heading sacscoc-about">
+        <section class="sacscoc-block sacscoc-block--no-heading sacscoc-about sacscoc-prose">
             <?php
             // Set once in Institutions → Settings rather than stored 1,201 times.
             // Already run through wp_kses_post() in sacscoc_inst_footer_content().

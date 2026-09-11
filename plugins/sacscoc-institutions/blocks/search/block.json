@@ -12,7 +12,9 @@
 		"group": { "type": "string", "default": "default" },
 		"heading": { "type": "string", "default": "" },
 		"layout": { "type": "string", "default": "vertical" },
-		"containWidth": { "type": "boolean", "default": true }
+		"containWidth": { "type": "boolean", "default": true },
+		"showHeading": { "type": "boolean", "default": true },
+		"resultsUrl": { "type": "string", "default": "" }
 	},
 	"supports": {
 		"html": false,

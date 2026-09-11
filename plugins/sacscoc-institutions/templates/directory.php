@@ -15,6 +15,10 @@
  *   $results_heading string — replaces "Results" above the list; passed
  *                straight through to results.php, and carried across every
  *                live filter as `data-results-heading` on the wrapper below
+ *   $results_mode string — 'always' or 'on-search'; see
+ *                sacscoc_inst_clean_results_mode(). 'on-search' skips the grid
+ *                below entirely and renders a floating typeahead instead — see
+ *                the branch near the top of this file.
  *   $locked      string[] — filter keys ('state','degree','year') this
  *                directory always restricts results to, from the block's own
  *                Inspector Controls or the shortcode's filter_* attributes.
@@ -22,12 +26,19 @@
  *                could change without it doing anything is worse than no
  *                field at all. See sacscoc_inst_render_directory().
  *
- * Structure follows the existing sacscoc.org/institutions/ directory: search
- * panel and results side by side, search on the right at a third of the width,
- * results on the left. Source order puts the search first so keyboard and
+ * ── Two entirely different shapes ────────────────────────────────────────
+ *
+ * 'always' is the directory as it has always been, below: search panel and
+ * results side by side, search on the right at a third of the width, results
+ * on the left. Source order puts the search first so keyboard and
  * screen-reader users reach it before a screenful of results; the visual swap is
  * done in CSS, which is also why it collapses to search-then-results on narrow
  * screens with no markup change.
+ *
+ * 'on-search' is not a variation of that grid — it is answered and returned
+ * from near the top of this file, before any of the layout below is
+ * computed, because none of it applies: there is no results column to lay
+ * out beside the search, only a dropdown floating under it.
  *
  * The form itself is templates/search-form.php, included below and also by
  * [sacscoc_institutions_search] directly when `$show_search` is false — the
@@ -66,8 +77,88 @@ $show_search     = $show_search ?? true;
 $group           = $group ?? 'default';
 $search_heading  = (string) ( $search_heading ?? '' );
 $results_heading = (string) ( $results_heading ?? '' );
+$results_mode    = (string) ( $results_mode ?? 'always' );
 $locked          = (array) ( $locked ?? [] );
 
+// ── The typeahead: a completely different template, answered here ────────
+//
+// Built for a navbar or a hero, where the grid below has nowhere to go: the
+// form stays exactly where the page already put it, and the matches float
+// under it as a dropdown rather than becoming a section of the page. See
+// sacscoc_inst_results_modes() for the fuller reasoning, and the "Typeahead /
+// on-search dropdown" section of assets/css/sacscoc-institutions.css for how
+// the dropdown opens, closes, and stays clear of whatever is below it.
+if ( $results_mode === 'on-search' ) {
+    // No filter set yet: nothing has been asked, so nothing is shown — not
+    // even an invitation (see templates/results.php). The CSS hides the panel
+    // on this same signal, via the `is-empty` class below; it is set here for
+    // the very first paint, before any script has run, and kept in step by
+    // assets/js/directory.js from the first keystroke on.
+    $typeahead_empty = ! sacscoc_inst_has_filters( $filters );
+    ?>
+    <div class="sacscoc-directory sacscoc-directory--dropdown" id="sacscoc-directory"
+         data-sacscoc-directory
+         data-sacscoc-group="<?php echo esc_attr( $group ); ?>"
+         data-action="<?php echo esc_url( $action ); ?>"
+         data-per-page="<?php echo esc_attr( (string) $per_page ); ?>"
+         data-show-count="no"
+         data-results-mode="on-search">
+        <?php if ( $show_search ) : ?>
+            <div class="sacscoc-typeahead">
+                <?php
+                sacscoc_inst_load_template( 'search-form.php', [
+                    'filters'    => $filters,
+                    'action'     => $action,
+                    'group'      => $group,
+                    'stacked'    => ( $layout ?? 'two-column' ) === 'one-column',
+                    'heading'    => $search_heading,
+                    'locked'     => $locked,
+                    // One control too many for a compact dropdown, and
+                    // redundant with the × each field already grows once it
+                    // has a value — see $show_reset in search-form.php.
+                    'show_reset' => false,
+                ] );
+                ?>
+                <div class="sacscoc-results-region<?php echo $typeahead_empty ? ' is-empty' : ''; ?>"
+                     data-sacscoc-results aria-live="polite" aria-busy="false"
+                     aria-label="<?php esc_attr_e( 'Matching institutions', 'sacscoc-institutions' ); ?>">
+                    <?php
+                    sacscoc_inst_load_template( 'results.php', [
+                        'results'      => $results,
+                        'filters'      => $filters,
+                        'results_mode' => $results_mode,
+                    ] );
+                    ?>
+                </div>
+            </div>
+        <?php else : ?>
+            <?php
+            // Paired at runtime with a separate [sacscoc_institutions_search]
+            // elsewhere on the page (show_search="no") rather than carrying a
+            // form of its own. There is nothing here to float the panel
+            // under — the form lives somewhere else in the DOM entirely — so
+            // this degrades to an ordinary in-flow card instead of an
+            // overlay. Still compact, still hidden while nothing has been
+            // asked; simply not a dropdown, since a dropdown needs something
+            // right above it to hang from.
+            ?>
+            <div class="sacscoc-results-region sacscoc-typeahead__panel--inline<?php echo $typeahead_empty ? ' is-empty' : ''; ?>"
+                 data-sacscoc-results aria-live="polite" aria-busy="false">
+                <?php
+                sacscoc_inst_load_template( 'results.php', [
+                    'results'      => $results,
+                    'filters'      => $filters,
+                    'results_mode' => $results_mode,
+                ] );
+                ?>
+            </div>
+        <?php endif; ?>
+    </div>
+    <?php
+    return;
+}
+
+// ── The ordinary directory grid ───────────────────────────────────────────
 // One template, two layouts: the difference is a class. `--stacked` puts the
 // search in a bar across the top with the results full width beneath, which is
 // what the site's own Find an Institution page does; the default keeps the
@@ -98,6 +189,7 @@ if ( $stacked ) {
      data-action="<?php echo esc_url( $action ); ?>"
      data-per-page="<?php echo esc_attr( (string) $per_page ); ?>"
      data-show-count="<?php echo $show_count ? 'yes' : 'no'; ?>"
+     data-results-mode="<?php echo esc_attr( $results_mode ); ?>"
      <?php if ( $results_heading !== '' ) : ?>data-results-heading="<?php echo esc_attr( $results_heading ); ?>"<?php endif; ?>>
     <div class="<?php echo esc_attr( implode( ' ', $layout_classes ) ); ?>" data-sacscoc-layout>
 
@@ -121,10 +213,11 @@ if ( $stacked ) {
             <div class="sacscoc-results-region" data-sacscoc-results aria-live="polite" aria-busy="false">
                 <?php
                 sacscoc_inst_load_template( 'results.php', [
-                    'results'    => $results,
-                    'filters'    => $filters,
-                    'show_count' => $show_count,
-                    'heading'    => $results_heading,
+                    'results'      => $results,
+                    'filters'      => $filters,
+                    'show_count'   => $show_count,
+                    'heading'      => $results_heading,
+                    'results_mode' => $results_mode,
                 ] );
                 ?>
             </div>

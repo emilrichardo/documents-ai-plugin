@@ -665,10 +665,42 @@
 
 .sacscoc-table tr:last-child td { border-bottom: none; }
 
-/* ── Level hint ──────────────────────────────────────────────── */
+/* ── Level hint ──────────────────────────────────────────────────
+   The "i" beside a degree-level numeral, and the tooltip it shows.
+
+   That tooltip used to be the browser's own: a `title` attribute on this span
+   and nothing else. Three things were wrong with that, and they are exactly
+   what was reported. The delay before a native tooltip appears belongs to the
+   browser and cannot be set from a page — roughly a second in Chrome, longer
+   again in Firefox, and longer still when the pointer arrives slowly, which is
+   the "sometimes ten seconds, sometimes never" of the bug report. `title` is
+   also not shown on keyboard focus by any browser, so making the span
+   focusable — which it already was — bought nothing. And it cannot be styled,
+   positioned or wrapped, so a two-line explanation renders as one long strip.
+
+   So the tooltip is a real element now (`.sacscoc-hint__bubble`, printed by
+   templates/results.php and templates/institution.php), shown on `:hover` and
+   on `:focus-visible`, with no transition and no delay: it is there on the
+   frame the pointer arrives. `aria-hidden` on the bubble and an `aria-label`
+   carrying the same text on the hint itself keep it to one announcement rather
+   than two. No JavaScript is involved, so it cannot be late, cannot fail to
+   initialise, and works identically on markup that arrives by AJAX — which
+   every result row after the first search does. */
 
 .sacscoc-directory .sacscoc-hint,
 .sacscoc-single .sacscoc-hint {
+  position: relative;
+
+  /* Above `.sacscoc-result__hit`, the invisible full-bleed link that makes a
+     whole result row clickable (z-index 1, a few rules up). That overlay sits
+     on top of everything in the row, so the pointer that looks like it is over
+     the "i" is really over the link — which is why the tooltip never appeared
+     in the results list at all, with the old `title` attribute or with this
+     one. Lifting the hint over it hands the pointer back. The row stays
+     clickable everywhere else, and clicking the "i" itself no longer follows
+     the link, which is right: it is a control, not part of the row's target. */
+  z-index: 2;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -688,6 +720,108 @@
   line-height: 1;
   cursor: help;
   vertical-align: middle;
+}
+
+.sacscoc-directory .sacscoc-hint:focus-visible,
+.sacscoc-single .sacscoc-hint:focus-visible {
+  outline: 2px solid var(--sacscoc-blue);
+  outline-offset: 2px;
+}
+
+/* The bubble itself.
+
+   `display: none` rather than `visibility: hidden`, which was the first
+   attempt: an absolutely positioned box that is merely invisible still counts
+   towards the page's scrollable area, and 280px of hidden tooltip hanging off
+   the right of a result row gave a 375px phone a 537px-wide document and a
+   horizontal scrollbar. `display: none` takes it out of layout entirely.
+
+   `pointer-events: none` so it can never swallow a click on whatever it
+   covers. No transition and no delay anywhere — the whole complaint about the
+   old one was that it took its time. */
+.sacscoc-directory .sacscoc-hint__bubble,
+.sacscoc-single .sacscoc-hint__bubble {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  z-index: 30;
+
+  /* Anchored to the hint's left edge and grown rightwards, not centred on it.
+     A centred bubble is prettier and is wrong here: these hints sit at the
+     start of a column, and half of a 280px bubble is wider than the page's
+     own gutter, so centring put its left edge off-screen — measured at -74px
+     on a 375px-wide phone. Growing rightwards from a marker that is itself
+     never nearer the left edge than the gutter cannot do that, and the space
+     to its right is the rest of the column. Pure CSS cannot know where in the
+     viewport it has landed, so the fix is a placement that does not need to
+     know. */
+  left: -10px;
+  right: auto;
+
+  /* Nudged back on screen when that placement still runs past an edge — a
+     narrow phone with the hint over on the right of a result row. The nudge
+     is set by assets/js/directory.js and is 0 without it, so the tooltip is
+     complete and usable with no JavaScript at all; the script only stops the
+     rare one from being clipped. */
+  transform: translateX(var(--sacscoc-tip-shift, 0px));
+
+  /* Sized to its text, up to a comfortable reading width, and never wider than
+     the viewport on a phone. `max-content` is what stops a three-word tip from
+     being stretched to the full max-width. */
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+
+  padding: 9px 11px;
+  border-radius: var(--sacscoc-radius);
+  background: var(--sacscoc-navy);
+  color: #fff;
+
+  /* The "i" is set in the heading face at 11/700; the tip is a sentence and
+     wants none of that, so size, weight and slant are restated below rather
+     than inherited from the disc. */
+  font-size: var(--sacscoc-text-sm);
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  cursor: default;
+
+  display: none;
+  pointer-events: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+
+/* The little arrow, drawn as a rotated corner of the same navy, sitting under
+   the "i" the bubble belongs to. */
+.sacscoc-directory .sacscoc-hint__bubble::after,
+.sacscoc-single .sacscoc-hint__bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 15px;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0;
+  background: inherit;
+
+  /* The arrow keeps pointing at the "i" when the bubble is nudged: the shift
+     is applied to the bubble and taken straight back off the arrow. */
+  transform: translateX(calc(-1 * var(--sacscoc-tip-shift, 0px))) rotate(45deg);
+}
+
+/* Hover for a mouse, focus for a keyboard — and `:focus` as well as
+   `:focus-visible`, because tapping the hint on a touch screen focuses it
+   without the browser considering that "visible" focus. That tap is the only
+   way to read the tip on a phone, so it has to be one of the triggers. */
+.sacscoc-directory .sacscoc-hint:hover .sacscoc-hint__bubble,
+.sacscoc-directory .sacscoc-hint:focus .sacscoc-hint__bubble,
+.sacscoc-directory .sacscoc-hint:focus-within .sacscoc-hint__bubble,
+.sacscoc-single .sacscoc-hint:hover .sacscoc-hint__bubble,
+.sacscoc-single .sacscoc-hint:focus .sacscoc-hint__bubble,
+.sacscoc-single .sacscoc-hint:focus-within .sacscoc-hint__bubble {
+  display: block;
 }
 
 .sacscoc-hint__note { display: block; margin-top: 2px; font-size: var(--sacscoc-text-sm); color: var(--sacscoc-muted); }
@@ -725,8 +859,7 @@
 }
 
 .sacscoc-sites-legend h3:first-child { margin-top: 0; }
-.sacscoc-sites-legend ul { margin: 0 0 8px; padding-left: 1.2em; }
-.sacscoc-sites-legend li { margin-bottom: 6px; }
+
 
 .sacscoc-sites {
   margin: 0;
@@ -817,14 +950,6 @@
   color: var(--sacscoc-muted);
 }
 
-/* Prose, not layout: the element reset at the top of the file is handed back
-   inside this block, so paragraphs and lists from Settings space themselves the
-   way they would anywhere else. Same weight as the reset, later in the file.
-   Runs the full width of the record, same as everything above it — no reading
-   measure cap here, on request. */
-.sacscoc-single .sacscoc-about :where(p, ul, ol, dl, table) { margin: 0 0 1.1em; }
-.sacscoc-single .sacscoc-about :where(ul, ol) { padding-left: 1.4em; }
-.sacscoc-single .sacscoc-about :where(li) { margin: 0 0 0.4em; }
 .sacscoc-single .sacscoc-about > *:first-child { margin-top: 0; }
 .sacscoc-single .sacscoc-about > *:last-child { margin-bottom: 0; }
 
@@ -836,6 +961,72 @@
   font-weight: var(--sacscoc-font-heading-weight);
   color: var(--sacscoc-navy);
 }
+
+/* ── Prose ────────────────────────────────────────────────────────
+   Regions whose content is HTML this plugin did not write: the About SACSCOC
+   block and the Off-campus Instructional Sites legend, both of which come from
+   Institutions → Settings and both of which contain real headings, paragraphs
+   and bulleted lists.
+
+   The element reset at the top of this file zeroes `margin` and `padding` on
+   every p/ul/ol/li inside `.sacscoc-directory` / `.sacscoc-single`. That is
+   right for the lists this file lays out itself — `.sacscoc-list`,
+   `.sacscoc-sites`, `.sacscoc-meetings` each set `list-style: none` and build
+   their own rows — and wrong for prose: with `padding-left: 0` the markers are
+   drawn outside the list's own box, hanging into the margin to the left of the
+   text. That is the "bullets pushed too far left" on the institution pages,
+   and it is this plugin's doing, not Astra's: `.sacscoc-sites-legend ul` did
+   ask for `padding-left: 1.2em`, but at (0,1,1) it lost to the reset's (0,2,0)
+   and never applied.
+
+   So the indent is handed back here, once, for anything marked `.sacscoc-prose`
+   — at (0,3,0), which beats the reset without `!important`, and scoped inside
+   the plugin's own two wrappers, so not one selector here can reach a list the
+   theme owns. `list-style` is stated as well as the padding: a theme that sets
+   `ul { list-style: none }` for its own menus would otherwise leave these
+   lists indented with nothing to indent from. */
+
+.sacscoc-directory.sacscoc-directory .sacscoc-prose :where(p, ul, ol, dl, table),
+.sacscoc-single.sacscoc-single .sacscoc-prose :where(p, ul, ol, dl, table) {
+  margin: 0 0 1.1em;
+}
+
+.sacscoc-directory.sacscoc-directory .sacscoc-prose :where(ul, ol),
+.sacscoc-single.sacscoc-single .sacscoc-prose :where(ul, ol) {
+  padding-left: 1.4em;
+}
+
+.sacscoc-directory.sacscoc-directory .sacscoc-prose :where(li),
+.sacscoc-single.sacscoc-single .sacscoc-prose :where(li) {
+  margin: 0 0 0.4em;
+  padding: 0;
+}
+
+/* Nested lists close up against their parent item rather than restating the
+   1.1em gap that separates two blocks of prose. */
+.sacscoc-directory.sacscoc-directory .sacscoc-prose :where(li) :where(ul, ol),
+.sacscoc-single.sacscoc-single .sacscoc-prose :where(li) :where(ul, ol) {
+  margin: 0.4em 0 0;
+}
+
+.sacscoc-prose :where(ul) { list-style: disc outside; }
+.sacscoc-prose :where(ol) { list-style: decimal outside; }
+.sacscoc-prose :where(ul ul) { list-style: circle outside; }
+.sacscoc-prose :where(ul ul ul) { list-style: square outside; }
+
+/* Narrow screens get the same indent, not a smaller one: a bullet needs the
+   same room to sit clear of its text at any width, and halving it here is what
+   makes a list look subtly broken on a phone and correct on a laptop. */
+
+/* The Off-campus sites legend is tighter than ordinary prose — it is a key to
+   two vocabularies, read at a glance, not something anyone reads through.
+   Same (0,3,0) as the rules above and after them, so this is the pair that
+   decides it; at its original `.sacscoc-sites-legend ul` (0,1,1) it lost to
+   the element reset and never applied at all. */
+.sacscoc-directory.sacscoc-directory .sacscoc-sites-legend :where(ul, ol),
+.sacscoc-single.sacscoc-single .sacscoc-sites-legend :where(ul, ol) { margin: 0 0 8px; }
+.sacscoc-directory.sacscoc-directory .sacscoc-sites-legend :where(li),
+.sacscoc-single.sacscoc-single .sacscoc-sites-legend :where(li) { margin: 0 0 6px; }
 
 /* ── Housekeeping ────────────────────────────────────────────── */
 
@@ -1072,9 +1263,62 @@
   font-size: var(--sacscoc-text-sm);
 }
 
-/* Reset and the spinner ride alongside the button, not inside the strip. */
-.sacscoc-search--stacked .sacscoc-reset,
-.sacscoc-search--stacked .sacscoc-spinner { margin-left: 0; }
+/* ── Nothing sits to the right of the Search button ──────────────
+   The bar's whole shape is one strip of fields with the button welded to the
+   end of it, so the button has to be flush with the bar's right edge. Two
+   things were quietly breaking that, and both of them read as the bar's
+   contents being pushed left inside their own box:
+
+     · the spinner is `opacity: 0` when idle, not `display: none`, so it still
+       occupied 16px plus the actions row's 18px gap — 34px of dead space past
+       the button, on every page load, measured at a 1200px bar;
+     · the Reset link comes after the button in source order, so the moment a
+       filter became active it appeared to the button's right and shoved the
+       button further left again.
+
+   The spinner comes out of flow entirely and sits over the button, which
+   opens a gap for it only while it is actually spinning; the Reset link is
+   reordered to the button's left. Both are scoped to the bar — the vertical
+   panel is a stack of rows with no right edge to be flush with, and it keeps
+   the plain row it always had. */
+
+.sacscoc-search--stacked .sacscoc-reset { order: -1; margin-left: 0; }
+
+.sacscoc-search--stacked .sacscoc-search__actions { position: relative; }
+
+.sacscoc-search--stacked .sacscoc-spinner {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  margin: 0;
+  transform: translateY(-50%);
+
+  /* It sits on the navy button now, not on the page. */
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+}
+
+/* The shared keyframe animates `transform` outright, which would throw away
+   the centring above; this one carries it through every frame. */
+.sacscoc-search--stacked .sacscoc-spinner.is-active {
+  animation: sacscoc-spin-centred 0.7s linear infinite;
+}
+
+@keyframes sacscoc-spin-centred {
+  from { transform: translateY(-50%) rotate(0deg); }
+  to   { transform: translateY(-50%) rotate(360deg); }
+}
+
+/* Room for it, only while it is there. A browser without `:has()` skips just
+   this — the spinner overlaps the end of the label for the fraction of a
+   second a filter is in flight, and the resting bar, which is what was
+   actually wrong, is correct everywhere. */
+.sacscoc-search--stacked .sacscoc-btn { transition: padding-right 0.15s ease-in-out; }
+.sacscoc-search--stacked:has(.sacscoc-spinner.is-active) .sacscoc-btn { padding-right: 52px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sacscoc-search--stacked .sacscoc-spinner.is-active { animation: none; }
+}
 
 @media (max-width: 719px) {
   /* Too narrow for a strip: back to stacked fields, each with its label. */
@@ -1107,4 +1351,146 @@
   .sacscoc-search--stacked.sacscoc-search { display: block; }
   .sacscoc-search--stacked .sacscoc-search__actions { margin-top: 22px; }
   .sacscoc-search--stacked .sacscoc-btn { border-radius: 999px; }
+}
+
+/* ── Typeahead / on-search dropdown ─────────────────────────────────
+   [sacscoc_institutions results="on-search"]: built for a navbar or a hero,
+   where a directory's own two-column grid and results section have nowhere
+   to go. The form stays exactly where the page put it; matches float below
+   it as a dropdown, and nothing else on the page moves when it opens or
+   closes — see the "on-search" branch of templates/directory.php for the
+   markup this styles, and templates/results.php for what actually prints
+   inside it.
+
+   ── Visibility, and why it is two separate signals ──
+   `.is-empty` on the panel itself is "nothing has been asked" — set in PHP
+   for the very first paint (before any script runs) and kept in step by
+   assets/js/directory.js on every keystroke after. `.is-closed` on the
+   wrapper is "the visitor dismissed it" — Escape, or a click outside — and is
+   JavaScript-only, since there is nothing to dismiss before a script exists
+   to dismiss it. Either one hides the same panel; neither depends on the
+   other, which is what lets Escape close a dropdown that still has real
+   matches in it, and typing again reopen it without re-fetching them. */
+
+.sacscoc-directory.sacscoc-directory--dropdown {
+  /* The 32–72px "air above and below" every other directory carries is
+     right for a section of the page; this is not one. */
+  margin: 0;
+}
+
+.sacscoc-typeahead { position: relative; }
+
+.sacscoc-typeahead .sacscoc-results-region {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+
+  background: #fff;
+  border: 1px solid var(--sacscoc-line-strong);
+  border-radius: var(--sacscoc-radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.sacscoc-typeahead .sacscoc-results-region.is-empty,
+.sacscoc-typeahead.is-closed .sacscoc-results-region {
+  display: none;
+}
+
+/* The paired-elsewhere fallback ([sacscoc_institutions show_search="no"
+   results="on-search"], matched at runtime to a separate
+   [sacscoc_institutions_search] placed elsewhere on the page): there is no
+   form here to float under, so this stays an ordinary card in the page's own
+   flow instead of an overlay — same compact rows, same hide-when-empty. */
+.sacscoc-typeahead__panel--inline {
+  margin-top: var(--sacscoc-gap);
+  background: #fff;
+  border: 1px solid var(--sacscoc-line-strong);
+  border-radius: var(--sacscoc-radius);
+  padding: 6px;
+}
+
+.sacscoc-typeahead__panel--inline.is-empty { display: none; }
+
+/* ── The compact rows themselves ─────────────────────────────────── */
+
+.sacscoc-typeahead__list { list-style: none; margin: 0; padding: 0; }
+
+.sacscoc-typeahead__item + .sacscoc-typeahead__item { border-top: 1px solid var(--sacscoc-line); }
+
+/* The row is a flex line: name+location on the left, a chevron on the right
+   naming the row's own action ("this goes somewhere") the way the plain text
+   next to it cannot. `justify-content: space-between` rather than `gap`
+   alone, so a short name does not leave the chevron stranded in the middle
+   of the row. */
+.sacscoc-typeahead__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: calc(var(--sacscoc-radius) - 2px);
+  color: inherit;
+  text-decoration: none;
+}
+
+.sacscoc-typeahead__link:hover,
+.sacscoc-typeahead__link:focus-visible {
+  background: var(--sacscoc-surface);
+}
+
+.sacscoc-typeahead__link:focus-visible {
+  outline: 2px solid var(--sacscoc-blue);
+  outline-offset: -2px;
+}
+
+.sacscoc-typeahead__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sacscoc-typeahead__name {
+  font-family: var(--sacscoc-font-heading), sans-serif;
+  font-weight: var(--sacscoc-font-heading-weight);
+  color: var(--sacscoc-navy);
+  font-size: var(--sacscoc-text-sm);
+}
+
+.sacscoc-typeahead__meta { font-size: var(--sacscoc-label); color: var(--sacscoc-muted); }
+
+.sacscoc-typeahead__chevron {
+  flex: none;
+  width: 0.85em;
+  height: 0.85em;
+  color: var(--sacscoc-line-strong);
+  transition: transform 0.12s ease-in-out, color 0.12s ease-in-out;
+}
+
+/* The same "nudge toward where it points" hover the plugin's other
+   go-somewhere links already use (.sacscoc-plus-link) — one language for
+   "this is going to take you somewhere," not two. */
+.sacscoc-typeahead__link:hover .sacscoc-typeahead__chevron,
+.sacscoc-typeahead__link:focus-visible .sacscoc-typeahead__chevron {
+  transform: translateX(2px);
+  color: var(--sacscoc-blue);
+}
+
+.sacscoc-typeahead__empty,
+.sacscoc-typeahead__more {
+  margin: 0;
+  padding: 12px;
+  font-size: var(--sacscoc-text-sm);
+  color: var(--sacscoc-muted);
+}
+
+.sacscoc-typeahead__more {
+  border-top: 1px solid var(--sacscoc-line);
+  font-style: italic;
 }

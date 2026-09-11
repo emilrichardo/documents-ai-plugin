@@ -106,6 +106,18 @@
 							checked: attributes.showCount,
 							onChange: function ( value ) { setAttributes( { showCount: value } ); }
 						} ),
+						el( SelectControl, {
+							label: __( 'Show results', 'sacscoc-institutions' ),
+							value: attributes.resultsMode,
+							options: [
+								{ label: __( 'Always — the ordinary directory', 'sacscoc-institutions' ), value: 'always' },
+								{ label: __( 'After a search — as a dropdown', 'sacscoc-institutions' ), value: 'on-search' }
+							],
+							help: attributes.resultsMode === 'on-search'
+								? __( 'Nothing shows until a name is typed or a filter chosen; matches then appear as a dropdown under the search field — no heading, no count, no pagination, and the rest of the page does not move. For a navbar or a hero, where a results section has nowhere to go.', 'sacscoc-institutions' )
+								: __( 'The directory as usual — every institution listed straight away, filtered from there.', 'sacscoc-institutions' ),
+							onChange: function ( value ) { setAttributes( { resultsMode: value } ); }
+						} ),
 						! attributes.showSearch && el( TextControl, {
 							label: __( 'Group', 'sacscoc-institutions' ),
 							value: attributes.group,
@@ -195,11 +207,26 @@
 								: __( 'The same panel the Institutions Directory block’s own inline form uses.', 'sacscoc-institutions' ),
 							onChange: function ( value ) { setAttributes( { layout: value } ); }
 						} ),
-						el( TextControl, {
+						el( ToggleControl, {
+							label: __( 'Show the heading', 'sacscoc-institutions' ),
+							help: attributes.showHeading
+								? __( 'On — the panel prints its own heading above the fields.', 'sacscoc-institutions' )
+								: __( 'Off — no heading. For a form placed in a section that already has one, like a page hero.', 'sacscoc-institutions' ),
+							checked: attributes.showHeading,
+							onChange: function ( value ) { setAttributes( { showHeading: value } ); }
+						} ),
+						attributes.showHeading && el( TextControl, {
 							label: __( 'Heading', 'sacscoc-institutions' ),
 							value: attributes.heading,
 							placeholder: __( 'Institution Search', 'sacscoc-institutions' ),
 							onChange: function ( value ) { setAttributes( { heading: value } ); }
+						} ),
+						el( TextControl, {
+							label: __( 'Results page', 'sacscoc-institutions' ),
+							value: attributes.resultsUrl,
+							placeholder: __( 'Settings → Directory Page', 'sacscoc-institutions' ),
+							help: __( 'Where Search submits to. Leave empty to use Institutions → Settings → Directory Page. Otherwise a path like /institutions/ or a page id.', 'sacscoc-institutions' ),
+							onChange: function ( value ) { setAttributes( { resultsUrl: value } ); }
 						} ),
 						el( TextControl, {
 							label: __( 'Group', 'sacscoc-institutions' ),

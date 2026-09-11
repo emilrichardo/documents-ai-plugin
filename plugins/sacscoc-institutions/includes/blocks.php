@@ -183,6 +183,7 @@ function sacscoc_inst_render_directory_block( array $attributes ): string {
         'filter_state'    => (string) ( $attributes['filterState'] ?? '' ),
         'filter_degree'   => (string) ( $attributes['filterDegree'] ?? '' ),
         'filter_year'     => (string) ( $attributes['filterYear'] ?? '' ),
+        'results_mode'    => (string) ( $attributes['resultsMode'] ?? 'always' ),
     ] );
 
     return sprintf( '<div %s>%s</div>', get_block_wrapper_attributes(), $content );
@@ -195,6 +196,8 @@ function sacscoc_inst_render_search_block( array $attributes ): string {
         'heading'       => (string) ( $attributes['heading'] ?? '' ),
         'layout'        => (string) ( $attributes['layout'] ?? 'vertical' ),
         'contain_width' => (bool) ( $attributes['containWidth'] ?? true ),
+        'show_heading'  => (bool) ( $attributes['showHeading'] ?? true ),
+        'results_url'   => (string) ( $attributes['resultsUrl'] ?? '' ),
     ] );
 
     return sprintf( '<div %s>%s</div>', get_block_wrapper_attributes(), $content );

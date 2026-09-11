@@ -7,7 +7,7 @@ The API is the source of truth; WordPress holds a copy. Visitors are never sent
 to the API — the directory reads local tables, so it stays fast and stays up
 when the API does not.
 
-- **Version** 0.9.0
+- **Version** 0.10.0
 - **Requires** PHP 8.0, WordPress 6.0
 - **Depends on nothing.** No shared code, tables, options or hooks with the AI
   Documents plugin in this repository. Either can be installed, activated,
@@ -17,6 +17,62 @@ when the API does not.
 ## What is in this release
 
 The synchronisation layer, the admin screens, and the public directory.
+
+**0.10.0**:
+
+- **A typeahead dropdown**, for a search that has to live in a navbar or a
+  hero rather than on a results page: `results="on-search"` on
+  `[sacscoc_institutions]` (or its Gutenberg block's own **Show results**
+  control). Nothing renders until the visitor types a name or picks a
+  filter; matches then appear as a compact list floating under the search
+  field — no heading, no result count, no pagination, and nothing else on
+  the page moves to make room for it. Capped at eight matches
+  (`sacscoc_inst_typeahead_per_page()`, filterable); the rest are named
+  rather than dropped ("+ 5 more — narrow your search to see them"), and
+  each row is a real link to the institution, ending in a small arrow. The
+  filter chosen this way is a completely different template from the
+  ordinary two-column directory, answered and returned before any of that
+  layout is even computed — see the `results` docblock on
+  `sacscoc_inst_render_directory()` and the "Typeahead / on-search dropdown"
+  section of `assets/css/sacscoc-institutions.css`. Escape or a click
+  outside the dropdown dismisses it without clearing what was typed, the
+  same as a browser's own address-bar suggestions; typing again, or
+  refocusing the field with a search still in it, brings it back. The
+  compact form drops **Reset filters** — each field already grows its own
+  × once it has a value, and a second, wider reset is one control too many
+  in that little space — but the ordinary directory and the standalone
+  search form keep it exactly as before.
+- **`[sacscoc_institution_search]`** — the singular form of
+  `[sacscoc_institutions_search]`, added because every other shortcode in
+  this plugin is singular and the plural one was the odd name out. Same
+  callback, same markup, both fully supported; nothing that already uses
+  the plural needs to change.
+- **`results_url`** on the standalone search shortcode/block, for a page
+  whose search has to submit somewhere other than **Settings → Directory
+  Page** — a path (`/institutions/`), a page id, or an absolute URL on this
+  site; anything pointing off-site is refused and the Settings value used
+  instead, since this is a visitor's search and a typo in an attribute
+  should not be able to send it to a third party.
+- **`show_heading="no"`** on the same shortcode/block, for a form placed in
+  a hero or a section that already carries its own heading and does not
+  want a second "Institution Search" underneath it. The heading text is
+  still the form's accessible name either way.
+- Two defects fixed on the institution pages, neither of them the theme's:
+  bulleted lists in the About SACSCOC block and the Off-campus Sites legend
+  were losing their indent to the plugin's *own* list reset, which zeroes
+  every list's `padding` at a higher specificity than the rule meant to
+  hand it back — a `.sacscoc-prose` class now restores it, still with no
+  `!important`. And the degree-level tooltip was the browser's native
+  `title` attribute, which explained the "sometimes ten seconds, sometimes
+  never" report: its delay cannot be set from the page, it never showed on
+  keyboard focus, and in the results list it never showed at all, because
+  the invisible full-row link sits above the "i" and takes the pointer. It
+  is a real, instant, `:hover`/`:focus` element now.
+- The one-column search bar's **Search** button now sits flush with the
+  bar's right edge at rest, with **Reset filters** showing, and while the
+  spinner is running — previously the idle spinner still held its own
+  width and pushed the button 34px short of the edge, and Reset appearing
+  to the button's right pushed it further still.
 
 **0.9.0**:
 
@@ -167,9 +223,10 @@ only, and maps one-to-one to a block Inspector Control above:
 | Attribute | Values | Default |
 | --- | --- | --- |
 | `layout` | `two-column`, `one-column` | **Settings → Directory Layout** |
-| `per_page` | 1–200 | **Settings → Results Per Page** (25) |
+| `per_page` | 1–200 | **Settings → Results Per Page** (25); 8 when `results="on-search"` |
 | `show_count` | `yes`, `no` | `yes` |
 | `show_search` | `yes`, `no` | `yes` |
+| `results` | `always`, `on-search` | `always` |
 | `group` | any string | `default` |
 | `search_heading` | any text | the built-in "Institution Search" |
 | `results_heading` | any text | the built-in "Results" |
@@ -181,6 +238,10 @@ only, and maps one-to-one to a block Inspector Control above:
 `show_search` and `group` are for [The search form on its own](#the-search-form-on-its-own):
 `show_search="no"` drops the inline form, and `group` pairs this shortcode with
 a `[sacscoc_institutions_search]` rendering it elsewhere.
+
+`results="on-search"` turns the whole thing into a floating typeahead instead
+of a directory — see [The on-search dropdown](#the-on-search-dropdown), its
+own section below.
 
 `layout`, `per_page`, `show_count`, `group` and `results_heading` travel with
 the markup as data attributes and are posted back with every live filter, so a
@@ -277,6 +338,44 @@ layout:
 
 Below 720px the strip becomes ordinary stacked fields with their labels back.
 
+### The on-search dropdown
+
+```
+[sacscoc_institutions results="on-search" layout="one-column"]
+```
+
+Built for the one place the ordinary directory does not fit: a navbar, or a
+hero above the fold, where there is no results section to be. Nothing renders
+until the visitor types a name or picks a filter — not even an invitation to.
+Matches then appear as a compact dropdown floating under the search field,
+capped at eight (`sacscoc_inst_typeahead_per_page()`, filterable) with any
+remainder simply named ("+ 5 more — narrow your search to see them") rather
+than silently dropped, and nothing else on the page shifts to make room for
+it. Each row is a real link straight to the institution, ending in a small
+arrow; there is no heading, no result count and no pagination, because none
+of those describe a dropdown.
+
+It is a different template from the two-column directory above, not a
+variation of it — answered and returned before that layout is even computed,
+since none of it applies. `show_search="no"` still pairs this with a separate
+`[sacscoc_institutions_search]` elsewhere on the page exactly as it does for
+the ordinary directory, though with nothing to float under in that case the
+matches fall back to an ordinary compact card in the page's own flow rather
+than an overlay.
+
+Two things this form drops that the ordinary one keeps: **Reset filters**,
+since each field already grows its own × once it has a value and a second,
+wider control has nowhere to go in that little space; and the ordinary
+`title`-attribute browser tooltip nowhere applies here in the first place.
+
+Dismissing it works the way a browser's own address-bar suggestions do:
+**Escape**, or a click outside the dropdown, closes it without touching what
+was typed, and typing again — or tabbing back into the field with a search
+still in it — brings it back. Without JavaScript the dropdown is simply a
+plain GET form: submitting it reloads the page with the filters in the query
+string, and the same PHP that renders the AJAX response renders that reload,
+so the two can never show different results for the same search.
+
 ### The search form on its own
 
 `show_search="no"` drops the form from `[sacscoc_institutions]` entirely — no
@@ -292,11 +391,31 @@ placed anywhere else on the same page, in a custom block or widget, gives
 
 ```
 [sacscoc_institutions_search]
+[sacscoc_institution_search]
 ```
+
+The two tags are the same shortcode — `sacscoc_institution_search` is the
+singular form, added because every other tag in this plugin is singular and
+the plural one alone was the odd name out. Neither is more correct than the
+other; a page already using the plural has no reason to change.
 
 Both are optional and both default to working exactly as before: leave
 `show_search` out and `[sacscoc_institutions]` keeps its own inline form, the
 same markup it has always rendered.
+
+This standalone form is also the one place `results_url` and `show_heading`
+matter:
+
+- **`results_url`** overrides where Search submits to — a path
+  (`/institutions/`), a page id, or an absolute URL on this site — for a form
+  whose results live somewhere other than **Settings → Directory Page**. An
+  off-site URL is refused and the Settings value used instead; this is a
+  visitor's search, and a mistyped attribute should not be able to send it to
+  a third party.
+- **`show_heading="no"`** drops the panel's own heading, for a form dropped
+  into a hero or a section that already has one. The heading text still
+  becomes the form's accessible name either way, so nothing is lost for a
+  screen reader.
 
 They find each other **purely at runtime**, by matching a `group` attribute —
 default `"default"` on both, which is why the ordinary one-of-each case needs no

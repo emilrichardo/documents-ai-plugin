@@ -194,15 +194,15 @@ function sacscoc_inst_docs_frontend(): void {
                 <td>
                     <?php esc_html_e( 'The whole directory: the search, the results and the pagination. One per page.', 'sacscoc-institutions' ); ?>
                     <br />
-                    <?php esc_html_e( 'Inspector Controls: Layout, Results per page, Show the result count, Show the search form, a State / Highest degree / Reaffirmation year restriction, and the two headings. Turning the search form off reveals a Group field, for pairing with an Institutions Search block placed elsewhere.', 'sacscoc-institutions' ); ?>
+                    <?php esc_html_e( 'Inspector Controls: Layout, Results per page, Show the result count, Show results (always, or as a dropdown after the visitor searches — for a navbar or a hero), Show the search form, a State / Highest degree / Reaffirmation year restriction, and the two headings. Turning the search form off reveals a Group field, for pairing with an Institutions Search block placed elsewhere.', 'sacscoc-institutions' ); ?>
                 </td>
             </tr>
             <tr>
                 <td><?php esc_html_e( 'Institutions Search', 'sacscoc-institutions' ); ?></td>
                 <td>
-                    <?php esc_html_e( 'Just the search form, on its own — for a page that puts an Institutions Directory block with “Show the search form” off somewhere that block’s own layout cannot reach: a sidebar, a header, another column.', 'sacscoc-institutions' ); ?>
+                    <?php esc_html_e( 'Just the search form, on its own — no results underneath it. For a page that puts an Institutions Directory block with “Show the search form” off somewhere that block’s own layout cannot reach (a sidebar, a header, another column), and for a page with no directory at all, where Search leaves the page for the results.', 'sacscoc-institutions' ); ?>
                     <br />
-                    <?php esc_html_e( 'Inspector Controls: Layout (Vertical, the panel, or Horizontal, a single bar — independent of whatever layout a directory elsewhere on the page is using), Heading, Group, and Constrain width to match the directory (on by default). The Directory and Search blocks find each other purely in the browser, by matching Group — default “default” on both, so the ordinary one-of-each page needs neither field touched.', 'sacscoc-institutions' ); ?>
+                    <?php esc_html_e( 'Inspector Controls: Layout (Vertical, the panel, or Horizontal, a single bar — independent of whatever layout a directory elsewhere on the page is using), Show the heading, Heading, Results page, Group, and Constrain width to match the directory (on by default). The Directory and Search blocks find each other purely in the browser, by matching Group — default “default” on both, so the ordinary one-of-each page needs neither field touched. On a page with no directory at all the form is simply a form: Search leaves the page for the Results page, carrying every filter in the query string.', 'sacscoc-institutions' ); ?>
                 </td>
             </tr>
             <tr>
@@ -242,12 +242,21 @@ function sacscoc_inst_docs_frontend(): void {
                         '<code>filter_state</code> / <code>filter_degree</code> / <code>filter_year</code>'
                     );
                     ?>
+                    <br />
+                    <?php
+                    printf(
+                        /* translators: 1: results attribute set to on-search, 2: the default value */
+                        esc_html__( '%1$s is a typeahead, not a directory: nothing shows until the visitor types a name or picks a filter, and matches then appear as a dropdown floating under the search field — no heading, no count, no pagination, and nothing else on the page moves. Built for a navbar or a hero, where a results section has nowhere to go. %2$s is the ordinary directory, listing every institution on arrival.', 'sacscoc-institutions' ),
+                        '<code>results="on-search"</code>',
+                        '<code>results="always"</code>'
+                    );
+                    ?>
                 </td>
             </tr>
             <tr>
-                <td><code>[sacscoc_institutions_search]</code></td>
+                <td><code>[sacscoc_institution_search]</code><br /><code>[sacscoc_institutions_search]</code></td>
                 <td>
-                    <?php esc_html_e( 'Just the search form, on its own — for a page that puts [sacscoc_institutions show_search="no"] somewhere its own layout cannot reach: a custom block, a sidebar, a template part.', 'sacscoc-institutions' ); ?>
+                    <?php esc_html_e( 'Just the search form, on its own — no results underneath it. Two things use this. A page that puts [sacscoc_institutions show_search="no"] somewhere this form’s own layout cannot reach: a custom block, a sidebar, a template part. And a page that has no directory at all — a landing page, a hero — where Search leaves the page and lands on the results, filters and all, in the query string. The two tags are the same shortcode; either spelling works.', 'sacscoc-institutions' ); ?>
                     <br />
                     <?php
                     printf(
@@ -271,6 +280,23 @@ function sacscoc_inst_docs_frontend(): void {
                         /* translators: %s: contain_width attribute */
                         esc_html__( '%s caps the panel at the same measure the directory itself uses, centred — on by default; set it to “no” for a panel placed somewhere narrower, like a sidebar.', 'sacscoc-institutions' ),
                         '<code>contain_width="no"</code>'
+                    );
+                    ?>
+                    <br />
+                    <?php
+                    printf(
+                        /* translators: %s: show_heading attribute */
+                        esc_html__( '%s drops the panel’s own heading, for a form placed in a section that already has one — a hero that says “Find An Institution” above it does not want “Institution Search” as well.', 'sacscoc-institutions' ),
+                        '<code>show_heading="no"</code>'
+                    );
+                    ?>
+                    <br />
+                    <?php
+                    printf(
+                        /* translators: 1: results_url attribute, 2: an example value */
+                        esc_html__( '%1$s is where Search submits to. Left out, that is the Directory Page named in the settings below, which is the right answer for a site with one results page; set it — %2$s, or a page id — when this particular form has to land somewhere else.', 'sacscoc-institutions' ),
+                        '<code>results_url</code>',
+                        '<code>results_url="/institutions/"</code>'
                     );
                     ?>
                 </td>

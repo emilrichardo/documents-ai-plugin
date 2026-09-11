@@ -26,6 +26,12 @@
  *             Always empty for the standalone [sacscoc_institutions_search] /
  *             Institutions Search block, which has no directory of its own to
  *             restrict.
+ *   $show_reset bool  true (the default) prints the "Reset filters" link
+ *             beside Search. Each field already carries its own × once it has
+ *             a value, so Reset only ever adds a second way to clear all of
+ *             them at once — worth having in the ordinary panel, and one
+ *             control too many in the on-search dropdown's compact bar, where
+ *             templates/directory.php turns it off.
  *
  * A single, self-contained <form>: heading, fields, submit, reset and the
  * spinner are all inside it, nothing outside is assumed. That is what makes it
@@ -60,12 +66,21 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 /** @var string $group */
 /** @var bool   $stacked */
 /** @var string $heading */
+/** @var bool   $show_heading */
 /** @var array  $locked */
+/** @var bool   $show_reset */
 
-$locked  = (array) ( $locked ?? [] );
-$active  = sacscoc_inst_has_filters( $filters );
-$heading = trim( (string) ( $heading ?? '' ) );
-$heading = $heading !== '' ? $heading : __( 'Institution Search', 'sacscoc-institutions' );
+$locked      = (array) ( $locked ?? [] );
+$active      = sacscoc_inst_has_filters( $filters );
+$heading     = trim( (string) ( $heading ?? '' ) );
+$heading     = $heading !== '' ? $heading : __( 'Institution Search', 'sacscoc-institutions' );
+$show_reset  = (bool) ( $show_reset ?? true );
+
+// The directory's own inline form always prints its heading — it is what names
+// the panel beside the results. A standalone form can be told not to, for the
+// hero that already has a heading of its own; the text is still rendered, as
+// the form's accessible name, so the control group is still announced.
+$show_heading = (bool) ( $show_heading ?? true );
 
 /**
  * The × that clears one filter.
@@ -85,13 +100,16 @@ $clear = static function ( array $filters, string $key, string $label ): void {
     );
 };
 ?>
-<form class="sacscoc-block sacscoc-search<?php echo $stacked ? ' sacscoc-search--stacked' : ''; ?>" method="get"
+<form class="sacscoc-block sacscoc-search<?php echo $stacked ? ' sacscoc-search--stacked' : ''; ?><?php echo $show_heading ? '' : ' sacscoc-search--no-heading'; ?>" method="get"
       action="<?php echo esc_url( $action ); ?>" role="search"
+      aria-label="<?php echo esc_attr( $heading ); ?>"
       data-sacscoc-form data-sacscoc-group="<?php echo esc_attr( $group ); ?>">
+    <?php if ( $show_heading ) : ?>
     <h2 class="sacscoc-block__heading">
         <?php echo sacscoc_inst_icon( 'search', 'sacscoc-icon--heading' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
         <span><?php echo esc_html( $heading ); ?></span>
     </h2>
+    <?php endif; ?>
 
     <div class="sacscoc-search__fields">
         <p class="sacscoc-field">
@@ -174,11 +192,13 @@ $clear = static function ( array $filters, string $key, string $label ): void {
             <?php esc_html_e( 'Search', 'sacscoc-institutions' ); ?>
         </button>
 
+        <?php if ( $show_reset ) : ?>
         <a class="sacscoc-plus-link sacscoc-reset<?php echo $active ? '' : ' is-hidden'; ?>"
            href="<?php echo esc_url( $action ); ?>" data-sacscoc-reset>
             <?php echo sacscoc_inst_icon( 'reset' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
             <?php esc_html_e( 'Reset filters', 'sacscoc-institutions' ); ?>
         </a>
+        <?php endif; ?>
 
         <span class="sacscoc-spinner" data-sacscoc-spinner aria-hidden="true"></span>
     </p>

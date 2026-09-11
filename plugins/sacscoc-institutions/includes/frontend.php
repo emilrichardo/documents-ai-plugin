@@ -286,6 +286,37 @@ function sacscoc_inst_is_directory_page(): bool {
 }
 
 /**
+ * True when the current page renders anything of this plugin's.
+ *
+ * sacscoc_inst_is_directory_page() answers a narrower question — is this the
+ * results page — and drives the layout <style> and the "Back to results" URL.
+ * This one exists only to decide whether the stylesheet belongs in <head>, and
+ * so has to count the two publishing paths that are not the directory: a
+ * standalone search form (the whole point of which is to sit on a page that is
+ * not the results), and an embedded single record.
+ *
+ * Getting this wrong is not fatal — every renderer also calls
+ * sacscoc_inst_enqueue_styles() as a backstop — but an enqueue that happens
+ * during the_content, after wp_head has already printed, lands in the footer:
+ * the markup paints unstyled first and then snaps into place. That is exactly
+ * the case a hero search form hits, so it is worth detecting here.
+ */
+function sacscoc_inst_page_uses_plugin(): bool {
+    if ( sacscoc_inst_is_directory_page() ) return true;
+
+    $post = get_post();
+    if ( ! $post instanceof WP_Post ) return false;
+
+    $content = (string) $post->post_content;
+
+    return has_shortcode( $content, 'sacscoc_institutions_search' )
+        || has_shortcode( $content, 'sacscoc_institution_search' )
+        || has_shortcode( $content, 'sacscoc_institution' )
+        || has_block( 'sacscoc-institutions/search', $content )
+        || has_block( 'sacscoc-institutions/institution', $content );
+}
+
+/**
  * The Institutions Directory block, as the block markup a page's real
  * post_content is made of.
  *
@@ -437,6 +468,16 @@ function sacscoc_inst_clean_search_layout( $value ): string {
  *                                  visitor could never actually change it
  *   @type string $filter_degree   same idea, a key from sacscoc_inst_degrees()
  *   @type string $filter_year     same idea, a year from sacscoc_inst_reaffirm_years()
+ *   @type string $results_mode    'always' (the default) lists every
+ *                                  institution on arrival, which is what a
+ *                                  directory is. 'on-search' shows nothing
+ *                                  until the visitor types or picks a filter,
+ *                                  and then shows the matches as a dropdown
+ *                                  floating under the search field rather
+ *                                  than a section of the page — built for a
+ *                                  navbar or a hero, where a results block
+ *                                  has nowhere to go. See
+ *                                  sacscoc_inst_clean_results_mode()
  * }
  */
 function sacscoc_inst_render_directory( array $args ): string {
@@ -444,9 +485,14 @@ function sacscoc_inst_render_directory( array $args ): string {
         return '<p class="sacscoc-notice">' . esc_html__( 'The institutions directory is not available yet.', 'sacscoc-institutions' ) . '</p>';
     }
 
+    // Resolved before $per_page: the dropdown's own default page size (see
+    // sacscoc_inst_typeahead_per_page()) only applies when the caller did not
+    // ask for a specific one, and that decision needs to know the mode first.
+    $results_mode = sacscoc_inst_clean_results_mode( (string) ( $args['results_mode'] ?? '' ) );
+
     $per_page = (int) $args['per_page'] > 0
         ? sacscoc_inst_clamp_per_page( $args['per_page'] )
-        : sacscoc_inst_per_page();
+        : ( $results_mode === 'on-search' ? sacscoc_inst_typeahead_per_page() : sacscoc_inst_per_page() );
 
     $layout = (string) $args['layout'] !== ''
         ? sacscoc_inst_clean_layout( $args['layout'] )
@@ -478,9 +524,16 @@ function sacscoc_inst_render_directory( array $args ): string {
         $locked[]         = 'year';
     }
 
-    $results = sacscoc_inst_search( array_merge( $filters, [
-        'per_page' => $per_page,
-    ] ) );
+    // In on-search mode with nothing asked yet there is no query to run: the
+    // dropdown is going to render nothing at all (see templates/results.php),
+    // not a list. Skipping the search is not an optimisation for its own sake
+    // — this is the first paint of a page that may be in the site header, and
+    // counting 1,201 rows to then not show them is work nobody asked for.
+    $waiting = $results_mode === 'on-search' && ! sacscoc_inst_has_filters( $filters );
+
+    $results = $waiting
+        ? [ 'rows' => [], 'total' => 0, 'pages' => 0, 'paged' => 1, 'per_page' => $per_page ]
+        : sacscoc_inst_search( array_merge( $filters, [ 'per_page' => $per_page ] ) );
 
     sacscoc_inst_enqueue_styles();
     sacscoc_inst_enqueue_script();
@@ -496,7 +549,57 @@ function sacscoc_inst_render_directory( array $args ): string {
         'group'           => sacscoc_inst_clean_group( (string) ( $args['group'] ?? 'default' ) ),
         'search_heading'  => (string) ( $args['search_heading'] ?? '' ),
         'results_heading' => (string) ( $args['results_heading'] ?? '' ),
+        'results_mode'    => $results_mode,
     ], true );
+}
+
+/**
+ * When — and how — the results are allowed to appear.
+ *
+ *   always     the directory as it has always been: every institution listed
+ *              on arrival in the ordinary results block, filtered from there.
+ *              Right for /institutions/, where the list itself is the point
+ *              of the page.
+ *   on-search  a typeahead, not a directory: nothing renders at all until the
+ *              visitor types a name or picks a filter, and matches then
+ *              appear as a compact dropdown floating under the search field —
+ *              no heading, no count, no pagination, and nothing else on the
+ *              page shifts to make room for it. Built for a navbar or a hero,
+ *              where a results block has no page section to be. Capped at
+ *              sacscoc_inst_typeahead_per_page() matches; the rest are named,
+ *              not listed ("+ 12 more"). See templates/results.php.
+ *
+ * Either way the search is live once the script is running: typing filters in
+ * place. The difference is what shows before anyone has typed, and how the
+ * matches are presented once they have.
+ */
+function sacscoc_inst_results_modes(): array {
+    return [
+        'always'    => __( 'Always — list every institution on arrival', 'sacscoc-institutions' ),
+        'on-search' => __( 'After a search — as a dropdown of matches', 'sacscoc-institutions' ),
+    ];
+}
+
+/** A results mode actually offered; anything else becomes "always". */
+function sacscoc_inst_clean_results_mode( $value ): string {
+    $value = sanitize_key( str_replace( '_', '-', (string) $value ) );
+    return isset( sacscoc_inst_results_modes()[ $value ] ) ? $value : 'always';
+}
+
+/**
+ * How many matches the on-search dropdown shows before it stops and just
+ * says how many more there are.
+ *
+ * Deliberately its own, smaller default rather than sacscoc_inst_per_page():
+ * a typeahead floating under a navbar or a hero search has maybe 400px of
+ * safe height to work with, not a page, and 1,201 institutions do not need
+ * to be counted to answer "which ones start with Dallas". Only applies when
+ * the caller has not asked for a specific per_page — see
+ * sacscoc_inst_render_directory().
+ *
+ */
+function sacscoc_inst_typeahead_per_page(): int {
+    return (int) apply_filters( 'sacscoc_inst_typeahead_per_page', 8 );
 }
 
 add_shortcode( 'sacscoc_institutions', 'sacscoc_inst_directory_shortcode' );
@@ -535,6 +638,14 @@ add_shortcode( 'sacscoc_institutions', 'sacscoc_inst_directory_shortcode' );
  *                   one-of-each case need no attribute on either shortcode.
  *   search_heading  replaces "Institution Search" above the inline form.
  *   results_heading replaces "Results" above the list.
+ *   results         `always` (the default) lists every institution on
+ *                   arrival, in the ordinary results block. `on-search` is a
+ *                   typeahead instead: nothing shows until the visitor types
+ *                   or picks a filter, and matches then appear as a compact
+ *                   dropdown under the search field — no heading, no count,
+ *                   no pagination, and the rest of the page does not move.
+ *                   Meant for a navbar or a hero, where a results block has
+ *                   no page section to be in.
  *
  * layout, per_page, show_count, group and results_heading are carried on the
  * wrapper as data attributes and sent back with every live filter, so a page
@@ -553,6 +664,7 @@ function sacscoc_inst_directory_shortcode( $atts ): string {
         'filter_state'    => '',
         'filter_degree'   => '',
         'filter_year'     => '',
+        'results'         => 'always',
     ], $atts, 'sacscoc_institutions' );
 
     return sacscoc_inst_render_directory( [
@@ -566,6 +678,7 @@ function sacscoc_inst_directory_shortcode( $atts ): string {
         'filter_state'    => (string) $atts['filter_state'],
         'filter_degree'   => (string) $atts['filter_degree'],
         'filter_year'     => (string) $atts['filter_year'],
+        'results_mode'    => (string) $atts['results'],
     ] );
 }
 
@@ -593,6 +706,14 @@ function sacscoc_inst_directory_shortcode( $atts ): string {
  *                  place of its own — a sidebar, a column — where that cap
  *                  would only ever be wider than the space actually available
  *                  and so would never do anything.
+ *   @type bool   $show_heading  true (the default) prints the panel heading.
+ *                  Off for a form dropped into a section that already has a
+ *                  heading of its own — a page hero saying "Find An
+ *                  Institution" does not want a second "Institution Search"
+ *                  underneath it.
+ *   @type string $results_url   '' for Settings → Directory Page; otherwise a
+ *                  page id, a site-relative path or an absolute URL on this
+ *                  site. See sacscoc_inst_results_url().
  * }
  */
 function sacscoc_inst_render_search( array $args ): string {
@@ -606,11 +727,12 @@ function sacscoc_inst_render_search( array $args ): string {
     sacscoc_inst_enqueue_script();
 
     $form = sacscoc_inst_load_template( 'search-form.php', [
-        'filters' => $filters,
-        'action'  => sacscoc_inst_directory_page_url(),
-        'group'   => sacscoc_inst_clean_group( (string) ( $args['group'] ?? 'default' ) ),
-        'stacked' => sacscoc_inst_clean_search_layout( (string) ( $args['layout'] ?? 'vertical' ) ) === 'horizontal',
-        'heading' => (string) ( $args['heading'] ?? '' ),
+        'filters'      => $filters,
+        'action'       => sacscoc_inst_results_url( (string) ( $args['results_url'] ?? '' ) ),
+        'group'        => sacscoc_inst_clean_group( (string) ( $args['group'] ?? 'default' ) ),
+        'stacked'      => sacscoc_inst_clean_search_layout( (string) ( $args['layout'] ?? 'vertical' ) ) === 'horizontal',
+        'heading'      => (string) ( $args['heading'] ?? '' ),
+        'show_heading' => (bool) ( $args['show_heading'] ?? true ),
     ], true );
 
     $contain_width = (bool) ( $args['contain_width'] ?? true );
@@ -627,6 +749,13 @@ function sacscoc_inst_render_search( array $args ): string {
 }
 
 add_shortcode( 'sacscoc_institutions_search', 'sacscoc_inst_search_shortcode' );
+
+// The same form under the singular tag. Two names for one shortcode is not a
+// thing to do lightly, but the plural was the odd one out — every other tag in
+// this plugin is singular ([sacscoc_institution]) — and pages are already
+// published with it. Both are documented, both are supported, and neither can
+// drift from the other: this is the same callback, not a copy.
+add_shortcode( 'sacscoc_institution_search', 'sacscoc_inst_search_shortcode' );
 
 /**
  * Just the search form — the panel [sacscoc_institutions] renders in its own
@@ -665,6 +794,19 @@ add_shortcode( 'sacscoc_institutions_search', 'sacscoc_inst_search_shortcode' );
  *            [sacscoc_institutions layout="one-column"] gives its own inline
  *            form, offered here independently since a standalone form is not
  *            necessarily next to a directory laid out that way at all.
+ *   show_heading
+ *            `no` drops the panel's own heading, for a form dropped into a
+ *            section that already has one — a hero that says "Find An
+ *            Institution" above it does not want "Institution Search" as
+ *            well.
+ *   results_url
+ *            where Search submits to. Left out, Settings → Directory Page,
+ *            which is the right answer for a site with one results page.
+ *            Set it — `/institutions/`, or a page id — when the form must
+ *            land somewhere else. See sacscoc_inst_results_url().
+ *
+ * Also registered as [sacscoc_institution_search]; the two tags are the same
+ * shortcode.
  */
 function sacscoc_inst_search_shortcode( $atts ): string {
     $atts = shortcode_atts( [
@@ -672,6 +814,8 @@ function sacscoc_inst_search_shortcode( $atts ): string {
         'heading'       => '',
         'layout'        => 'vertical',
         'contain_width' => 'yes',
+        'show_heading'  => 'yes',
+        'results_url'   => '',
     ], $atts, 'sacscoc_institutions_search' );
 
     return sacscoc_inst_render_search( [
@@ -679,6 +823,8 @@ function sacscoc_inst_search_shortcode( $atts ): string {
         'heading'       => (string) $atts['heading'],
         'layout'        => (string) $atts['layout'],
         'contain_width' => $atts['contain_width'] !== 'no',
+        'show_heading'  => $atts['show_heading'] !== 'no',
+        'results_url'   => (string) $atts['results_url'],
     ] );
 }
 
@@ -763,6 +909,11 @@ function sacscoc_inst_render_institution( array $args ): string {
     }
 
     sacscoc_inst_enqueue_styles();
+
+    // Not for live filtering — there is no directory here — but for the one
+    // thing the tooltip CSS cannot do on its own: nudge a bubble that would
+    // run off the edge of a phone. See the foot of assets/js/directory.js.
+    sacscoc_inst_enqueue_script();
 
     return sacscoc_inst_load_template( 'institution.php', [
         'institution' => $row,
@@ -904,7 +1055,64 @@ function sacscoc_inst_directory_page_url(): string {
         return (string) apply_filters( 'sacscoc_inst_directory_url', get_permalink( $page_id ) );
     }
 
-    return (string) apply_filters( 'sacscoc_inst_directory_url', home_url( '/' ) );
+    // No Directory Page chosen. The home page is not a results page and never
+    // was — a search submitted there simply loses the visitor's filters — so
+    // fall back to /{rewrite base}/, which is where a site that publishes this
+    // directory at all almost always publishes it, and which is the same base
+    // the individual institution URLs already live under.
+    return (string) apply_filters(
+        'sacscoc_inst_directory_url',
+        home_url( '/' . sacscoc_inst_rewrite_base() . '/' )
+    );
+}
+
+/**
+ * Where a standalone search form submits to.
+ *
+ * Settings → Directory Page is the default and covers the ordinary site: one
+ * results page, every search form on the site pointing at it. `$target` is the
+ * per-instance override — the `results_url` attribute of
+ * [sacscoc_institution_search] / the Institutions Search block's own "Results
+ * page" control — for the case Settings cannot express: two results pages, or
+ * a hero form that must land on /institutions/ while the Directory Page
+ * setting names something else.
+ *
+ * Accepts whatever an editor is likely to type:
+ *
+ *   13419                       a page id
+ *   /institutions/              a site-relative path
+ *   https://example.org/insts/  an absolute URL on this site
+ *
+ * An absolute URL pointing off-site is refused and the Settings value used
+ * instead: this is a GET form carrying a visitor's search, and sending that to
+ * a third-party host because of a typo in a shortcode attribute is not a thing
+ * an attribute should be able to do.
+ */
+function sacscoc_inst_results_url( string $target = '' ): string {
+    $target = trim( $target );
+    if ( $target === '' ) return sacscoc_inst_directory_page_url();
+
+    // A page id.
+    if ( ctype_digit( $target ) ) {
+        $id = (int) $target;
+        if ( $id > 0 && get_post_status( $id ) === 'publish' ) {
+            return (string) get_permalink( $id );
+        }
+        return sacscoc_inst_directory_page_url();
+    }
+
+    // An absolute URL — only if it is this site's.
+    if ( preg_match( '#^https?://#i', $target ) ) {
+        $host = wp_parse_url( $target, PHP_URL_HOST );
+        $home = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+        if ( $host && $home && strcasecmp( $host, $home ) === 0 ) {
+            return esc_url_raw( $target );
+        }
+        return sacscoc_inst_directory_page_url();
+    }
+
+    // A site-relative path.
+    return esc_url_raw( home_url( '/' . ltrim( $target, '/' ) ) );
 }
 
 // ──────────────────────────────────────────────
@@ -975,7 +1183,7 @@ function sacscoc_inst_register_styles(): void {
         sacscoc_inst_asset_version( 'assets/css/sacscoc-institutions.css' )
     );
 
-    if ( sacscoc_inst_current() !== null || sacscoc_inst_is_directory_page() ) {
+    if ( sacscoc_inst_current() !== null || sacscoc_inst_page_uses_plugin() ) {
         wp_enqueue_style( 'sacscoc-institutions' );
     }
 }
@@ -1074,7 +1282,19 @@ function sacscoc_inst_ajax_filter(): void {
         ? sacscoc_inst_clamp_per_page( wp_unslash( (string) $_POST['per_page'] ) )
         : sacscoc_inst_per_page();
 
-    $results = sacscoc_inst_search( array_merge( $filters, [ 'per_page' => $per_page ] ) );
+    // Carried on the wrapper as data-results-mode and posted back with every
+    // filter, for the same reason per_page and the heading are: it exists
+    // nowhere else, and without it a directory set to start empty would fill
+    // itself in the moment someone typed and then cleared the box again.
+    $results_mode = sacscoc_inst_clean_results_mode(
+        isset( $_POST['results_mode'] ) ? wp_unslash( (string) $_POST['results_mode'] ) : ''
+    );
+
+    $waiting = $results_mode === 'on-search' && ! sacscoc_inst_has_filters( $filters );
+
+    $results = $waiting
+        ? [ 'rows' => [], 'total' => 0, 'pages' => 0, 'paged' => 1, 'per_page' => $per_page ]
+        : sacscoc_inst_search( array_merge( $filters, [ 'per_page' => $per_page ] ) );
 
     // The results template builds pagination URLs from the directory page's
     // permalink, which an admin-ajax request has no way to infer. The page tells
@@ -1095,6 +1315,7 @@ function sacscoc_inst_ajax_filter(): void {
         // Control) survives every live filter instead of reverting to "Results"
         // the moment someone types into the search box.
         'heading'    => isset( $_POST['results_heading'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['results_heading'] ) ) : '',
+        'results_mode' => $results_mode,
     ], true );
 
     wp_send_json_success( [
@@ -1154,7 +1375,10 @@ function sacscoc_inst_register_script(): void {
         ],
     ] );
 
-    if ( sacscoc_inst_is_directory_page() ) {
+    // An institution's own page renders no directory and no form, but it does
+    // render degree-level hints, whose tooltips want the placement nudge at
+    // the foot of this script.
+    if ( sacscoc_inst_current() !== null || sacscoc_inst_page_uses_plugin() ) {
         wp_enqueue_script( 'sacscoc-institutions' );
     }
 }

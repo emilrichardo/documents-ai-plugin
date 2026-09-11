@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SACSCOC Institutions
  * Description: Keeps a local copy of the SACSCOC institution directory in WordPress, synchronised from the SACSCOC API, and publishes it.
- * Version: 0.9.0
+ * Version: 0.10.0
  * Requires PHP: 8.0
  * Text Domain: sacscoc-institutions
  *
@@ -43,18 +43,21 @@
  * [sacscoc_institution id="…"] puts a single record on any other page, from
  * the same template as that page uses. show_search="no" on the directory
  * (block or shortcode), paired at runtime with an Institutions Search
- * block/[sacscoc_institutions_search] placed elsewhere, splits the search form
- * out for a sidebar or column the directory's own layout cannot reach. All of
- * it lives in includes/frontend.php and includes/blocks.php, and renders
- * templates/ files a theme can override. Nothing in the public path talks to
- * the API; it all reads the local tables.
+ * block/[sacscoc_institution_search] placed elsewhere, splits the search form
+ * out for a sidebar or column the directory's own layout cannot reach. That
+ * same search block/shortcode is also the search-only widget for a page with
+ * no directory on it at all — a landing page, a hero: it renders the fields
+ * and nothing else, and Search leaves the page for the results, filters and
+ * all, in the query string. All of it lives in includes/frontend.php and
+ * includes/blocks.php, and renders templates/ files a theme can override.
+ * Nothing in the public path talks to the API; it all reads the local tables.
  *
  * There is no AI in this plugin, by design.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'SACSCOC_INST_VERSION', '0.9.0' );
+define( 'SACSCOC_INST_VERSION', '0.10.0' );
 define( 'SACSCOC_INST_FILE', __FILE__ );
 define( 'SACSCOC_INST_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SACSCOC_INST_URL', plugin_dir_url( __FILE__ ) );

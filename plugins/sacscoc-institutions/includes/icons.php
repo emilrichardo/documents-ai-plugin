@@ -57,6 +57,7 @@ function sacscoc_inst_icon_paths(): array {
         'results'   => '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
         'back'      => '<path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>',
         'reset'     => '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3 8.5"/><path d="M3 3.5v5h5"/>',
+        'chevron-right' => '<path d="m9 6 6 6-6 6"/>',
 
         // The record's sections
         'building'  => '<path d="M4 21h16"/><path d="M6 21V7l6-3 6 3v14"/><path d="M10 10h.01M14 10h.01M10 14h.01M14 14h.01M11 21v-3h2v3"/>',
