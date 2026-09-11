@@ -1,4 +1,4 @@
-# AI Documents
+# AI Policies
 
 A WordPress plugin for publishing an institutional **information** repository.
 Policies are uploaded as files, but the file is only ever a source of text: it is
@@ -16,7 +16,7 @@ re-structuring a misread file, and semantic search.
 
 > **Looking for the illustrated manual?** [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
 > walks through every screen with screenshots. It is also the source of the
-> plugin's own **Documents → Documentation** page and of the standalone landing
+> plugin's own **Policies → Documentation** page and of the standalone landing
 > page in `docs/index.html`; `bash tools/build-docs.sh` rebuilds all three and
 > the downloadable zip from it. This README stays as the technical reference.
 
@@ -47,7 +47,7 @@ re-structuring a misread file, and semantic search.
 
 1. Upload the `ai-documents` folder to `/wp-content/plugins/`.
 2. Activate the plugin from **WordPress Admin → Plugins → Installed Plugins**.
-3. Go to **Documents → Settings** in the admin sidebar.
+3. Go to **Policies → Settings** in the admin sidebar.
 4. Optionally configure a Gemini API key (see the next section) to enable the AI features.
 
 ---
@@ -79,7 +79,7 @@ Every AI feature in this plugin — metadata suggestions, content restructuring,
 
 You can do this from either place — they write to the same setting:
 
-- **Documents → Settings → AI**: paste the key, pick a model, click **"Save Settings"**.
+- **Policies → Settings → AI**: paste the key, pick a model, click **"Save Settings"**.
 - **Any document's editor**, under "Complete fields with AI (optional)": paste the key, click **"Check key & list models"** to validate it and list what it can reach, choose a model, click **"Save"**. This form only shows to administrators; anyone else editing a document without a key configured sees a note asking them to get one from an admin, since extraction above it works without one either way.
 
 The model list ships with the current Gemini lineup — 3.6/3.5 Flash, 3.1 and 3
@@ -97,8 +97,10 @@ tells them apart from the id alone.
 
 ## Settings
 
-**Documents → Settings** is one page with three sections. Entries live under
-`/documents/` — `/documents/{entry}/` for each one — which is not configurable.
+**Policies → Settings** is one page with three sections. Entries live under
+`/policies/` — `/policies/{entry}/` for each one. `/documents/`, the base used
+before 1.5.0, 301-redirects there, so links published against the old base keep
+working.
 
 ### AI
 - **Gemini API Key** and **Gemini Model** — see the previous section.
@@ -115,7 +117,7 @@ A reference of every shortcode parameter with copy-to-clipboard examples.
 
 ### Creating a document
 
-1. Go to **Documents → Add New Document** in the admin sidebar.
+1. Go to **Policies → Add New Policy** in the admin sidebar.
 2. Fill in the form:
 
 | Field | Description |
@@ -358,13 +360,13 @@ Clicking a result card goes straight to that entry's own page. Results carry no 
 
 ### The single entry page
 
-Each entry has its own URL (`/documents/{entry}/`), rendered inside your theme's header and footer: a type tag, the description, a metadata grid, a table of contents when the content has more than one section, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
+Each entry has its own URL (`/policies/{entry}/`), rendered inside your theme's header and footer: a type tag, the description, a metadata grid, a table of contents when the content has more than one section, the content (as collapsible sections), the revision history, and — when an API key is configured — an Ask AI bar pinned to the bottom of the page for questions about that entry. There is no download button and no file preview: the source file is not part of what a reader is offered.
 
 ---
 
 ## Document shortcode
 
-Embed one specific entry's own content — the same rendering as its `/documents/{entry}/` page, minus the "Back to all topics" link — inside any post or page:
+Embed one specific entry's own content — the same rendering as its `/policies/{entry}/` page, minus the "Back to all topics" link — inside any post or page:
 
 ```
 [aidocs_document id="123"]

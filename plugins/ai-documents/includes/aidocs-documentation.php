@@ -1,6 +1,6 @@
 <?php
 /**
- * Documents → Documentation — the manual, inside the plugin.
+ * Policies → Documentation — the manual, inside the plugin.
  *
  * The page renders docs/generated/admin-page.html, which tools/build-docs.php
  * produces from docs/DOCUMENTATION.md — the same source, the same wording and
@@ -22,7 +22,7 @@ add_action( 'admin_menu', 'aidocs_documentation_menu' );
 function aidocs_documentation_menu() {
     add_submenu_page(
         'edit.php?post_type=aidoc',
-        __( 'AI Documents Documentation' ),
+        __( 'AI Policies Documentation' ),
         __( 'Documentation' ),
         'edit_posts',
         'aidocs-documentation',

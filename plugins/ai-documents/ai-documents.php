@@ -1,15 +1,33 @@
 <?php
 /**
- * Plugin Name: AI Documents
- * Description: Document library with AI-assisted metadata entry, semantic search, and a conversational document finder.
- * Version: 1.4.0
+ * Plugin Name: AI Policies
+ * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
+ * Version: 1.5.0
  * Requires PHP: 8.0
  * Text Domain: ai-documents
+ *
+ * ── "Policies" outside, `aidoc` inside ─────────────────────────────────────
+ *
+ * As of 1.5.0 everything a reader or an editor sees says Policies: the plugin
+ * name, the admin menu, the labels, the settings screen, the headings, and
+ * the public URLs — /policies/ and /policies/{entry}/, with /documents/ 301ing
+ * to them so nothing already linked breaks.
+ *
+ * Underneath, nothing moved. The post type is still `aidoc`, the taxonomy is
+ * still `document_type`, the meta keys are still `_document_*`, the options
+ * are still `aidocs_*`, the functions are still `aidocs_*` and the shortcodes
+ * are still `[aidocs_…]`. Renaming any of those would mean a data migration —
+ * on 65 published records, every postmeta row, and every page that already
+ * carries a shortcode — to change a name no one ever sees. The text domain
+ * stays `ai-documents` for the same reason: it is the name of the folder the
+ * translation files are found by.
+ *
+ * So: read `aidoc` as "a policy". The two words mean the same thing here.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.4.0' );
+define( 'AIDOCS_VERSION', '1.5.0' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -510,13 +528,13 @@ function aidocs_register_post_type() {
 
     register_post_type( 'aidoc', [
         'labels' => [
-            'name'               => __( 'Documents' ),
-            'singular_name'      => __( 'Document' ),
-            'add_new'            => __( 'Add New Document' ),
-            'add_new_item'       => __( 'Add New Document' ),
-            'edit_item'          => __( 'Edit Document' ),
-            'all_items'          => __( 'All Documents' ),
-            'search_items'       => __( 'Search Documents' ),
+            'name'               => __( 'Policies' ),
+            'singular_name'      => __( 'Policy' ),
+            'add_new'            => __( 'Add New Policy' ),
+            'add_new_item'       => __( 'Add New Policy' ),
+            'edit_item'          => __( 'Edit Policy' ),
+            'all_items'          => __( 'All Policies' ),
+            'search_items'       => __( 'Search Policies' ),
         ],
         'public'       => true,
         // A string, not just true: this is what lets /{slug}/ list documents
@@ -531,9 +549,88 @@ function aidocs_register_post_type() {
     ] );
 }
 
-/** The URL segment documents live under — /{slug}/ for the archive, /{slug}/{name}/ for one. */
+/**
+ * The URL segment policies live under — /{slug}/ for the listing,
+ * /{slug}/{name}/ for one.
+ *
+ * `policies` since 1.5.0; it was `documents`, hardcoded, before that. The old
+ * base still works — see aidocs_redirect_legacy_slug() — so no link anyone
+ * has already published or bookmarked breaks.
+ *
+ * A filter rather than a setting: nothing in the admin asks for this, and a
+ * base that can be typed into a text field is a base that can be typed
+ * wrongly and take every policy URL on the site down with it. A site that
+ * genuinely wants a different one says so in code, once.
+ */
 function aidocs_get_archive_slug() {
-    return 'documents';
+    $slug = (string) apply_filters( 'aidocs_archive_slug', 'policies' );
+    $slug = sanitize_title( $slug );
+
+    return $slug !== '' ? $slug : 'policies';
+}
+
+/** The base this plugin used before 1.5.0, still answered for old links. */
+const AIDOCS_LEGACY_SLUG = 'documents';
+
+/**
+ * Keep /documents/ and /documents/{entry}/ working.
+ *
+ * Renaming the base would otherwise 404 every link to a policy that anyone
+ * has published, mailed, bookmarked or indexed — and the whole point of a
+ * rename that is only a rename is that nothing else about the site changes.
+ *
+ * A 301 rather than serving both: two URLs for one page is the kind of thing
+ * that quietly splits a page's search ranking in half, and "moved
+ * permanently" is exactly what happened.
+ *
+ * Runs on `parse_request`, before WordPress has decided the request is a 404,
+ * and matches on the path alone — the post type never registers the old base,
+ * so there is no rule to match and nothing else could claim it. A real
+ * WordPress page at /documents/ is checked for first and left alone: an
+ * editor who publishes one there means it.
+ */
+add_action( 'parse_request', 'aidocs_redirect_legacy_slug' );
+function aidocs_redirect_legacy_slug( $wp ) {
+    if ( is_admin() || wp_doing_ajax() ) return;
+
+    $new = aidocs_get_archive_slug();
+    if ( $new === AIDOCS_LEGACY_SLUG ) return;
+
+    $path = trim( (string) ( $wp->request ?? '' ), '/' );
+    if ( $path !== AIDOCS_LEGACY_SLUG && strpos( $path, AIDOCS_LEGACY_SLUG . '/' ) !== 0 ) return;
+
+    // Something else already lives here — a page, a post, an attachment.
+    // Whoever put it there outranks a redirect for a base we no longer use.
+    if ( get_page_by_path( $path ) ) return;
+
+    $target = home_url( '/' . $new . substr( $path, strlen( AIDOCS_LEGACY_SLUG ) ) . '/' );
+
+    $query = (string) ( $_SERVER['QUERY_STRING'] ?? '' );
+    if ( $query !== '' ) {
+        $target .= '?' . $query;
+    }
+
+    wp_safe_redirect( $target, 301 );
+    exit;
+}
+
+/**
+ * Rebuild the rewrite rules when — and only when — the base has changed.
+ *
+ * flush_rewrite_rules() rebuilds every rule on the site and writes the lot to
+ * the options table. On activation that is fine; on every request it is a
+ * write and a rebuild per page view, which is why it is guarded by a stored
+ * copy of the base rather than simply called. An SFTP deploy never fires the
+ * activation hook, so this is also what makes the new base take effect at all
+ * on a site updated that way.
+ */
+add_action( 'init', 'aidocs_maybe_flush_rewrite_rules', 20 );
+function aidocs_maybe_flush_rewrite_rules() {
+    $slug = aidocs_get_archive_slug();
+    if ( get_option( 'aidocs_active_slug' ) === $slug ) return;
+
+    update_option( 'aidocs_active_slug', $slug, false );
+    flush_rewrite_rules( false );
 }
 
 /**
@@ -580,21 +677,85 @@ function aidocs_document_layout_css() {
     ?>
     <style>
     #aidocs-archive,#aidocs-single-page{flex:1 1 100%;width:100%;max-width:100%;box-sizing:border-box;padding:48px clamp(20px,5vw,40px);}
-    /*
-     * The search/single-document markup below styles itself off
-     * --wp--preset--color--raft-accent(-secondary) with a hardcoded rust
-     * fallback everywhere it's used — border, text and gradient colors
-     * included, not just backgrounds. This theme's block.json never
-     * defines a "raft-*" palette, so every one of those var() calls was
-     * silently falling through to that fallback instead of the site's own
-     * navy/blue (matches this theme's --ast-global-color-0 / -8, the same
-     * navy the header and the search "GO" button already use). Defining
-     * the two variables here — scoped to just these two pages — re-themes
-     * every var()-driven color at once instead of editing each fallback.
-     */
-    :root{--wp--preset--color--raft-accent:#4d758e;--wp--preset--color--raft-accent-secondary:#003a5d;}
     </style>
     <?php
+}
+
+// ──────────────────────────────────────────────
+// 1b. The plugin's palette
+// ──────────────────────────────────────────────
+
+/**
+ * Every colour this plugin paints with, as five custom properties.
+ *
+ * ── Why this exists ────────────────────────────────────────────────────────
+ *
+ * All of this markup used to read its colours straight off
+ * `--wp--preset--color--raft-accent`, `--raft-accent-secondary` and
+ * `--raft-fg`, with a literal after each one as a fallback: #C26148 and
+ * #AC5039, two shades of terracotta. Those variables are a block theme's
+ * palette, published by a theme called Raft. This site runs Astra, which does
+ * not define them — nor does any other theme in the world, Raft aside — so
+ * every one of those seventy-odd var() calls fell straight through to its
+ * fallback and the whole component came out rust-red: buttons, type tabs,
+ * links, tag pills, the chat bubble, the focus rings. That is the red Cirlot
+ * reported, and it was never Astra's doing, nor a global stylesheet's, nor a
+ * cascade accident. It was the plugin's own fallback showing through.
+ *
+ * The previous patch for it defined the two Raft variables on `:root` — but
+ * only inside aidocs_document_layout_css(), which runs on the document
+ * archive and the single document page and nowhere else. That is exactly why
+ * the shortcode still came out red wherever it was placed: it was fixed only
+ * on the two pages that did not need fixing.
+ *
+ * ── What it does now ───────────────────────────────────────────────────────
+ *
+ * Colour is a property of this plugin's own scope, `.aidocs-scope`, which
+ * every top-level element the plugin prints carries. Each token reads the
+ * active site's globals — Elementor's kit first, since this site has one and
+ * since the sibling SACSCOC Institutions plugin reads the same four values,
+ * so the two look like one site; Astra's own globals next — and falls back to
+ * the SACSCOC navy and blue, which is what the site would want anyway.
+ *
+ * Nothing here names a theme, and nothing here can restyle one: `--aidocs-*`
+ * is a name no theme reads, declared on a class no theme uses.
+ */
+function aidocs_scope_css() {
+    $css = '.aidocs-scope{'
+        . '--aidocs-accent:var(--e-global-color-secondary,var(--ast-global-color-1,#4d758e));'
+        . '--aidocs-accent-strong:var(--e-global-color-primary,var(--ast-global-color-0,#003a5d));'
+        . '--aidocs-fg:var(--e-global-color-text,var(--ast-global-color-3,#1d1f25));'
+        . '--aidocs-base:#fdfdfd;'
+        . '--aidocs-radius:8px;'
+        . '}';
+
+    /**
+     * The plugin's palette, as a CSS rule.
+     *
+     * A site that wants different colours than the ones derived above can
+     * return its own `.aidocs-scope{…}` here rather than fighting individual
+     * declarations with `!important`, which is the thing this whole indirection
+     * exists to make unnecessary.
+     *
+     * @param string $css
+     */
+    return (string) apply_filters( 'aidocs_scope_css', $css );
+}
+
+/**
+ * Print the palette once per request.
+ *
+ * Called by every renderer rather than hooked on `wp_head`: the shortcode can
+ * land on any page in the site and the chat bubble can be enabled site-wide,
+ * so there is no page-type test that would be right. The static guard is what
+ * keeps two shortcodes on one page from printing it twice.
+ */
+function aidocs_print_scope_css() {
+    static $printed = false;
+    if ( $printed ) return;
+    $printed = true;
+
+    echo '<style id="aidocs-scope-css">' . aidocs_scope_css() . '</style>' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS
 }
 
 /** Render a theme template part by slug, or nothing if the theme has none by that name. Used by both plugin templates. */
@@ -676,7 +837,7 @@ add_action( 'add_meta_boxes', 'aidocs_add_meta_boxes' );
 function aidocs_add_meta_boxes() {
     add_meta_box(
         'aidocs_meta',
-        __( 'Documents' ),
+        __( 'Policy' ),
         'aidocs_meta_box_html',
         'aidoc',
         'normal',
@@ -913,7 +1074,7 @@ function aidocs_meta_box_html( $post ) {
         .cd-preview summary { cursor:pointer; font-size:12px; color:#2271b1; }
         .cd-preview-body { max-height:340px; overflow-y:auto; margin-top:10px; padding:12px 14px; background:#fff; border:1px solid #e0e0e0; border-radius:4px; }
         .cd-preview-body .aidocs-content-h2 { font-size:15px; margin:14px 0 6px; }
-        .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--wp--preset--color--raft-accent-secondary,#AC5039); }
+        .cd-preview-body .aidocs-content-h3 { font-size:13px; margin:12px 0 5px; color:var(--aidocs-accent-strong,#003a5d); }
         .cd-preview-body .aidocs-content-p, .cd-preview-body li { font-size:12.5px; line-height:1.7; color:#3c434a; }
         /* Rich markdown editor: CodeMirror still tags the literal #, ** and *
            characters with their own span (cm-formatting-*) even though the
@@ -1239,7 +1400,7 @@ function aidocs_meta_box_html( $post ) {
                     <?php if ( $ai_key_set ) : ?>
                         <?php esc_html_e( 'Title and Description are already read from the labels above on almost every article, so they only need this when one is missing. Requires the Gemini key configured below.' ); ?>
                     <?php else : ?>
-                        <?php esc_html_e( 'No Gemini API key is configured — a field ticked here is imported empty until an administrator adds one in Documents → Settings.' ); ?>
+                        <?php esc_html_e( 'No Gemini API key is configured — a field ticked here is imported empty until an administrator adds one in Policies → Settings.' ); ?>
                     <?php endif; ?>
                 </p>
             </div>
@@ -1377,7 +1538,7 @@ function aidocs_meta_box_html( $post ) {
                             <span id="cd-ai-config-status" class="cd-step-status"></span>
                         </div>
                         <p class="cd-step-hint">
-                            <?php esc_html_e( 'Stored in Documents → Settings, and used by semantic search and the assistant as well.' ); ?>
+                            <?php esc_html_e( 'Stored in Policies → Settings, and used by semantic search and the assistant as well.' ); ?>
                         </p>
                     </div>
                     <?php elseif ( $ai_key_set ) : ?>
@@ -1388,7 +1549,7 @@ function aidocs_meta_box_html( $post ) {
                     <?php else : ?>
                     <p class="cd-step-hint cd-ai-config-row">
                         <span class="cd-badge is-off"><?php esc_html_e( 'AI not configured' ); ?></span>
-                        <?php esc_html_e( 'Ask an administrator to add a Gemini API key in Documents → Settings. Extraction above works without it.' ); ?>
+                        <?php esc_html_e( 'Ask an administrator to add a Gemini API key in Policies → Settings. Extraction above works without it.' ); ?>
                     </p>
                     <?php endif; ?>
                 </div>
@@ -3021,7 +3182,7 @@ function aidocs_gemini_error_message( $body, $model = '' ) {
     if ( aidocs_gemini_quota_is_exhausted( $body ) ) {
         return sprintf(
             /* translators: %s: the configured Gemini model id. */
-            __( 'The model %s has no quota on this API key\'s plan, so every request is refused. Pro and preview models need billing enabled on the Google account; choose a Flash model in Documents → Settings instead.' ),
+            __( 'The model %s has no quota on this API key\'s plan, so every request is refused. Pro and preview models need billing enabled on the Google account; choose a Flash model in Policies → Settings instead.' ),
             $model !== '' ? $model : __( 'currently configured' )
         );
     }
@@ -3912,7 +4073,7 @@ function aidocs_import_policies_ajax() {
         // Worth saying up front rather than leaving forty-nine silently empty
         // Document Type columns for the editor to notice on their own.
         'ai_warning' => ( $ai_field_ids && ! get_option( 'aidocs_gemini_api_key', '' ) )
-            ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Documents → Settings.' )
+            ? __( 'AI fields were selected but no Gemini API key is configured — those fields were left empty. Add one in Policies → Settings.' )
             : '',
     ];
 
@@ -4827,7 +4988,7 @@ add_action( 'admin_menu', 'aidocs_admin_menu' );
 function aidocs_admin_menu() {
     add_submenu_page(
         'edit.php?post_type=aidoc',
-        __( 'Documents Settings' ),
+        __( 'Policies Settings' ),
         __( 'Settings' ),
         'manage_options',
         'aidocs-settings',
@@ -4846,6 +5007,10 @@ function aidocs_settings_page() { // phpcs:ignore
             update_option( 'aidocs_gemini_api_key', sanitize_text_field( $_POST['aidocs_gemini_api_key'] ) );
         }
 
+        // An unchecked checkbox posts nothing at all, which is why this is
+        // written from the presence of the key rather than from its value.
+        update_option( 'aidocs_chat_sitewide', isset( $_POST['aidocs_chat_sitewide'] ) ? '1' : '0' );
+
         $raw_types = sanitize_textarea_field( $_POST['aidocs_types_list'] ?? '' );
         update_option( 'aidocs_types_list', $raw_types );
         foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
@@ -4858,6 +5023,7 @@ function aidocs_settings_page() { // phpcs:ignore
     /* ---- data ---- */
     $gemini_model      = get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' );
     $gemini_api_key    = get_option( 'aidocs_gemini_api_key', '' );
+    $chat_sitewide     = get_option( 'aidocs_chat_sitewide', '1' ) === '1';
     $types_list        = get_option( 'aidocs_types_list', implode( "\n", AIDOCS_TYPES ) );
 
     $types_arr     = array_filter( array_map( 'trim', explode( "\n", $types_list ) ) );
@@ -4866,7 +5032,7 @@ function aidocs_settings_page() { // phpcs:ignore
     $sample_doc_id = $sample_doc ? $sample_doc[0]->ID : 123;
     ?>
     <div class="wrap">
-    <h1><?php esc_html_e( 'Documents Settings' ); ?></h1>
+    <h1><?php esc_html_e( 'Policies Settings' ); ?></h1>
     <style>
     .cd-settings-section{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:20px 24px;margin-bottom:24px;}
     .cd-settings-section h2{margin-top:0;font-size:16px;}
@@ -4921,6 +5087,21 @@ function aidocs_settings_page() { // phpcs:ignore
                     <p class="description"><?php esc_html_e( 'Leave blank to keep the current key. "Test Connection" checks the key above against the Gemini API before you save — it does not need to be saved first.' ); ?></p>
                 </td>
             </tr>
+            <tr>
+                <th><?php esc_html_e( 'Assistant' ); ?></th>
+                <td>
+                    <label for="cd-chat-sitewide">
+                        <input type="checkbox" id="cd-chat-sitewide" name="aidocs_chat_sitewide" value="1" <?php checked( $chat_sitewide ); ?>>
+                        <?php esc_html_e( 'Show the assistant on every page' ); ?>
+                    </label>
+                    <p class="description">
+                        <?php esc_html_e( 'The floating "Ask AI" bubble, bottom-right. On by default and independent of the search shortcode — turning it off here does not affect search, and a page can still place it on its own with [aidocs_ai_chat]. A page never gets two: whichever asks first is the one that renders.' ); ?>
+                        <?php if ( $gemini_api_key === '' ) : ?>
+                        <br /><strong><?php esc_html_e( 'No Gemini API key is configured, so the assistant is not shown anywhere yet — an assistant that can only answer with a configuration error is worse than none.' ); ?></strong>
+                        <?php endif; ?>
+                    </p>
+                </td>
+            </tr>
         </table>
     </div>
 
@@ -4941,7 +5122,7 @@ function aidocs_settings_page() { // phpcs:ignore
     <div class="cd-settings-section">
         <h2><?php esc_html_e( 'Shortcodes' ); ?></h2>
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Basic — all documents with search' ); ?></h3>
+            <h3><?php esc_html_e( 'Basic — all policies with search' ); ?></h3>
             <div class="cd-sc-code"><code id="cd-sc-1">[aidocs_search]</code><button class="cd-sc-copy" data-target="cd-sc-1"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
@@ -4959,32 +5140,29 @@ function aidocs_settings_page() { // phpcs:ignore
             <div class="cd-sc-code"><code id="cd-sc-5">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-5"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'With the AI chat bubble' ); ?></h3>
-            <p class="cd-sc-desc"><?php esc_html_e( 'The floating chat button (bottom-right corner) is off by default; this brings it back.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-6">[aidocs_search show_chat="true"]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <h3><?php esc_html_e( 'The AI assistant, on its own' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Just the floating "Ask AI" bubble — no search interface, no results list, nothing else on the page. Not usually needed: the assistant is enabled site-wide in the AI settings above and appears on every page already. Reach for this on a site that has turned that off but wants the bubble on one particular page. A page never gets two, however many ways ask for it.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-6">[aidocs_ai_chat]</code><button class="cd-sc-copy" data-target="cd-sc-6"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-11">[aidocs_ai_chat label="Ask about our policies" title="Policy Advisor"]</code><button class="cd-sc-copy" data-target="cd-sc-11"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Custom results per page' ); ?></h3>
             <p class="cd-sc-desc"><?php esc_html_e( 'Default is 20. Max is 50.' ); ?></p>
             <div class="cd-sc-code"><code id="cd-sc-7">[aidocs_search per_page="10"]</code><button class="cd-sc-copy" data-target="cd-sc-7"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
+
         <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'Search only (no AI)' ); ?></h3>
-            <p class="cd-sc-desc"><?php esc_html_e( 'Disables all AI features. The chat bubble is already off by default.' ); ?></p>
-            <div class="cd-sc-code"><code id="cd-sc-8">[aidocs_search show_ai="false"]</code><button class="cd-sc-copy" data-target="cd-sc-8"><?php esc_html_e( 'Copy' ); ?></button></div>
-        </div>
-        <div class="cd-sc-box">
-            <h3><?php esc_html_e( 'One document, embedded anywhere' ); ?></h3>
-            <p class="cd-sc-desc"><?php esc_html_e( 'Shows a single entry\'s own content — the same rendering as its /documents/{entry}/ page — inside any post or page.' ); ?></p>
+            <h3><?php esc_html_e( 'One policy, embedded anywhere' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Shows a single entry\'s own content — the same rendering as its /policies/{entry}/ page — inside any post or page.' ); ?></p>
             <div class="cd-sc-code"><code id="cd-sc-9">[aidocs_document id="<?php echo esc_html( $sample_doc_id ); ?>"]</code><button class="cd-sc-copy" data-target="cd-sc-9"><?php esc_html_e( 'Copy' ); ?></button></div>
             <div class="cd-sc-code"><code id="cd-sc-10">[aidocs_document slug="document-slug"]</code><button class="cd-sc-copy" data-target="cd-sc-10"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <table class="cd-sc-params" style="margin-top:18px;">
             <thead><tr><th><?php esc_html_e( 'Parameter' ); ?></th><th><?php esc_html_e( 'Default' ); ?></th><th><?php esc_html_e( 'Description' ); ?></th></tr></thead>
             <tbody>
-                <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from URL.' ); ?></td></tr>
+                <tr><td><code>type</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Pre-select a document type. Also reads ?type= from the URL.' ); ?></td></tr>
                 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><?php esc_html_e( 'Set "false" to disable inline AI suggestions in the search bar.' ); ?></td></tr>
-                <tr><td><code>show_chat</code></td><td><code>false</code></td><td><?php esc_html_e( 'Set "true" to show the floating AI chat bubble.' ); ?></td></tr>
+                <tr><td><code>show_chat</code></td><td><?php esc_html_e( '(empty)' ); ?></td><td><?php esc_html_e( 'Kept for pages already using it. The assistant is its own component now: leave this out and let the site-wide setting decide, or place it yourself with [aidocs_ai_chat]. Either way a page shows one bubble at most.' ); ?></td></tr>
                 <tr><td><code>per_page</code></td><td><code>20</code></td><td><?php esc_html_e( 'Results per page (max 50).' ); ?></td></tr>
             </tbody>
         </table>
@@ -5320,10 +5498,13 @@ function aidocs_search_shortcode( $atts ) {
         'type'      => '',
         'per_page'  => 20,
         'show_ai'   => 'true',
-        // Off by default: every document card already links straight to its
-        // own page, so a floating assistant duplicates that with a second,
-        // separate way to get there. Pass show_chat="true" to bring it back.
-        'show_chat' => 'false',
+        // The floating assistant is its own component now — see
+        // aidocs_render_chat_bubble() — enabled site-wide from Settings and
+        // placeable on its own with [aidocs_ai_chat]. This attribute is kept
+        // because pages are published with it: it asks for that same single
+        // bubble, from here, and the one-per-page guard means asking for it
+        // twice still produces one.
+        'show_chat' => '',
     ], $atts );
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );
@@ -5337,8 +5518,14 @@ function aidocs_search_shortcode( $atts ) {
         if ( strtolower( $t ) === strtolower( $default_type ) ) { $matched_type = $t; break; }
     }
 
-    $show_ai   = $atts['show_ai']   !== 'false';
-    $show_chat = $atts['show_chat'] !== 'false';
+    $show_ai   = $atts['show_ai'] !== 'false';
+
+    // Unset means "whatever Settings says", which is what a bubble enabled
+    // site-wide already handles at wp_footer — so this shortcode asks for
+    // nothing. An explicit show_chat="true" asks for it here instead, which
+    // matters on a site that has turned the site-wide bubble off but still
+    // wants one on the search page.
+    $show_chat = $atts['show_chat'] !== '' && $atts['show_chat'] !== 'false';
     $per_page  = max( 1, min( 50, (int) $atts['per_page'] ) );
     $uid       = 'cds_' . wp_unique_id();
     $nonce     = wp_create_nonce( 'aidocs_search' );
@@ -5354,11 +5541,10 @@ function aidocs_search_shortcode( $atts ) {
     $js_ainonce = wp_json_encode( $ai_nonce );
     $js_pp      = (int) $per_page;
     $js_showai  = $show_ai   ? 'true' : 'false';
-    $js_showchat = $show_chat ? 'true' : 'false';
-    $js_notext  = esc_js( __( 'No documents found. Try different search terms.' ) );
+    $js_notext  = esc_js( __( 'Nothing found. Try different search terms.' ) );
     $js_errtxt  = esc_js( __( 'Error loading results.' ) );
     $js_loading = esc_js( __( 'Searching…' ) );
-    $js_found   = esc_js( __( 'document(s) found' ) );
+    $js_found   = esc_js( __( 'result(s) found' ) );
     $js_page    = esc_js( __( 'Page' ) );
     $js_of      = esc_js( __( 'of' ) );
     $js_sorry      = esc_js( __( 'Sorry, I encountered an error. Please try again.' ) );
@@ -5373,8 +5559,8 @@ function aidocs_search_shortcode( $atts ) {
 
     $js = <<<ENDSCRIPT
 jQuery(function($){
-    var uid={$js_uid},ajaxUrl={$js_ajax},nonce={$js_nonce},aiNonce={$js_ainonce},perPage={$js_pp},showAi={$js_showai},showChat={$js_showchat};
-    var \$wrap=\$('#'+uid),\$results=\$wrap.find('.cd-fs-results'),currentPage=1,botHistory=[],lastFilters=null;
+    var uid={$js_uid},ajaxUrl={$js_ajax},nonce={$js_nonce},aiNonce={$js_ainonce},perPage={$js_pp},showAi={$js_showai};
+    var \$wrap=\$('#'+uid),\$results=\$wrap.find('.cd-fs-results'),currentPage=1,lastFilters=null;
     var \$aiExplain=\$wrap.find('.cd-fs-ai-explain');
     var \$kwWrap=\$wrap.find('.cd-fs-keyword-wrap');
     var \$kw=\$wrap.find('.cd-fs-keyword');
@@ -5501,8 +5687,8 @@ jQuery(function($){
     }
 
     function addDocChatTurn(role,text){
-        var \$turn=\$('<div class="cd-bot-turn '+role+'"></div>');
-        \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
+        var \$turn=\$('<div class="cd-doc-ask-turn '+role+'"></div>');
+        \$turn.append(\$('<div class="cd-doc-ask-msg"></div>').text(text));
         \$dcMsgs.addClass('open').append(\$turn);
         \$dcCollapse.show();
         \$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
@@ -5520,7 +5706,7 @@ jQuery(function($){
         var msg=\$dcInput.val().trim();if(!msg||!_dcDocId)return;
         addDocChatTurn('user',msg);\$dcInput.val('');\$dcSend.prop('disabled',true).text('…');
         _dcHistory.push({role:'user',text:msg});
-        var \$th=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></div>').appendTo(\$dcMsgs);
+        var \$th=\$('<div class="cd-doc-ask-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="cd-fs-ai-dots"><span></span><span></span><span></span></span></div>').appendTo(\$dcMsgs);
         \$dcMsgs.scrollTop(\$dcMsgs[0].scrollHeight);
         \$.post(ajaxUrl,{action:'aidocs_ai_doc_chat',nonce:aiNonce,doc_id:_dcDocId,message:msg,history:JSON.stringify(_dcHistory.slice(-6))})
         .done(function(res){
@@ -5641,47 +5827,6 @@ jQuery(function($){
     });
     doSearch(1);
 
-    if(!showChat)return;
-
-    var \$toggle=\$('#cd-bot-toggle-'+uid),\$panel=\$('#cd-bot-panel-'+uid);
-    var \$messages=\$('#cd-bot-messages-'+uid),\$input=\$('#cd-bot-input-'+uid),\$send=\$('#cd-bot-send-'+uid);
-
-    \$toggle.on('click',function(){\$panel.toggleClass('open');if(\$panel.hasClass('open'))\$input.focus();});
-    \$('#cd-bot-close-'+uid).on('click',function(){\$panel.removeClass('open');});
-
-    function addTurn(role,text,docs){
-        var \$turn=\$('<div class="cd-bot-turn '+role+'"></div>');
-        \$turn.append(\$('<div class="cd-bot-msg"></div>').text(text));
-        if(docs&&docs.length){
-            \$.each(docs,function(_,doc){
-                var \$card=\$('<div class="cd-bot-doc-card"></div>');
-                var \$info=\$('<div class="cd-bot-doc-info"></div>');
-                \$('<div class="cd-bot-doc-title"></div>').text(doc.title).appendTo(\$info);
-                \$card.append(\$info);
-                \$card.on('click',function(e){if(!\$(e.target).closest('a').length&&doc.permalink)location.href=doc.permalink;});
-                \$turn.append(\$card);
-            });
-        }
-        \$messages.append(\$turn);\$messages.scrollTop(\$messages[0].scrollHeight);
-    }
-
-    function sendBotMessage(){
-        var msg=\$input.val().trim();if(!msg)return;
-        addTurn('user',msg);\$input.val('');\$send.prop('disabled',true).text('…');
-        botHistory.push({role:'user',text:msg});
-        var \$thinking=\$('<div class="cd-bot-thinking"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> …</div>').appendTo(\$messages);
-        \$messages.scrollTop(\$messages[0].scrollHeight);
-        \$.post(ajaxUrl,{action:'aidocs_ai_recommend',nonce:aiNonce,message:msg,history:JSON.stringify(botHistory.slice(-6))})
-        .done(function(res){
-            \$thinking.remove();
-            if(res.success){addTurn('bot',res.data.message,res.data.docs);botHistory.push({role:'model',text:res.data.message});}
-            else addTurn('bot','{$js_sorry}');
-        }).fail(function(){\$thinking.remove();addTurn('bot','{$js_conn}');})
-        .always(function(){\$send.prop('disabled',false).text('{$js_send}');});
-    }
-
-    \$send.on('click',sendBotMessage);
-    \$input.on('keydown',function(e){if(e.key==='Enter')sendBotMessage();});
 });
 ENDSCRIPT;
 
@@ -5690,193 +5835,186 @@ ENDSCRIPT;
     }, 99 );
 
     ob_start();
+
+    // Every selector below is scoped to `.aidocs-scope`, and every colour in
+    // it reads a token declared on that same class. Print the tokens first or
+    // there is nothing for the colours to resolve to. Guarded internally, so
+    // two of these shortcodes on one page still print it once.
+    aidocs_print_scope_css();
     ?>
     <style>
-    .cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
-    .cd-fs-card{background:#fff;border:1.5px solid #d8dde6;border-radius:14px;padding:36px 40px 32px;}
+    .aidocs-scope.cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
+    .aidocs-scope .cd-fs-card{background:#fff;border:1.5px solid #d8dde6;border-radius:14px;padding:36px 40px 32px;}
     /* Matches this site's own heading style (Montserrat 600, navy) — the
        plugin ships a generic system-font/near-black default for whichever
        theme it's dropped into, and this card's font-family override above
        otherwise carries straight through to this h2 by inheritance. */
-    .cd-fs-title{font-family:'Montserrat',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center;font-size:26px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#1D1F25);margin:0 0 6px;display:flex;align-items:center;gap:16px;}
-    .cd-fs-title::before,.cd-fs-title::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,transparent,#c8d0dc);}
-    .cd-fs-title::after{background:linear-gradient(to left,transparent,#c8d0dc);}
-    .cd-fs-subtitle{text-align:center;font-size:13px;color:#6b7280;margin:0 0 24px;display:flex;align-items:center;justify-content:center;gap:6px;}
-    .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);border:1px solid color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 30%,#fff);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .aidocs-scope .cd-fs-title{font-family:'Montserrat',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center;font-size:26px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);margin:0 0 6px;display:flex;align-items:center;gap:16px;}
+    .aidocs-scope .cd-fs-title::before,
+    .aidocs-scope .cd-fs-title::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,transparent,#c8d0dc);}
+    .aidocs-scope .cd-fs-title::after{background:linear-gradient(to left,transparent,#c8d0dc);}
+    .aidocs-scope .cd-fs-subtitle{text-align:center;font-size:13px;color:#6b7280;margin:0 0 24px;display:flex;align-items:center;justify-content:center;gap:6px;}
+    .aidocs-scope .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);border:1px solid color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 30%,#fff);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);}
     /* Single-row controls */
-    .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
-    .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
-    .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
+    .aidocs-scope .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
+    .aidocs-scope .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
+    .aidocs-scope .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
     /* input[type="text"] in this theme's own global stylesheet carries an
        attribute selector, which counts as a class for specificity — putting
        it a notch above a single plain class like .cd-fs-keyword and letting
        its own padding win, which left this input's text sitting under the
        search icon rather than clear of it. The wrapper-qualified selector
        below outweighs that regardless of style order. */
-    .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);background:#fff;outline:none;transition:border-color .18s;}
-    .cd-fs-keyword:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
-    .cd-fs-kw-clear:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);background:#f0f2f5;}
-    .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
-    .cd-fs-select-wrap{flex:1;min-width:120px;}
-    .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:var(--wp--preset--color--raft-fg,#1D1F25);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
-    .cd-fs-select-wrap select:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .aidocs-scope .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--aidocs-fg,#1d1f25);background:#fff;outline:none;transition:border-color .18s;}
+    .aidocs-scope .cd-fs-keyword:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
+    .aidocs-scope .cd-fs-kw-clear:hover{color:var(--aidocs-fg,#1d1f25);background:#f0f2f5;}
+    .aidocs-scope .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
+    .aidocs-scope .cd-fs-select-wrap{flex:1;min-width:120px;}
+    .aidocs-scope .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:var(--aidocs-fg,#1d1f25);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
+    .aidocs-scope .cd-fs-select-wrap select:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
     /* Search button — !important on the sizing props because this theme's
        global button styling (Astra's Customizer "Buttons" typography)
        targets plain <button> elements with its own !important rules, which
        would otherwise inflate this into an oversized pill. */
-    .cd-fs-search-btn{height:46px !important;padding:0 22px !important;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px) !important;font-size:14px !important;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;line-height:normal !important;}
-    .cd-fs-search-btn:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .aidocs-scope .cd-fs-search-btn{height:46px !important;padding:0 22px !important;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px) !important;font-size:14px !important;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;line-height:normal !important;}
+    .aidocs-scope .cd-fs-search-btn:hover{background:var(--aidocs-accent-strong,#003a5d);}
     /* Document Type tabs — replaces the plain dropdown as the way to switch
        between Policies / Guidelines / Good Practices / Position Statements
        (and whichever other types are configured). The <select> with the
        same values stays in the markup, just hidden, so every existing
        .cd-fs-type read/write in the JS below keeps working untouched. */
-    .cd-fs-type-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;}
+    .aidocs-scope .cd-fs-type-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;}
     /* !important on the sizing props for the same reason as .cd-fs-search-btn
        above — otherwise the theme's global <button> styling blows these
        pills up well past the compact size they're designed at. */
-    .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px !important;padding:7px 16px !important;font-size:13px !important;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;line-height:normal !important;height:auto !important;}
-    .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    .cd-fs-type-tab.is-active{background:var(--wp--preset--color--raft-accent,#C26148);border-color:var(--wp--preset--color--raft-accent,#C26148);color:#fff;}
-    .cd-fs-type-select-hidden{display:none;}
+    .aidocs-scope .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px !important;padding:7px 16px !important;font-size:13px !important;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;line-height:normal !important;height:auto !important;}
+    .aidocs-scope .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope .cd-fs-type-tab.is-active{background:var(--aidocs-accent,#4d758e);border-color:var(--aidocs-accent,#4d758e);color:#fff;}
+    .aidocs-scope .cd-fs-type-select-hidden{display:none;}
     /* Results */
-    .cd-fs-results{margin-top:24px;}
-    .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
-    .cd-fs-doc-card{display:flex;gap:16px;padding:18px 20px;border:1px solid #e5e9ef;border-radius:10px;margin-bottom:12px;background:#fff;transition:box-shadow .18s,border-color .18s;}
-    .cd-fs-doc-card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08);border-color:#b8cce4;}
-    .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 12%,#fff);}
-    .cd-fs-doc-icon svg{color:var(--wp--preset--color--raft-accent-secondary,#2563eb);}
-    .cd-fs-doc-body{flex:1;min-width:0;}
-    .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:0 0 6px;}
-    .cd-fs-doc-title a{color:inherit;text-decoration:none;}.cd-fs-doc-title a:hover{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:underline;}
-    .cd-fs-doc-desc{font-size:13px;color:#6b7280;margin:0 0 10px;line-height:1.55;}
-    .cd-fs-doc-snippet{font-size:13px;color:#4b5563;margin:0 0 10px;line-height:1.55;background:#f9fafb;border-left:2.5px solid #bfdbfe;padding:6px 10px;border-radius:0 6px 6px 0;}
-    .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
-    .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-    .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}.cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
-    .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
-    .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
-    .cd-fs-page-btn{height:34px !important;min-width:34px;padding:0 10px !important;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px) !important;font-size:13px !important;cursor:pointer;transition:background .15s,border-color .15s;line-height:normal !important;}
-    .cd-fs-page-btn:hover,.cd-fs-page-btn.active{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-color:var(--wp--preset--color--raft-accent,#C26148);}
-    .cd-fs-loading{text-align:center;padding:32px;color:#9ca3af;font-size:14px;}
+    .aidocs-scope .cd-fs-results{margin-top:24px;}
+    .aidocs-scope .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
+    .aidocs-scope .cd-fs-doc-card{display:flex;gap:16px;padding:18px 20px;border:1px solid #e5e9ef;border-radius:10px;margin-bottom:12px;background:#fff;transition:box-shadow .18s,border-color .18s;}
+    .aidocs-scope .cd-fs-doc-card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08);border-color:#b8cce4;}
+    .aidocs-scope .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 12%,#fff);}
+    .aidocs-scope .cd-fs-doc-icon svg{color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-fs-doc-body{flex:1;min-width:0;}
+    .aidocs-scope .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:0 0 6px;}
+    .aidocs-scope .cd-fs-doc-title a{color:inherit;text-decoration:none;}.aidocs-scope .cd-fs-doc-title a:hover{color:var(--aidocs-accent-strong,#003a5d);text-decoration:underline;}
+    .aidocs-scope .cd-fs-doc-desc{font-size:13px;color:#6b7280;margin:0 0 10px;line-height:1.55;}
+    .aidocs-scope .cd-fs-doc-snippet{font-size:13px;color:#4b5563;margin:0 0 10px;line-height:1.55;background:#f9fafb;border-left:2.5px solid #bfdbfe;padding:6px 10px;border-radius:0 6px 6px 0;}
+    .aidocs-scope .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
+    .aidocs-scope .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+    .aidocs-scope .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
+    .aidocs-scope .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);color:var(--aidocs-accent-strong,#003a5d);}.aidocs-scope .cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
+    .aidocs-scope .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
+    .aidocs-scope .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
+    .aidocs-scope .cd-fs-page-btn{height:34px !important;min-width:34px;padding:0 10px !important;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px) !important;font-size:13px !important;cursor:pointer;transition:background .15s,border-color .15s;line-height:normal !important;}
+    .aidocs-scope .cd-fs-page-btn:hover,
+    .aidocs-scope .cd-fs-page-btn.active{background:var(--aidocs-accent,#4d758e);color:#fff;border-color:var(--aidocs-accent,#4d758e);}
+    .aidocs-scope .cd-fs-loading{text-align:center;padding:32px;color:#9ca3af;font-size:14px;}
     /* Autocomplete suggestions */
-    .cd-fs-suggestions{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1.5px solid #c8d0dc;border-radius:0 0 10px 10px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;display:none;}
-    .cd-fs-suggestion{padding:9px 14px 9px 38px;font-size:13px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f2f5;}
-    .cd-fs-suggestion:last-child{border-bottom:none;}
-    .cd-fs-suggestion:hover,.cd-fs-suggestion.highlighted{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .aidocs-scope .cd-fs-suggestions{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1.5px solid #c8d0dc;border-radius:0 0 10px 10px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;display:none;}
+    .aidocs-scope .cd-fs-suggestion{padding:9px 14px 9px 38px;font-size:13px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f2f5;}
+    .aidocs-scope .cd-fs-suggestion:last-child{border-bottom:none;}
+    .aidocs-scope .cd-fs-suggestion:hover,
+    .aidocs-scope .cd-fs-suggestion.highlighted{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* AI explanation */
-    .cd-fs-ai-explain{margin-top:16px;}
-    .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
-    .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
-    .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
-    .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
-    .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
-    .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
-    .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--wp--preset--color--raft-fg,#1D1F25);margin-bottom:8px;line-height:1.4;}
-    .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
-    .cd-fs-ai-suggest-view:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
+    .aidocs-scope .cd-fs-ai-explain{margin-top:16px;}
+    .aidocs-scope .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
+    .aidocs-scope .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--aidocs-accent-strong,#003a5d);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+    .aidocs-scope .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
+    .aidocs-scope .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
+    .aidocs-scope .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--aidocs-fg,#1d1f25);margin-bottom:8px;line-height:1.4;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .aidocs-scope .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .aidocs-scope .cd-fs-ai-suggest-view:hover{background:var(--aidocs-accent-strong,#003a5d);}
     @keyframes cd-dot-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
-    .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
-    .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--wp--preset--color--raft-accent,#C26148),var(--wp--preset--color--raft-accent-secondary,#AC5039));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-    .cd-fs-ai-thinking-icon svg{color:#fff;}
-    .cd-fs-ai-thinking-text{font-size:13px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);font-weight:500;}
-    .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
-    .cd-fs-ai-dots span{width:5px;height:5px;background:var(--wp--preset--color--raft-accent-secondary,#AC5039);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
-    .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
-    .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
+    .aidocs-scope .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
+    .aidocs-scope .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .aidocs-scope .cd-fs-ai-thinking-icon svg{color:#fff;}
+    .aidocs-scope .cd-fs-ai-thinking-text{font-size:13px;color:var(--aidocs-accent-strong,#003a5d);font-weight:500;}
+    .aidocs-scope .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
+    .aidocs-scope .cd-fs-ai-dots span{width:5px;height:5px;background:var(--aidocs-accent-strong,#003a5d);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
+    .aidocs-scope .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
+    .aidocs-scope .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
     /* Document modal */
-    .cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
-    .cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
-    .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
-    .cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
-    .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
-    .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
-    .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:0 0 10px;line-height:1.4;}
-    .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
-    .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
-    .cd-doc-modal-close:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);background:#f0f2f5;}
+    .aidocs-scope.cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
+    .aidocs-scope.cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
+    .aidocs-scope .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
+    .aidocs-scope.cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
+    .aidocs-scope .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
+    .aidocs-scope .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
+    .aidocs-scope .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:0 0 10px;line-height:1.4;}
+    .aidocs-scope .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
+    .aidocs-scope .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
+    .aidocs-scope .cd-doc-modal-close:hover{color:var(--aidocs-fg,#1d1f25);background:#f0f2f5;}
     /* Modal tabs */
-    .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
-    .cd-doc-modal-pane.active{display:flex;}
+    .aidocs-scope .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
+    .aidocs-scope .cd-doc-modal-pane.active{display:flex;}
     /* Details pane */
-    .cd-doc-modal-body{padding:22px 24px;overflow-y:auto;flex:1;}
-    .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
-    .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-    .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
-    .cd-doc-modal-value{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);font-weight:500;line-height:1.5;}
+    .aidocs-scope .cd-doc-modal-body{padding:22px 24px;overflow-y:auto;flex:1;}
+    .aidocs-scope .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
+    .aidocs-scope .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+    .aidocs-scope .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-scope .cd-doc-modal-value{font-size:14px;color:var(--aidocs-fg,#1d1f25);font-weight:500;line-height:1.5;}
     /* Chat pane */
     /* Ask AI — persistent bar pinned below the panes */
-    .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
-    .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
-    .cd-doc-ask-answers.open{display:flex;}
-    .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
-    .cd-doc-ask-icon{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);flex-shrink:0;}
-    .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    .cd-doc-ask-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
-    .cd-doc-ask-send:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
-    .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
-    .cd-doc-ask-collapse:hover{color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--wp--preset--color--raft-accent,#C26148);border:1.5px solid var(--wp--preset--color--raft-accent,#C26148);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
-    .cd-doc-modal-permalink:hover{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;}
+    .aidocs-scope .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
+    .aidocs-scope .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
+    .aidocs-scope .cd-doc-ask-answers.open{display:flex;}
+    .aidocs-scope .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
+    .aidocs-scope .cd-doc-ask-icon{color:var(--aidocs-accent-strong,#003a5d);flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope .cd-doc-ask-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-send:hover{background:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
+    .aidocs-scope .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-collapse:hover{color:var(--aidocs-fg,#1d1f25);}
+    /* One answer in the modal's Ask-AI thread. The floating assistant has
+       the same shape but its own class names and its own stylesheet — see
+       aidocs_chat_styles() — so neither depends on the other being on the
+       page. */
+    .aidocs-scope .cd-doc-ask-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
+    .aidocs-scope .cd-doc-ask-turn.user{align-self:flex-end;align-items:flex-end;}
+    .aidocs-scope .cd-doc-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .aidocs-scope .cd-doc-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
+    .aidocs-scope .cd-doc-ask-turn.bot .cd-doc-ask-msg{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);border-bottom-left-radius:3px;}
+    .aidocs-scope .cd-doc-ask-turn.user .cd-doc-ask-msg{background:var(--aidocs-accent,#4d758e);color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-scope .cd-doc-ask-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
+    .aidocs-scope .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--aidocs-accent,#4d758e);border:1.5px solid var(--aidocs-accent,#4d758e);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
+    .aidocs-scope .cd-doc-modal-permalink:hover{background:var(--aidocs-accent,#4d758e);color:#fff;}
     /* Structured document content */
-    .aidocs-content{margin-top:4px;}
-    .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:26px 0 10px;line-height:1.35;}
-    .aidocs-content-h2:first-child{margin-top:0;}
-    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
-    .aidocs-content-h3:first-child{margin-top:0;}
-    .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
-    .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
-    .aidocs-content-list li{font-size:14px;color:#374151;line-height:1.7;margin-bottom:7px;}
-    .aidocs-content-empty{font-size:13px;color:#9ca3af;font-style:italic;padding:6px 0;}
-    .aidocs-content-loading{font-size:13px;color:#9ca3af;padding:6px 0;}
+    .aidocs-scope .aidocs-content{margin-top:4px;}
+    .aidocs-scope .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:26px 0 10px;line-height:1.35;}
+    .aidocs-scope .aidocs-content-h2:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--aidocs-accent-strong,#003a5d);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-scope .aidocs-content-h3:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
+    .aidocs-scope .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
+    .aidocs-scope .aidocs-content-list li{font-size:14px;color:#374151;line-height:1.7;margin-bottom:7px;}
+    .aidocs-scope .aidocs-content-empty{font-size:13px;color:#9ca3af;font-style:italic;padding:6px 0;}
+    .aidocs-scope .aidocs-content-loading{font-size:13px;color:#9ca3af;padding:6px 0;}
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
-    .aidocs-doc-history{margin-top:22px;padding:12px 14px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:12px;color:#6b7280;line-height:1.65;}
-    .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:4px;}
-    .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:24px 0 10px;padding-top:18px;border-top:1px solid #f0f2f5;}
-    .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
-    .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
-    .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
-    .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
-    .cd-doc-modal-cancel:hover{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);background:#f0f6ff;}
+    .aidocs-scope .aidocs-doc-history{margin-top:22px;padding:12px 14px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:12px;color:#6b7280;line-height:1.65;}
+    .aidocs-scope .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:4px;}
+    .aidocs-scope .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:24px 0 10px;padding-top:18px;border-top:1px solid #f0f2f5;}
+    .aidocs-scope .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+    .aidocs-scope .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
+    .aidocs-scope .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
+    .aidocs-scope .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
+    .aidocs-scope .cd-doc-modal-cancel:hover{border-color:var(--aidocs-accent-strong,#003a5d);background:#f0f6ff;}
     /* card clickable */
-    .cd-fs-doc-card{cursor:pointer;}
-    /* AI Bot */
-    .cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,var(--wp--preset--color--raft-accent,#C26148),var(--wp--preset--color--raft-accent-secondary,#AC5039));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
-    .cd-bot-toggle:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(30,58,95,.5);}
-    .cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:540px;}
-    .cd-bot-panel.open{display:flex;}
-    .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border-radius:14px 14px 0 0;}
-    .cd-bot-header-info{display:flex;flex-direction:column;gap:2px;}
-    .cd-bot-header strong{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    .cd-bot-header span{font-size:11px;color:#6b7280;}
-    .cd-bot-close{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0;}
-    .cd-bot-messages{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
-    .cd-bot-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
-    .cd-bot-turn.user{align-self:flex-end;align-items:flex-end;}
-    .cd-bot-turn.bot{align-self:flex-start;align-items:flex-start;}
-    .cd-bot-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
-    .cd-bot-turn.bot .cd-bot-msg{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);border-bottom-left-radius:3px;}
-    .cd-bot-turn.user .cd-bot-msg{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-bottom-right-radius:3px;}
-    .cd-bot-doc-card{display:flex;gap:10px;align-items:center;background:#fff;border:1.5px solid #d0dce8;border-radius:10px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s,border-color .15s;width:100%;box-sizing:border-box;}
-    .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .cd-bot-doc-info{flex:1;min-width:0;}
-    .cd-bot-doc-title{font-size:12px;font-weight:600;color:var(--wp--preset--color--raft-fg,#1D1F25);margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
-    .cd-bot-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
-    .cd-bot-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e9ef;flex-shrink:0;}
-    .cd-bot-input{flex:1;height:38px;padding:0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
-    .cd-bot-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .cd-bot-send{height:38px;padding:0 14px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;cursor:pointer;}
-    .cd-bot-send:disabled{opacity:.5;cursor:default;}
-    @media(max-width:600px){.cd-fs-controls{flex-wrap:wrap;}.cd-fs-keyword-wrap{flex:none;width:100%;}.cd-fs-select-wrap{flex:1;min-width:calc(50% - 5px);}.cd-fs-search-btn{width:100%;justify-content:center;}.cd-fs-card{padding:24px 18px;}.cd-bot-panel{width:calc(100vw - 40px);}}
+    .aidocs-scope .cd-fs-doc-card{cursor:pointer;}
+    @media(max-width:600px){.aidocs-scope .cd-fs-controls{flex-wrap:wrap;}.aidocs-scope .cd-fs-keyword-wrap{flex:none;width:100%;}.aidocs-scope .cd-fs-select-wrap{flex:1;min-width:calc(50% - 5px);}.aidocs-scope .cd-fs-search-btn{width:100%;justify-content:center;}.aidocs-scope .cd-fs-card{padding:24px 18px;}}
     </style>
 
-    <div class="cd-fs-wrap" id="<?php echo esc_attr( $uid ); ?>">
+    <div class="aidocs-scope cd-fs-wrap" id="<?php echo esc_attr( $uid ); ?>">
         <div class="cd-fs-card">
             <h2 class="cd-fs-title"><?php esc_html_e( 'Find what applies to you' ); ?></h2>
             <p class="cd-fs-subtitle">
@@ -5926,7 +6064,7 @@ ENDSCRIPT;
     </div>
 
     <!-- Document detail modal -->
-    <div class="cd-doc-modal-overlay" id="cd-doc-modal-overlay-<?php echo esc_attr( $uid ); ?>" role="dialog" aria-modal="true">
+    <div class="aidocs-scope cd-doc-modal-overlay" id="cd-doc-modal-overlay-<?php echo esc_attr( $uid ); ?>" role="dialog" aria-modal="true">
         <div class="cd-doc-modal">
             <div class="cd-doc-modal-header">
                 <div class="cd-doc-modal-title-wrap">
@@ -5946,52 +6084,369 @@ ENDSCRIPT;
                 <div class="cd-doc-ask-answers" id="cd-doc-chat-msgs-<?php echo esc_attr( $uid ); ?>"></div>
                 <div class="cd-doc-ask-bar">
                     <svg class="cd-doc-ask-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                    <input type="text" class="cd-doc-ask-input" id="cd-doc-chat-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'Ask AI anything about this document…' ); ?>">
+                    <input type="text" class="cd-doc-ask-input" id="cd-doc-chat-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'Ask AI anything about this policy…' ); ?>">
                     <button class="cd-doc-ask-send" id="cd-doc-chat-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
                     <button class="cd-doc-ask-collapse" id="cd-doc-ask-collapse-<?php echo esc_attr( $uid ); ?>" type="button" aria-label="<?php esc_attr_e( 'Hide answers' ); ?>" style="display:none;">&times;</button>
                 </div>
             </div>
             <div class="cd-doc-modal-footer" id="cd-doc-modal-footer-<?php echo esc_attr( $uid ); ?>">
                 <div class="cd-doc-modal-footer-right">
-                    <a href="#" class="cd-doc-modal-permalink" id="cd-doc-modal-permalink-<?php echo esc_attr( $uid ); ?>" style="display:none;"><?php esc_html_e( 'View document' ); ?></a>
+                    <a href="#" class="cd-doc-modal-permalink" id="cd-doc-modal-permalink-<?php echo esc_attr( $uid ); ?>" style="display:none;"><?php esc_html_e( 'View policy' ); ?></a>
                     <button class="cd-doc-modal-cancel" id="cd-doc-modal-cancel-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Close' ); ?></button>
                 </div>
             </div>
         </div>
     </div>
 
-    <?php if ( $show_chat ) : ?>
-    <button class="cd-bot-toggle" id="cd-bot-toggle-<?php echo esc_attr( $uid ); ?>">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <?php esc_html_e( 'Ask AI' ); ?>
-    </button>
-    <div class="cd-bot-panel" id="cd-bot-panel-<?php echo esc_attr( $uid ); ?>">
-        <div class="cd-bot-header">
-            <div class="cd-bot-header-info">
-                <strong><?php esc_html_e( 'Document Advisor' ); ?></strong>
-                <span><?php esc_html_e( 'Powered by AI · any language' ); ?></span>
-            </div>
-            <button class="cd-bot-close" id="cd-bot-close-<?php echo esc_attr( $uid ); ?>">&times;</button>
-        </div>
-        <div class="cd-bot-messages" id="cd-bot-messages-<?php echo esc_attr( $uid ); ?>">
-            <div class="cd-bot-msg bot"><?php esc_html_e( 'Hi! Describe what you\'re looking for and I\'ll recommend the most relevant document.' ); ?></div>
-        </div>
-        <div class="cd-bot-input-wrap">
-            <input type="text" class="cd-bot-input" id="cd-bot-input-<?php echo esc_attr( $uid ); ?>" placeholder="<?php esc_attr_e( 'e.g. How do I apply for reduced tuition credit?' ); ?>">
-            <button class="cd-bot-send" id="cd-bot-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
-        </div>
-    </div>
-    <?php endif; ?>
 
     <?php
+    if ( $show_chat ) {
+        // Guarded to one per page inside the renderer, so this and the
+        // site-wide bubble cannot both appear.
+        echo aidocs_render_chat_bubble(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer
+    }
+
     return ob_get_clean();
+}
+
+// ──────────────────────────────────────────────
+// 8a. The AI chat bubble — a component of its own
+// ──────────────────────────────────────────────
+//
+// ── What changed and why ───────────────────────────────────────────────────
+//
+// This used to be a branch inside [aidocs_search]: its markup lived at the
+// bottom of that shortcode's output, its CSS in the middle of that
+// shortcode's <style>, and its JavaScript after an `if(!showChat)return;` in
+// that shortcode's script. Wanting only the bubble therefore meant printing
+// the whole search interface to get it, which is exactly what happened when
+// Cirlot tried to put the assistant on a page on its own.
+//
+// So the bubble is its own thing now. It has its own stylesheet, its own
+// script, its own markup and its own entry points, and it shares nothing with
+// the search interface but the AJAX endpoint they both already called:
+//
+//   API/config → chat component → aidocs_ai_recommend → search service
+//
+// Not:
+//
+//   [aidocs_search] → renders everything → chat
+//
+// Three ways in, one bubble out:
+//
+//   · site-wide      Settings → AI → "Show the assistant on every page",
+//                    on by default, rendered at wp_footer.
+//   · a shortcode    [aidocs_ai_chat] (also [sacscoc_ai_chat]) for a page
+//                    that wants it where the site-wide switch is off.
+//   · [aidocs_search show_chat="true"], as before.
+//
+// aidocs_render_chat_bubble() answers only once per request whichever of the
+// three asks first, so no page can end up with two.
+//
+// ── Why the script here is not jQuery ──────────────────────────────────────
+//
+// The bubble can be printed at wp_footer, after wp_enqueue_scripts has long
+// since decided what this page loads. Depending on jQuery would mean either
+// enqueueing it on every page of the site for a component most visitors never
+// open, or having the bubble silently do nothing on pages where the theme did
+// not happen to load it. The whole component is about sixty lines of DOM
+// work; it is written against the platform instead, and depends on nothing.
+
+/**
+ * Whether the assistant is offered on every page.
+ *
+ * Two things have to be true. The administrator has to want it — the setting,
+ * on by default, since an assistant nobody can find is not much of an
+ * assistant. And it has to be able to answer: without a Gemini key every
+ * message comes back "AI not configured", so a site that has not configured
+ * one gets no bubble rather than a broken one.
+ */
+function aidocs_chat_sitewide_enabled() {
+    if ( get_option( 'aidocs_gemini_api_key', '' ) === '' ) return false;
+
+    return get_option( 'aidocs_chat_sitewide', '1' ) === '1';
+}
+
+/** The assistant's stylesheet. Printed inline once per request. */
+function aidocs_chat_styles() {
+    static $printed = false;
+    if ( $printed ) return;
+    $printed = true;
+
+    aidocs_print_scope_css();
+    ?>
+    <style>
+    .aidocs-scope.cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
+    .aidocs-scope.cd-bot-toggle:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(30,58,95,.5);}
+    .aidocs-scope.cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:540px;}
+    .aidocs-scope.cd-bot-panel.open{display:flex;}
+    .aidocs-scope .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border-radius:14px 14px 0 0;}
+    .aidocs-scope .cd-bot-header-info{display:flex;flex-direction:column;gap:2px;}
+    .aidocs-scope .cd-bot-header strong{font-size:14px;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope .cd-bot-header span{font-size:11px;color:#6b7280;}
+    .aidocs-scope .cd-bot-close{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0;}
+    .aidocs-scope .cd-bot-messages{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
+    .aidocs-scope .cd-bot-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
+    .aidocs-scope .cd-bot-turn.user{align-self:flex-end;align-items:flex-end;}
+    .aidocs-scope .cd-bot-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .aidocs-scope .cd-bot-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
+    .aidocs-scope .cd-bot-turn.bot .cd-bot-msg{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);border-bottom-left-radius:3px;}
+    .aidocs-scope .cd-bot-turn.user .cd-bot-msg{background:var(--aidocs-accent,#4d758e);color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-scope .cd-bot-doc-card{display:flex;gap:10px;align-items:center;background:#fff;border:1.5px solid #d0dce8;border-radius:10px;padding:10px 12px;cursor:pointer;transition:box-shadow .15s,border-color .15s;width:100%;box-sizing:border-box;color:inherit;text-decoration:none;}
+    .aidocs-scope .cd-bot-doc-card:focus-visible{outline:2px solid var(--aidocs-accent-strong,#003a5d);outline-offset:2px;}
+    .aidocs-scope .cd-bot-doc-card:hover{box-shadow:0 3px 12px rgba(0,0,0,.1);border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-bot-doc-info{flex:1;min-width:0;}
+    .aidocs-scope .cd-bot-doc-title{font-size:12px;font-weight:600;color:var(--aidocs-fg,#1d1f25);margin-bottom:5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;}
+    .aidocs-scope .cd-bot-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
+    .aidocs-scope .cd-bot-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e9ef;flex-shrink:0;}
+    .aidocs-scope .cd-bot-input{flex:1;height:38px;padding:0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;}
+    .aidocs-scope .cd-bot-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-bot-send{height:38px;padding:0 14px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;cursor:pointer;}
+    .aidocs-scope .cd-bot-send:disabled{opacity:.5;cursor:default;}
+    @media(max-width:600px){.aidocs-scope.cd-bot-panel{width:calc(100vw - 40px);}}
+    </style>
+    <?php
+}
+
+/**
+ * The assistant's script, for one bubble.
+ *
+ * Printed with the markup rather than enqueued: it is a few lines, it is
+ * bound to one element's ids, and the markup can arrive at wp_footer, which
+ * is past the point where enqueueing anything is still useful.
+ */
+function aidocs_chat_script( $uid ) {
+    $cfg = wp_json_encode( [
+        'uid'     => $uid,
+        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+        'nonce'   => wp_create_nonce( 'aidocs_ai_search' ),
+        'i18n'    => [
+            'send'    => __( 'Send' ),
+            'sending' => __( '…' ),
+            'error'   => __( 'Sorry, I encountered an error. Please try again.' ),
+            'offline' => __( 'Connection error. Please try again.' ),
+        ],
+    ] );
+    ?>
+    <script>
+    ( function () {
+        'use strict';
+        var cfg = <?php echo $cfg; // phpcs:ignore WordPress.Security.EscapeOutput -- wp_json_encode ?>;
+        var id = function ( part ) { return document.getElementById( part + '-' + cfg.uid ); };
+
+        var toggle = id( 'cd-bot-toggle' ), panel = id( 'cd-bot-panel' );
+        var messages = id( 'cd-bot-messages' ), input = id( 'cd-bot-input' ), send = id( 'cd-bot-send' );
+        var close = id( 'cd-bot-close' );
+        if ( ! toggle || ! panel || ! messages || ! input || ! send ) return;
+
+        var history = [], busy = false;
+
+        function open( yes ) {
+            panel.classList.toggle( 'open', yes );
+            toggle.setAttribute( 'aria-expanded', yes ? 'true' : 'false' );
+            if ( yes ) input.focus();
+        }
+
+        toggle.addEventListener( 'click', function () { open( ! panel.classList.contains( 'open' ) ); } );
+        if ( close ) close.addEventListener( 'click', function () { open( false ); toggle.focus(); } );
+        document.addEventListener( 'keydown', function ( e ) {
+            if ( e.key === 'Escape' && panel.classList.contains( 'open' ) ) { open( false ); toggle.focus(); }
+        } );
+
+        function el( tag, cls, text ) {
+            var node = document.createElement( tag );
+            if ( cls ) node.className = cls;
+            /* textContent, never innerHTML: everything below is either the
+               visitor's own typing or a model's reply, and neither is markup. */
+            if ( text !== undefined ) node.textContent = text;
+            return node;
+        }
+
+        function addTurn( role, text, docs ) {
+            var turn = el( 'div', 'cd-bot-turn ' + role );
+            turn.appendChild( el( 'div', 'cd-bot-msg', text ) );
+
+            ( docs || [] ).forEach( function ( doc ) {
+                if ( ! doc.permalink ) return;
+                var card = el( 'a', 'cd-bot-doc-card' );
+                card.href = doc.permalink;
+                var info = el( 'div', 'cd-bot-doc-info' );
+                info.appendChild( el( 'div', 'cd-bot-doc-title', doc.title || '' ) );
+                card.appendChild( info );
+                turn.appendChild( card );
+            } );
+
+            messages.appendChild( turn );
+            messages.scrollTop = messages.scrollHeight;
+            return turn;
+        }
+
+        function ask() {
+            var text = input.value.trim();
+            if ( ! text || busy ) return;
+
+            busy = true;
+            addTurn( 'user', text );
+            input.value = '';
+            send.disabled = true;
+            send.textContent = cfg.i18n.sending;
+            history.push( { role: 'user', text: text } );
+
+            var thinking = el( 'div', 'cd-bot-thinking', '…' );
+            messages.appendChild( thinking );
+            messages.scrollTop = messages.scrollHeight;
+
+            var body = new URLSearchParams();
+            body.set( 'action', 'aidocs_ai_recommend' );
+            body.set( 'nonce', cfg.nonce );
+            body.set( 'message', text );
+            body.set( 'history', JSON.stringify( history.slice( -6 ) ) );
+
+            fetch( cfg.ajaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: body.toString()
+            } )
+                .then( function ( res ) { return res.json(); } )
+                .then( function ( payload ) {
+                    thinking.remove();
+                    if ( payload && payload.success ) {
+                        addTurn( 'bot', payload.data.message, payload.data.docs );
+                        history.push( { role: 'model', text: payload.data.message } );
+                    } else {
+                        addTurn( 'bot', cfg.i18n.error );
+                    }
+                } )
+                .catch( function () {
+                    thinking.remove();
+                    addTurn( 'bot', cfg.i18n.offline );
+                } )
+                .then( function () {
+                    busy = false;
+                    send.disabled = false;
+                    send.textContent = cfg.i18n.send;
+                } );
+        }
+
+        send.addEventListener( 'click', ask );
+        input.addEventListener( 'keydown', function ( e ) { if ( e.key === 'Enter' ) { e.preventDefault(); ask(); } } );
+    } )();
+    </script>
+    <?php
+}
+
+/**
+ * The assistant, as markup — at most once per request.
+ *
+ * The guard is the whole point of routing every entry through here: the
+ * site-wide switch, [aidocs_ai_chat] and [aidocs_search show_chat="true"] can
+ * all be true on the same page, and a visitor should still see one bubble.
+ * Whichever runs first wins; the rest get an empty string.
+ *
+ * @return string
+ */
+function aidocs_render_chat_bubble( array $args = [] ) {
+    static $rendered = false;
+    if ( $rendered ) return '';
+
+    // Nothing to talk to. Better no bubble than one that answers every
+    // question with a configuration error.
+    if ( get_option( 'aidocs_gemini_api_key', '' ) === '' ) return '';
+
+    $rendered = true;
+
+    $uid      = 'aidocs_chat_' . wp_unique_id();
+    $title    = (string) ( $args['title']    ?? '' );
+    $subtitle = (string) ( $args['subtitle'] ?? '' );
+    $label    = (string) ( $args['label']    ?? '' );
+    $greeting = (string) ( $args['greeting'] ?? '' );
+
+    $title    = $title    !== '' ? $title    : __( 'Policy Advisor' );
+    $subtitle = $subtitle !== '' ? $subtitle : __( 'Powered by AI · any language' );
+    $label    = $label    !== '' ? $label    : __( 'Ask AI' );
+    $greeting = $greeting !== '' ? $greeting : __( 'Hi! Describe what you\'re looking for and I\'ll point you to the policy that answers it.' );
+
+    ob_start();
+    aidocs_chat_styles();
+    ?>
+    <button type="button" class="aidocs-scope cd-bot-toggle" id="cd-bot-toggle-<?php echo esc_attr( $uid ); ?>"
+            aria-expanded="false" aria-controls="cd-bot-panel-<?php echo esc_attr( $uid ); ?>">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <?php echo esc_html( $label ); ?>
+    </button>
+    <div class="aidocs-scope cd-bot-panel" id="cd-bot-panel-<?php echo esc_attr( $uid ); ?>" role="dialog"
+         aria-label="<?php echo esc_attr( $title ); ?>">
+        <div class="cd-bot-header">
+            <div class="cd-bot-header-info">
+                <strong><?php echo esc_html( $title ); ?></strong>
+                <span><?php echo esc_html( $subtitle ); ?></span>
+            </div>
+            <button type="button" class="cd-bot-close" id="cd-bot-close-<?php echo esc_attr( $uid ); ?>"
+                    aria-label="<?php esc_attr_e( 'Close the assistant' ); ?>">&times;</button>
+        </div>
+        <div class="cd-bot-messages" id="cd-bot-messages-<?php echo esc_attr( $uid ); ?>" aria-live="polite">
+            <div class="cd-bot-turn bot"><div class="cd-bot-msg"><?php echo esc_html( $greeting ); ?></div></div>
+        </div>
+        <div class="cd-bot-input-wrap">
+            <input type="text" class="cd-bot-input" id="cd-bot-input-<?php echo esc_attr( $uid ); ?>"
+                   aria-label="<?php esc_attr_e( 'Your question' ); ?>"
+                   placeholder="<?php esc_attr_e( 'e.g. How do I apply for reduced tuition credit?' ); ?>">
+            <button type="button" class="cd-bot-send" id="cd-bot-send-<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Send' ); ?></button>
+        </div>
+    </div>
+    <?php
+    aidocs_chat_script( $uid );
+
+    return (string) ob_get_clean();
+}
+
+/**
+ * The assistant on its own, anywhere a shortcode runs.
+ *
+ *   [aidocs_ai_chat]
+ *   [sacscoc_ai_chat]
+ *
+ * Both tags are this same callback. Nothing about the search interface is
+ * rendered, loaded or referenced.
+ *
+ * Attributes: title, subtitle, label (the text on the bubble itself) and
+ * greeting all override the defaults, for a site that would rather it said
+ * "Ask about our policies" than "Ask AI".
+ */
+add_shortcode( 'aidocs_ai_chat', 'aidocs_chat_shortcode' );
+add_shortcode( 'sacscoc_ai_chat', 'aidocs_chat_shortcode' );
+function aidocs_chat_shortcode( $atts ) {
+    $atts = shortcode_atts( [
+        'title'    => '',
+        'subtitle' => '',
+        'label'    => '',
+        'greeting' => '',
+    ], $atts, 'aidocs_ai_chat' );
+
+    return aidocs_render_chat_bubble( $atts );
+}
+
+/**
+ * The site-wide assistant.
+ *
+ * Late enough that a shortcode anywhere in the page's content has already had
+ * its turn — so a page that placed the bubble itself keeps its own wording,
+ * and this call finds the guard already set and prints nothing.
+ */
+add_action( 'wp_footer', 'aidocs_render_sitewide_chat', 20 );
+function aidocs_render_sitewide_chat() {
+    if ( is_admin() ) return;
+    if ( ! aidocs_chat_sitewide_enabled() ) return;
+
+    echo aidocs_render_chat_bubble(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in renderer
 }
 
 // ──────────────────────────────────────────────
 // 8b. Single document shortcode
 // ──────────────────────────────────────────────
 // Embeds one document's own content — the same rendering
-// aidocs_render_single_document() gives the dedicated /documents/{entry}/ page
+// aidocs_render_single_document() gives the dedicated /policies/{entry}/ page
 // — anywhere a shortcode can run, for the entries an editor wants to show
 // inline instead of only through search or a direct link.
 add_shortcode( 'aidocs_document', 'aidocs_document_shortcode' );
@@ -6010,7 +6465,7 @@ function aidocs_document_shortcode( $atts ) {
 
     if ( ! $post || $post->post_type !== 'aidoc' || $post->post_status !== 'publish' ) {
         return current_user_can( 'edit_posts' )
-            ? '<p>' . esc_html__( '[aidocs_document] could not find a published document for this id/slug.' ) . '</p>'
+            ? '<p>' . esc_html__( '[aidocs_document] could not find a published policy for this id/slug.' ) . '</p>'
             : '';
     }
 
@@ -6037,7 +6492,7 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
     ob_start();
     aidocs_single_view_styles();
     ?>
-    <article class="aidocs-single">
+    <article class="aidocs-scope aidocs-single">
 
         <?php if ( $standalone ) : ?>
         <a href="<?php echo esc_url( home_url( '/' . aidocs_get_archive_slug() . '/' ) ); ?>" class="aidocs-single-back">
@@ -6085,7 +6540,7 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
             <div class="aidocs-single-ask-answers" id="aidocs-single-ask-answers"></div>
             <div class="aidocs-single-ask-bar">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="aidocs-single-ask-icon"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                <input type="text" id="aidocs-single-ask-input" placeholder="<?php esc_attr_e( 'Ask AI anything about this document…' ); ?>">
+                <input type="text" id="aidocs-single-ask-input" placeholder="<?php esc_attr_e( 'Ask AI anything about this policy…' ); ?>">
                 <button type="button" id="aidocs-single-ask-send"><?php esc_html_e( 'Send' ); ?></button>
             </div>
         </div>
@@ -6192,7 +6647,7 @@ function aidocs_render_toc( array $blocks ) {
     if ( count( $sections ) < 2 ) return '';
 
     $html = '<nav class="aidocs-toc" aria-label="' . esc_attr__( 'Sections' ) . '">'
-          . '<div class="aidocs-toc-label">' . esc_html__( 'In this document' ) . '</div><ul>';
+          . '<div class="aidocs-toc-label">' . esc_html__( 'In this policy' ) . '</div><ul>';
     foreach ( $sections as $section ) {
         $heading = $section['heading'];
         // Links inside the heading's own text are dropped here, not because
@@ -6210,59 +6665,64 @@ function aidocs_single_view_styles() {
     static $printed = false;
     if ( $printed ) return;
     $printed = true;
+
+    // Every selector below is scoped to `.aidocs-scope`, and every colour in
+    // it reads a token declared on that same class. Print the tokens first or
+    // there is nothing for the colours to resolve to.
+    aidocs_print_scope_css();
     ?>
     <style>
-    .aidocs-single-page{max-width:820px;margin:0 auto;padding:40px 20px;}
-    .aidocs-single-title{font-size:28px;font-weight:700;margin:0;}
-    .aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
-    .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:none;margin-bottom:18px;}
-    .aidocs-single-back:hover{text-decoration:underline;}
+    .aidocs-scope.aidocs-single-page{max-width:820px;margin:0 auto;padding:40px 20px;}
+    .aidocs-scope .aidocs-single-title{font-size:28px;font-weight:700;margin:0;}
+    .aidocs-scope.aidocs-single{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:820px;margin:0 auto;padding-bottom:90px;}
+    .aidocs-scope .aidocs-single-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);text-decoration:none;margin-bottom:18px;}
+    .aidocs-scope .aidocs-single-back:hover{text-decoration:underline;}
     /* Stacked, not a row: the type belongs under the title as a caption to it,
        and a row put it out to the side where it read as an unrelated badge. */
-    .aidocs-single-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
-    .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
-    .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--wp--preset--color--raft-accent-secondary,#2563eb) 10%,#fff);color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
-    .aidocs-single-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:16px 40px;padding-bottom:4px;}
-    .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
-    .aidocs-single-value{font-size:14px;color:var(--wp--preset--color--raft-fg,#1D1F25);font-weight:500;line-height:1.5;}
-    .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:26px 0 12px;padding-top:18px;border-top:1px solid #f0f2f5;}
-    .aidocs-content-h2{font-size:18px;font-weight:700;color:var(--wp--preset--color--raft-fg,#1D1F25);margin:28px 0 10px;line-height:1.35;}
-    .aidocs-content-h2:first-child{margin-top:0;}
-    .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
-    .aidocs-content-h3:first-child{margin-top:0;}
-    .aidocs-content-p{font-size:15px;color:#374151;line-height:1.8;margin:0 0 14px;}
-    .aidocs-content-list{margin:0 0 16px;padding-left:24px;}
-    .aidocs-content-list li{font-size:15px;color:#374151;line-height:1.75;margin-bottom:8px;}
-    .aidocs-content-empty{font-size:14px;color:#9ca3af;font-style:italic;}
-    .aidocs-toc{margin:0 0 22px;padding:14px 16px;background:#f8f9fb;border:1px solid #edf0f4;border-radius:8px;}
-    .aidocs-toc-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:8px;}
-    .aidocs-toc ul{list-style:none;margin:0;padding:0;columns:2;column-gap:24px;}
-    .aidocs-toc li{margin-bottom:6px;break-inside:avoid;}
-    .aidocs-toc a{font-size:13px;color:var(--wp--preset--color--raft-accent-secondary,#AC5039);text-decoration:none;font-weight:500;}
-    .aidocs-toc a:hover{text-decoration:underline;}
+    .aidocs-scope .aidocs-single-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-bottom:18px;border-bottom:1px solid #edf0f4;margin-bottom:20px;}
+    .aidocs-scope .aidocs-single-tags{display:flex;flex-wrap:wrap;gap:5px;}
+    .aidocs-scope .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
+    .aidocs-scope .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .aidocs-single-desc{font-size:15px;color:#374151;line-height:1.75;margin-bottom:22px;}
+    .aidocs-scope .aidocs-single-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:16px 40px;padding-bottom:4px;}
+    .aidocs-scope .aidocs-single-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-scope .aidocs-single-value{font-size:14px;color:var(--aidocs-fg,#1d1f25);font-weight:500;line-height:1.5;}
+    .aidocs-scope .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:26px 0 12px;padding-top:18px;border-top:1px solid #f0f2f5;}
+    .aidocs-scope .aidocs-content-h2{font-size:18px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:28px 0 10px;line-height:1.35;}
+    .aidocs-scope .aidocs-content-h2:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--aidocs-accent-strong,#003a5d);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-scope .aidocs-content-h3:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-p{font-size:15px;color:#374151;line-height:1.8;margin:0 0 14px;}
+    .aidocs-scope .aidocs-content-list{margin:0 0 16px;padding-left:24px;}
+    .aidocs-scope .aidocs-content-list li{font-size:15px;color:#374151;line-height:1.75;margin-bottom:8px;}
+    .aidocs-scope .aidocs-content-empty{font-size:14px;color:#9ca3af;font-style:italic;}
+    .aidocs-scope .aidocs-toc{margin:0 0 22px;padding:14px 16px;background:#f8f9fb;border:1px solid #edf0f4;border-radius:8px;}
+    .aidocs-scope .aidocs-toc-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:8px;}
+    .aidocs-scope .aidocs-toc ul{list-style:none;margin:0;padding:0;columns:2;column-gap:24px;}
+    .aidocs-scope .aidocs-toc li{margin-bottom:6px;break-inside:avoid;}
+    .aidocs-scope .aidocs-toc a{font-size:13px;color:var(--aidocs-accent-strong,#003a5d);text-decoration:none;font-weight:500;}
+    .aidocs-scope .aidocs-toc a:hover{text-decoration:underline;}
     <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
-    .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
-    .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-scope .aidocs-doc-history{margin-top:26px;padding:14px 16px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:13px;color:#6b7280;line-height:1.7;}
+    .aidocs-scope .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:5px;}
     /* Ask AI — pinned to the bottom of the viewport while reading */
-    .aidocs-single-ask{position:sticky;bottom:0;z-index:50;margin-top:32px;background:#fbfcfd;border:1px solid #e5e9ef;border-radius:12px;box-shadow:0 -2px 16px rgba(0,0,0,.06);overflow:hidden;}
-    .aidocs-single-ask-answers{display:none;max-height:260px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid #edf0f4;}
-    .aidocs-single-ask-answers.open{display:flex;}
-    .aidocs-ask-turn{display:flex;flex-direction:column;max-width:92%;}
-    .aidocs-ask-turn.user{align-self:flex-end;align-items:flex-end;}
-    .aidocs-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
-    .aidocs-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.6;}
-    .aidocs-ask-turn.bot .aidocs-ask-msg{background:#f0f6ff;color:var(--wp--preset--color--raft-fg,#1D1F25);border-bottom-left-radius:3px;}
-    .aidocs-ask-turn.user .aidocs-ask-msg{background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border-bottom-right-radius:3px;}
-    .aidocs-single-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;}
-    .aidocs-single-ask-icon{color:var(--wp--preset--color--raft-accent-secondary,#AC5039);flex-shrink:0;}
-    #aidocs-single-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--wp--preset--color--raft-fg,#1D1F25);}
-    #aidocs-single-ask-input:focus{border-color:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    #aidocs-single-ask-send{height:40px;padding:0 18px;background:var(--wp--preset--color--raft-accent,#C26148);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,8px);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
-    #aidocs-single-ask-send:hover{background:var(--wp--preset--color--raft-accent-secondary,#AC5039);}
-    #aidocs-single-ask-send:disabled{opacity:.5;cursor:default;}
-    @media(max-width:600px){.aidocs-single-grid{grid-template-columns:1fr;}.aidocs-single-header{flex-wrap:wrap;}}
+    .aidocs-scope .aidocs-single-ask{position:sticky;bottom:0;z-index:50;margin-top:32px;background:#fbfcfd;border:1px solid #e5e9ef;border-radius:12px;box-shadow:0 -2px 16px rgba(0,0,0,.06);overflow:hidden;}
+    .aidocs-scope .aidocs-single-ask-answers{display:none;max-height:260px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid #edf0f4;}
+    .aidocs-scope .aidocs-single-ask-answers.open{display:flex;}
+    .aidocs-scope .aidocs-ask-turn{display:flex;flex-direction:column;max-width:92%;}
+    .aidocs-scope .aidocs-ask-turn.user{align-self:flex-end;align-items:flex-end;}
+    .aidocs-scope .aidocs-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .aidocs-scope .aidocs-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.6;}
+    .aidocs-scope .aidocs-ask-turn.bot .aidocs-ask-msg{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);border-bottom-left-radius:3px;}
+    .aidocs-scope .aidocs-ask-turn.user .aidocs-ask-msg{background:var(--aidocs-accent,#4d758e);color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-scope .aidocs-single-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;}
+    .aidocs-scope .aidocs-single-ask-icon{color:var(--aidocs-accent-strong,#003a5d);flex-shrink:0;}
+    .aidocs-scope #aidocs-single-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope #aidocs-single-ask-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope #aidocs-single-ask-send{height:40px;padding:0 18px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
+    .aidocs-scope #aidocs-single-ask-send:hover{background:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope #aidocs-single-ask-send:disabled{opacity:.5;cursor:default;}
+    @media(max-width:600px){.aidocs-scope .aidocs-single-grid{grid-template-columns:1fr;}.aidocs-scope .aidocs-single-header{flex-wrap:wrap;}}
     </style>
     <?php
 }

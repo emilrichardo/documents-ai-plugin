@@ -1,6 +1,6 @@
-# AI Documents — user manual
+# AI Policies — user manual
 
-AI Documents turns institutional files into published **information**. A policy
+AI Policies turns institutional files into published **information**. A policy
 arrives as a PDF or a Word document, the plugin reads the text out of it,
 structures it into headings, paragraphs, lists and tables, and publishes that as
 a page of its own. The file itself is never linked, previewed or offered for
@@ -27,7 +27,7 @@ article inside becomes an entry of its own, with its own title, date, descriptio
 and content.
 
 **3. It publishes and finds.** Each entry gets its own page at
-`/documents/{entry}/`. A search shortcode puts a filterable catalogue on any
+`/policies/{entry}/`. A search shortcode puts a filterable catalogue on any
 page, and — when Gemini is configured — answers a question typed in any language
 with the one to three entries that address it, and a short explanation of why.
 
@@ -60,7 +60,7 @@ zip contains a single `ai-documents` folder, which is what WordPress expects.
 2. In WordPress, go to **Plugins → Add New Plugin → Upload Plugin**.
 3. Choose the zip, click **Install Now**, then **Activate Plugin**.
 4. A **Documents** entry appears in the admin sidebar.
-5. Open **Documents → Settings** and add a Gemini API key if you want the AI features. Everything else already works.
+5. Open **Policies → Settings** and add a Gemini API key if you want the AI features. Everything else already works.
 
 Installing over an existing copy replaces the plugin files. Entries, taxonomies
 and settings live in the database and are left untouched.
@@ -90,10 +90,10 @@ search and Ask AI — goes through Google Gemini. One key covers all of them.
 There are two places to enter the key and they write to the same setting, so use
 whichever you happen to be looking at.
 
-**Documents → Settings → AI** — paste the key, click **Test key** to check it
+**Policies → Settings → AI** — paste the key, click **Test key** to check it
 against the live API, pick a model, and click **Save Settings**.
 
-![The AI section of Documents → Settings, with the Gemini API key field, the model picker and the buttons that validate them](assets/screenshots/settings-ai.png)
+![The AI section of Policies → Settings, with the Gemini API key field, the model picker and the buttons that validate them](assets/screenshots/settings-ai.png)
 
 **Any document's editor**, in the *Complete fields with AI (optional)* panel —
 paste the key, click **Check key & list models** to validate it and list what it
@@ -127,14 +127,26 @@ structure, is small in any case.
 
 ## Settings
 
-**Documents → Settings** is a single screen in three parts. Entry URLs are
-`/documents/{entry}/` and are not configurable.
+**Policies → Settings** is a single screen in three parts. Entry URLs are
+`/policies/{entry}/`. `/documents/`, the base used before 1.5.0, 301-redirects
+to the new one, so nothing already linked or bookmarked breaks.
 
 ### AI
 
 The Gemini API key and the model, covered above. The key is stored as a
 WordPress option; the field shows *Saved — leave blank to keep it* once set, so
 re-saving other settings never clears it.
+
+**Show the assistant on every page** — on by default. This is the floating
+**Ask AI** bubble in the bottom-right corner. It is its own component: it does
+not render the search interface, it does not need the search shortcode to be on
+the page, and turning it off here changes nothing about search. With no Gemini
+key configured it is not shown anywhere, on the grounds that an assistant whose
+only possible answer is a configuration error is worse than no assistant.
+
+A page never shows two bubbles. The site-wide setting, `[aidocs_ai_chat]` and
+`[aidocs_search show_chat="true"]` can all be true at once; whichever runs
+first is the one that renders, and the rest do nothing.
 
 ### Taxonomy
 
@@ -164,13 +176,13 @@ against your own configured types. The full reference is in
 
 This is the ordinary case: one file, one article, one entry.
 
-1. Go to **Documents → Add New Document**.
+1. Go to **Policies → Add New Policy**.
 2. Leave **What are you uploading?** on **One article**.
 3. Click **Upload source file** and pick a PDF, Word (`.docx`) or Excel file through the media library.
 4. Wait a moment. Extraction runs on its own, with no button to press.
 5. Check the fields it filled in, correct anything that needs it, and click **Publish**.
 
-![Add New Document: the upload-mode question, the source-file card, and every field below it](assets/screenshots/add-new.png)
+![Add New Policy: the upload-mode question, the source-file card, and every field below it](assets/screenshots/add-new.png)
 
 ### What gets filled in automatically
 
@@ -264,7 +276,7 @@ change the published content — the blocks are already stored on the entry.
 The files that arrive from a commission are usually one document carrying dozens
 of standalone articles, and each of those has to become an entry of its own.
 
-1. Go to **Documents → Add New Document**.
+1. Go to **Policies → Add New Policy**.
 2. Set **What are you uploading?** to **A document holding several articles**.
 3. Upload the PDF or Word file. The articles are found on their own — no AI, no API key.
 4. Under **Complete fields with AI, per article**, tick whether the AI should fill Title or Description for each article. **Document Type** has its own **By AI / Manually** switch above the list — *Manually* applies one value to every entry the upload creates, *By AI* reads each article on its own. Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.
@@ -460,7 +472,7 @@ and use **Extract content again**.
 
 ## Find entries in the admin
 
-**Documents** in the sidebar lists All Documents and Add New, then one shortcut
+**Policies** in the sidebar lists All Policies and Add New, then one shortcut
 per configured Document Type under a **Browse by Type** heading, then Settings
 and Documentation. Each type shortcut opens the ordinary Documents list,
 pre-filtered to that type.
@@ -478,7 +490,7 @@ the same way WordPress's own date filter does.
 
 ### The entry page
 
-Every entry has its own URL, `/documents/{entry}/`, rendered inside your theme's
+Every entry has its own URL, `/policies/{entry}/`, rendered inside your theme's
 header and footer:
 
 - a type tag, and the description
@@ -581,7 +593,7 @@ A compact embed inside a wider page:
 [aidocs_document slug="academic-integrity-policy"]
 ```
 
-Renders one entry's own content — the same rendering as its `/documents/{entry}/`
+Renders one entry's own content — the same rendering as its `/policies/{entry}/`
 page, minus the "Back to all topics" link — inside any post or page.
 
 | Parameter | Default | Accepts | What it does |
@@ -604,13 +616,41 @@ live page.
 > to look up the ID by hand. The box appears only once there is something to
 > embed: a draft, or an entry still mid-setup, shows no shortcode yet.
 
+### `[aidocs_ai_chat]` — the assistant, on its own
+
+```
+[aidocs_ai_chat]
+[aidocs_ai_chat label="Ask about our policies" title="Policy Advisor"]
+```
+
+The floating **Ask AI** bubble and nothing else — no search box, no filters, no
+results list. It talks to the same recommendation endpoint the catalogue's own
+AI uses, so it finds the same entries; it simply does not draw a catalogue to
+get there.
+
+Most sites never need this: the bubble is enabled site-wide in
+**Policies → Settings → AI** and is already on every page. Reach for the
+shortcode on a site that has turned that off but still wants the assistant in
+one particular place.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `title` | `Policy Advisor` | The heading inside the open panel. |
+| `subtitle` | `Powered by AI · any language` | The line under it. |
+| `label` | `Ask AI` | The text on the closed bubble itself. |
+| `greeting` | *(a short welcome)* | The first message in the thread. |
+
+`[sacscoc_ai_chat]` is the same shortcode under a second name.
+
+Nothing is rendered at all when no Gemini API key is configured.
+
 ### Using them in the block editor
 
 1. Add a **Shortcode** block where the catalogue or the entry should appear.
 2. Paste the shortcode, including its square brackets.
 3. Update the page, then view it — shortcodes render on the front end, not in the editor canvas.
 
-The copy buttons in **Documents → Settings → Shortcodes** produce these same
+The copy buttons in **Policies → Settings → Shortcodes** produce these same
 snippets, already filled in with your own configured types and a real entry ID
 from your site.
 
@@ -672,7 +712,7 @@ content** and click **Apply edited content**.
 nothing. Load a file and wait for the block count to appear before using any AI
 action; the AI reads the extracted text, not the file.
 
-**The key was saved but nothing AI-related works.** Open **Documents → Settings →
+**The key was saved but nothing AI-related works.** Open **Policies → Settings →
 AI** and click **Test key**. A failure there is a key or quota problem at Google,
 not a plugin problem. If it passes, click **Refresh from API** and re-pick the
 model: a model saved earlier may no longer be one your key can reach.
@@ -711,14 +751,14 @@ its entries were never touched.
 
 ## Keeping this documentation up to date
 
-This page, the plugin's own **Documents → Documentation** screen and the repository
+This page, the plugin's own **Policies → Documentation** screen and the repository
 manual are one source and three outputs.
 
 ```
 docs/DOCUMENTATION.md          ← edit this
         │
         ├─▶ docs/index.html                  the page you are reading
-        ├─▶ docs/generated/admin-page.html   Documents → Documentation
+        ├─▶ docs/generated/admin-page.html   Policies → Documentation
         └─▶ docs/downloads/*.zip             the download button
 ```
 

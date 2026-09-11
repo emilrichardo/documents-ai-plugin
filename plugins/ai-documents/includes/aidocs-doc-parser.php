@@ -2336,11 +2336,11 @@ function aidocs_content_block_css() {
    never defined — is what lets buttons, badges and section headers pick up
    the active theme's look instead of a colour fixed at build time. */
 .aidocs-content{
-    --cd-primary:var(--wp--preset--color--raft-accent,#C26148);
-    --cd-secondary:var(--wp--preset--color--raft-accent-secondary,#AC5039);
-    --cd-base:var(--wp--preset--color--raft-fg-alt,#FDFDFD);
-    --cd-contrast:var(--wp--preset--color--raft-fg,#1D1F25);
-    --cd-radius:var(--wp--custom--button-border-radius,4px);
+    --cd-primary:var(--aidocs-accent,#4d758e);
+    --cd-secondary:var(--aidocs-accent-strong,#003a5d);
+    --cd-base:var(--aidocs-base,#fdfdfd);
+    --cd-contrast:var(--aidocs-fg,#1d1f25);
+    --cd-radius:var(--aidocs-radius,4px);
 }
 .aidocs-content strong{font-weight:700;color:var(--cd-contrast);}
 .aidocs-content em{font-style:italic;}

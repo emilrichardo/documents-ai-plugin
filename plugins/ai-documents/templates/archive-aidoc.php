@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
 aidocs_document_header();
 ?>
 
-<main id="aidocs-archive" class="aidocs-archive">
+<main id="aidocs-archive" class="aidocs-scope aidocs-archive">
     <?php
     /**
      * Fires before the document search shortcode on the archive template.

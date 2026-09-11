@@ -20,7 +20,7 @@
 <p>Three things, in this order.</p>
 <p><strong>1. It reads files.</strong> Upload a PDF or a Word (<code>.docx</code>) file and the plugin extracts its text and parses it into content blocks — three heading levels, paragraphs, notes, nested lists and tables. This runs with regular expressions, not AI: no API key, no request, no cost. Excel files are accepted for reference but are not parsed.</p>
 <p><strong>2. It splits compilations.</strong> A single upload often holds fifty standalone articles one after another. Tell the plugin the file is a compilation and each article inside becomes an entry of its own, with its own title, date, description and content.</p>
-<p><strong>3. It publishes and finds.</strong> Each entry gets its own page at <code>/documents/{entry}/</code>. A search shortcode puts a filterable catalogue on any page, and — when Gemini is configured — answers a question typed in any language with the one to three entries that address it, and a short explanation of why.</p>
+<p><strong>3. It publishes and finds.</strong> Each entry gets its own page at <code>/policies/{entry}/</code>. A search shortcode puts a filterable catalogue on any page, and — when Gemini is configured — answers a question typed in any language with the one to three entries that address it, and a short explanation of why.</p>
 <div class="aidoc-table-wrap"><table>
 <thead><tr><th></th><th>Works without an API key</th><th>Needs a Gemini key</th></tr></thead>
 <tbody>
@@ -59,8 +59,8 @@
 </blockquote>
 <h3 id="save-it-in-the-plugin">Save it in the plugin</h3>
 <p>There are two places to enter the key and they write to the same setting, so use whichever you happen to be looking at.</p>
-<p><strong>Documents → Settings → AI</strong> — paste the key, click <strong>Test key</strong> to check it against the live API, pick a model, and click <strong>Save Settings</strong>.</p>
-<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-ai.png" alt="The AI section of Documents → Settings, with the Gemini API key field, the model picker and the buttons that validate them" loading="lazy"><figcaption>The AI section of Documents → Settings, with the Gemini API key field, the model picker and the buttons that validate them</figcaption></figure>
+<p><strong>Policies → Settings → AI</strong> — paste the key, click <strong>Test key</strong> to check it against the live API, pick a model, and click <strong>Save Settings</strong>.</p>
+<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-ai.png" alt="The AI section of Policies → Settings, with the Gemini API key field, the model picker and the buttons that validate them" loading="lazy"><figcaption>The AI section of Policies → Settings, with the Gemini API key field, the model picker and the buttons that validate them</figcaption></figure>
 <p><strong>Any document&#039;s editor</strong>, in the <em>Complete fields with AI (optional)</em> panel — paste the key, click <strong>Check key &amp; list models</strong> to validate it and list what it can reach, choose a model, click <strong>Save</strong>. This form only appears to administrators. Anyone else editing a document without a key sees a note asking them to get one from an administrator; extraction above it works either way.</p>
 <h3 id="choosing-a-model">Choosing a model</h3>
 <p>The picker ships with the current Gemini line-up — 3.6 and 3.5 Flash, 3.1 and 3 Pro Preview, and the <code>-latest</code> aliases that always point at the newest of their family. <strong><code>gemini-3.6-flash</code> is the default.</strong> <strong>Refresh from API</strong> (settings) or <strong>Check key &amp; list models</strong> (document editor) replaces that list with exactly what your key can reach.</p>
@@ -71,9 +71,11 @@
 </section>
 <section class="aidoc-section" id="settings">
 <h2>Settings</h2>
-<p><strong>Documents → Settings</strong> is a single screen in three parts. Entry URLs are <code>/documents/{entry}/</code> and are not configurable.</p>
+<p><strong>Policies → Settings</strong> is a single screen in three parts. Entry URLs are <code>/policies/{entry}/</code>. <code>/documents/</code>, the base used before 1.5.0, 301-redirects to the new one, so nothing already linked or bookmarked breaks.</p>
 <h3 id="ai">AI</h3>
 <p>The Gemini API key and the model, covered above. The key is stored as a WordPress option; the field shows <em>Saved — leave blank to keep it</em> once set, so re-saving other settings never clears it.</p>
+<p><strong>Show the assistant on every page</strong> — on by default. This is the floating <strong>Ask AI</strong> bubble in the bottom-right corner. It is its own component: it does not render the search interface, it does not need the search shortcode to be on the page, and turning it off here changes nothing about search. With no Gemini key configured it is not shown anywhere, on the grounds that an assistant whose only possible answer is a configuration error is worse than no assistant.</p>
+<p>A page never shows two bubbles. The site-wide setting, <code>[aidocs_ai_chat]</code> and <code>[aidocs_search show_chat=&quot;true&quot;]</code> can all be true at once; whichever runs first is the one that renders, and the rest do nothing.</p>
 <h3 id="taxonomy">Taxonomy</h3>
 <p><strong>Document Types</strong> — what kind of document it is, one per line. Ships with <code>Policies</code>, <code>Guidelines</code>, <code>Good Practices</code>, <code>Position Statements</code>. Saving creates any term that does not exist yet. Removing a line from the list takes the type out of the pickers and the admin menu, but does not delete the term or unassign it from entries that already carry it. Every place a Document Type can be set (the document editor, the multi-document import, an AI proposal) reads this same configured list, and the AI is validated against it — it never creates a type on its own.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-taxonomy.png" alt="The Taxonomy section, with the configured Document Types" loading="lazy"><figcaption>The Taxonomy section, with the configured Document Types</figcaption></figure>
@@ -86,13 +88,13 @@
 <h2>Upload one document</h2>
 <p>This is the ordinary case: one file, one article, one entry.</p>
 <ol class="aidoc-steps">
-<li>Go to <strong>Documents → Add New Document</strong>.</li>
+<li>Go to <strong>Policies → Add New Policy</strong>.</li>
 <li>Leave <strong>What are you uploading?</strong> on <strong>One article</strong>.</li>
 <li>Click <strong>Upload source file</strong> and pick a PDF, Word (<code>.docx</code>) or Excel file through the media library.</li>
 <li>Wait a moment. Extraction runs on its own, with no button to press.</li>
 <li>Check the fields it filled in, correct anything that needs it, and click <strong>Publish</strong>.</li>
 </ol>
-<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/add-new.png" alt="Add New Document: the upload-mode question, the source-file card, and every field below it" loading="lazy"><figcaption>Add New Document: the upload-mode question, the source-file card, and every field below it</figcaption></figure>
+<figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/add-new.png" alt="Add New Policy: the upload-mode question, the source-file card, and every field below it" loading="lazy"><figcaption>Add New Policy: the upload-mode question, the source-file card, and every field below it</figcaption></figure>
 <h3 id="what-gets-filled-in-automatically">What gets filled in automatically</h3>
 <p>When the source document uses the labelled schema — see <a href="#how-to-write-a-source-document">How to write a source document</a> — extraction is deterministic rather than a guess, and fills several fields at once.</p>
 <div class="aidoc-table-wrap"><table>
@@ -117,10 +119,18 @@
 <li><strong>Apply edited content</strong> re-parses the text in the editor and writes the result, exactly as if it had been extracted from a file.</li>
 </ul>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/edit-extracted-content.png" alt="The Edit content tab, holding the canonical text the parser reads" loading="lazy"><figcaption>The Edit content tab, holding the canonical text the parser reads</figcaption></figure>
-<p>The text in <strong>Edit content</strong> is the same canonical format the parsers produce from a PDF or a Word file: <code>##</code> for headings, <code>-</code> for list items, <code>|</code> for table rows, <code>**bold**</code> and <code>*italic*</code>. Fixing a misread line here is usually faster than fixing the source document and re-uploading it.</p>
+<p>The text in <strong>Edit content</strong> is the same canonical format the parsers produce from a PDF or a Word file: <code>##</code> for headings, <code>-</code> for list items, <code>|</code> for table rows, <code>**bold**</code> and <code>*italic*</code>, and <code>[the text](https://example.org)</code> for a link. Fixing a misread line here is usually faster than fixing the source document and re-uploading it.</p>
 <p><strong>Preview shows exactly what the published page will show.</strong> It re-parses the text in the editor rather than reading what is stored, so the two used to be able to disagree — a document whose sections rendered as collapsible panels in Preview could publish as flat paragraphs. They now produce the same blocks from the same text.</p>
 <blockquote class="aidoc-note"><p><strong>A line set entirely in bold is read as a section heading</strong>, and each section becomes a collapsible panel on the published page. A document with only one section renders it open — there is no outline to show, and collapsing it would hide the whole document behind a single click. This is how Word marks most headings in these documents — as bold body text rather than with a heading style — so entries that used to publish as one long run of paragraphs now carry their own outline. Bold <em>inside</em> a sentence is still emphasis, and a bold label opening a paragraph (<code>Note:</code>) is still a callout.</p>
 </blockquote>
+<h3 id="hyperlinks-in-a-word-document">Hyperlinks in a Word document</h3>
+<p>A Word file carries real hyperlinks, and they come through extraction, editing and publishing intact — but the plugin does not keep all of them, because many of these documents were written against a previous site and link to files on it that no longer exist.</p>
+<ul>
+<li><strong>A link to another website stays clickable</strong> on the published page — an external site, a URL with a query string, a jump to a section, an email address, a phone number. It opens in a new tab.</li>
+<li><strong>A link to a file on the old site is removed</strong> — anything under <code>/wp-content/uploads/</code>, or a path ending in <code>.pdf</code>, <code>.docx</code>, <code>.xls</code> and the like. Following one from the new site lands on a &quot;page not found&quot;, which is worse for a reader than no link at all.</li>
+<li><strong>The words are never removed with it.</strong> A sentence reading <em>&quot;See the Appeals Procedures document&quot;</em>, linked to an old PDF, publishes as that same sentence — every word of it, just no longer a link.</li>
+</ul>
+<p>Links appear in <strong>Edit content</strong> as <code>[the text](https://example.org)</code>, and the editor&#039;s toolbar has a button for inserting one. To restore a link that was dropped, type the new address there and click <strong>Apply edited content</strong>.</p>
 <h3 id="the-source-file-is-never-published">The source file is never published</h3>
 <p>The file is read for its text and nothing else. It is not linked from the entry, not previewed, not offered for download, and readers are never told which file an entry came from. Replacing or removing the file after extraction does not change the published content — the blocks are already stored on the entry.</p>
 </section>
@@ -128,7 +138,7 @@
 <h2>Upload a compilation of several articles</h2>
 <p>The files that arrive from a commission are usually one document carrying dozens of standalone articles, and each of those has to become an entry of its own.</p>
 <ol class="aidoc-steps">
-<li>Go to <strong>Documents → Add New Document</strong>.</li>
+<li>Go to <strong>Policies → Add New Policy</strong>.</li>
 <li>Set <strong>What are you uploading?</strong> to <strong>A document holding several articles</strong>.</li>
 <li>Upload the PDF or Word file. The articles are found on their own — no AI, no API key.</li>
 <li>Under <strong>Complete fields with AI, per article</strong>, tick whether the AI should fill Title or Description for each article. <strong>Document Type</strong> has its own <strong>By AI / Manually</strong> switch above the list — <em>Manually</em> applies one value to every entry the upload creates, <em>By AI</em> reads each article on its own. Title and Description are usually read from the labels already, so leave them unticked unless this particular file is missing them.</li>
@@ -198,6 +208,8 @@
 <li><strong>The revision history at the end</strong> — <em>Last Updated:</em>, <em>[Document History]</em>, and the dated <em>Approved: / Endorsed: / Revised: / Edited:</em> lines under it.</li>
 </ul>
 <p>Because of that, a correct run always reports some words left out, and the report says so. What it must never report is words <strong>added</strong> — that is the failure the verdict is watching for. The dropped rows in the list of corrections are there so you can confirm they were only those two things.</p>
+<h3 id="it-cannot-touch-a-hyperlink">It cannot touch a hyperlink</h3>
+<p>Web addresses are never sent to the AI. Each one is taken out of the text before the request is built, and put back into the result afterwards, from the original document. A restructure therefore cannot invent an address, change where a link points, or quietly turn a working link into plain text — there were no addresses in its answer to alter.</p>
 <h3 id="why-it-finds-headings-the-extractor-cannot">Why it finds headings the extractor cannot</h3>
 <p>In these documents Word sets most section headings as <strong>bold body text</strong> rather than as a Word heading, so nothing marks them structurally and the extractor has no way to tell one from a paragraph. The text sent to the AI keeps its bold markers for exactly this reason.</p>
 <p>Measured on the Commission&#039;s own compilations: an article the extractor returned with no headings at all came back with six sections and sixteen sub-sections, with nothing invented.</p>
@@ -214,7 +226,7 @@
 </section>
 <section class="aidoc-section" id="find-entries-in-the-admin">
 <h2>Find entries in the admin</h2>
-<p><strong>Documents</strong> in the sidebar lists All Documents and Add New, then one shortcut per configured Document Type under a <strong>Browse by Type</strong> heading, then Settings and Documentation. Each type shortcut opens the ordinary Documents list, pre-filtered to that type.</p>
+<p><strong>Policies</strong> in the sidebar lists All Policies and Add New, then one shortcut per configured Document Type under a <strong>Browse by Type</strong> heading, then Settings and Documentation. Each type shortcut opens the ordinary Documents list, pre-filtered to that type.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/admin-menu.png" alt="The Documents submenu, with the Browse by Type group between Add New and Settings" loading="lazy"><figcaption>The Documents submenu, with the Browse by Type group between Add New and Settings</figcaption></figure>
 <p>The list itself also carries a <strong>Type</strong> dropdown next to the Published/Draft/Trash tabs and the search box. It is an independent filter, not a replacement for those: picking a type narrows whichever status tab or search is already active, the same way WordPress&#039;s own date filter does.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/documents-list.png" alt="The Documents list, with the Type dropdown beside the status tabs" loading="lazy"><figcaption>The Documents list, with the Type dropdown beside the status tabs</figcaption></figure>
@@ -222,7 +234,7 @@
 <section class="aidoc-section" id="what-readers-see">
 <h2>What readers see</h2>
 <h3 id="the-entry-page">The entry page</h3>
-<p>Every entry has its own URL, <code>/documents/{entry}/</code>, rendered inside your theme&#039;s header and footer:</p>
+<p>Every entry has its own URL, <code>/policies/{entry}/</code>, rendered inside your theme&#039;s header and footer:</p>
 <ul>
 <li>a type tag, and the description</li>
 <li>a metadata grid</li>
@@ -277,7 +289,7 @@
 <h3 id="aidocs-document-one-entry-embedded"><code>[aidocs_document]</code> — one entry, embedded</h3>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_document id=&quot;123&quot;]
 [aidocs_document slug=&quot;academic-integrity-policy&quot;]</code></pre></div>
-<p>Renders one entry&#039;s own content — the same rendering as its <code>/documents/{entry}/</code> page, minus the &quot;Back to all topics&quot; link — inside any post or page.</p>
+<p>Renders one entry&#039;s own content — the same rendering as its <code>/policies/{entry}/</code> page, minus the &quot;Back to all topics&quot; link — inside any post or page.</p>
 <div class="aidoc-table-wrap"><table>
 <thead><tr><th>Parameter</th><th>Default</th><th>Accepts</th><th>What it does</th></tr></thead>
 <tbody>
@@ -289,13 +301,28 @@
 </blockquote>
 <blockquote class="aidoc-note"><p><strong>Copy it straight from the entry.</strong> Once a document is published and has content, its own edit screen shows a <strong>Shortcode</strong> box in the sidebar with <code>[aidocs_document id=&quot;…&quot;]</code> already filled in and a <strong>Copy</strong> button — no need to look up the ID by hand. The box appears only once there is something to embed: a draft, or an entry still mid-setup, shows no shortcode yet.</p>
 </blockquote>
+<h3 id="aidocs-ai-chat-the-assistant-on-its-own"><code>[aidocs_ai_chat]</code> — the assistant, on its own</h3>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_ai_chat]
+[aidocs_ai_chat label=&quot;Ask about our policies&quot; title=&quot;Policy Advisor&quot;]</code></pre></div>
+<p>The floating <strong>Ask AI</strong> bubble and nothing else — no search box, no filters, no results list. It talks to the same recommendation endpoint the catalogue&#039;s own AI uses, so it finds the same entries; it simply does not draw a catalogue to get there.</p>
+<p>Most sites never need this: the bubble is enabled site-wide in <strong>Policies → Settings → AI</strong> and is already on every page. Reach for the shortcode on a site that has turned that off but still wants the assistant in one particular place.</p>
+<div class="aidoc-table-wrap"><table>
+<thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>title</code></td><td><code>Policy Advisor</code></td><td>The heading inside the open panel.</td></tr>
+<tr><td><code>subtitle</code></td><td><code>Powered by AI · any language</code></td><td>The line under it.</td></tr>
+<tr><td><code>label</code></td><td><code>Ask AI</code></td><td>The text on the closed bubble itself.</td></tr>
+<tr><td><code>greeting</code></td><td><em>(a short welcome)</em></td><td>The first message in the thread.</td></tr>
+</tbody></table></div>
+<p><code>[sacscoc_ai_chat]</code> is the same shortcode under a second name.</p>
+<p>Nothing is rendered at all when no Gemini API key is configured.</p>
 <h3 id="using-them-in-the-block-editor">Using them in the block editor</h3>
 <ol class="aidoc-steps">
 <li>Add a <strong>Shortcode</strong> block where the catalogue or the entry should appear.</li>
 <li>Paste the shortcode, including its square brackets.</li>
 <li>Update the page, then view it — shortcodes render on the front end, not in the editor canvas.</li>
 </ol>
-<p>The copy buttons in <strong>Documents → Settings → Shortcodes</strong> produce these same snippets, already filled in with your own configured types and a real entry ID from your site.</p>
+<p>The copy buttons in <strong>Policies → Settings → Shortcodes</strong> produce these same snippets, already filled in with your own configured types and a real entry ID from your site.</p>
 </section>
 <section class="aidoc-section" id="how-to-write-a-source-document">
 <h2>How to write a source document</h2>
@@ -325,7 +352,7 @@ Document History: &lt;provenance line&gt;</code></pre></div>
 <h2>Troubleshooting</h2>
 <p><strong>Nothing was extracted from the PDF.</strong> The file is probably a scan — an image of text, with no text layer. Run it through OCR first, or paste the text into <strong>Edit content</strong> and click <strong>Apply edited content</strong>.</p>
 <p><strong>The AI panel says no text was extracted.</strong> Extraction has not run or produced nothing. Load a file and wait for the block count to appear before using any AI action; the AI reads the extracted text, not the file.</p>
-<p><strong>The key was saved but nothing AI-related works.</strong> Open <strong>Documents → Settings → AI</strong> and click <strong>Test key</strong>. A failure there is a key or quota problem at Google, not a plugin problem. If it passes, click <strong>Refresh from API</strong> and re-pick the model: a model saved earlier may no longer be one your key can reach.</p>
+<p><strong>The key was saved but nothing AI-related works.</strong> Open <strong>Policies → Settings → AI</strong> and click <strong>Test key</strong>. A failure there is a key or quota problem at Google, not a plugin problem. If it passes, click <strong>Refresh from API</strong> and re-pick the model: a model saved earlier may no longer be one your key can reach.</p>
 <p><strong>The AI says the model has no quota on this plan.</strong> A Pro or preview model is selected and the Google account has no billing enabled — the free tier grants those models nothing at all, so every request is refused however few you make. Pick a Flash model in <strong>Settings → AI</strong>. This is not a rate limit and waiting will not clear it.</p>
 <p><strong>A compilation reports one article, or none.</strong> The file does not carry the label schema, so there is nothing to split on. Check that each article has its own <code>Body:</code> label. Otherwise upload the articles one at a time.</p>
 <p><strong>An article imported with no title.</strong> Its title is missing or was not recognised. Note that an editorial note between the title and the <code>Teaser:</code> label is handled and does not cause this. Fix the title on the entry itself — the rest of the import is unaffected.</p>
@@ -336,11 +363,11 @@ Document History: &lt;provenance line&gt;</code></pre></div>
 </section>
 <section class="aidoc-section" id="keeping-this-documentation-up-to-date">
 <h2>Keeping this documentation up to date</h2>
-<p>This page, the plugin&#039;s own <strong>Documents → Documentation</strong> screen and the repository manual are one source and three outputs.</p>
+<p>This page, the plugin&#039;s own <strong>Policies → Documentation</strong> screen and the repository manual are one source and three outputs.</p>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>docs/DOCUMENTATION.md          ← edit this
         │
         ├─▶ docs/index.html                  the page you are reading
-        ├─▶ docs/generated/admin-page.html   Documents → Documentation
+        ├─▶ docs/generated/admin-page.html   Policies → Documentation
         └─▶ docs/downloads/*.zip             the download button</code></pre></div>
 <p>To publish a change:</p>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code class="lang-bash">bash tools/build-docs.sh</code></pre></div>
