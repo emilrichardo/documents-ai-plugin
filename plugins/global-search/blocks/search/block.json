@@ -1,0 +1,29 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 2,
+	"name": "global-search/search",
+	"title": "Global Search",
+	"category": "widgets",
+	"icon": "search",
+	"description": "A unified search box across the site's content and any active source plugins (Policies, Institutions).",
+	"keywords": [ "search", "global search", "find" ],
+	"textdomain": "global-search",
+	"attributes": {
+		"placeholder": { "type": "string", "default": "" },
+		"showFilters": { "type": "boolean", "default": true },
+		"resultsPerPage": { "type": "number", "default": 10 },
+		"sources": { "type": "string", "default": "" },
+		"variant": { "type": "string", "default": "default" }
+	},
+	"supports": {
+		"html": false,
+		"color": {
+			"background": true,
+			"text": true
+		},
+		"spacing": {
+			"margin": true,
+			"padding": true
+		}
+	}
+}

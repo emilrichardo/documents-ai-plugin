@@ -10,9 +10,11 @@ plugins/*.zip
 # this repo's GitHub Actions secrets — never committed. See .env.example.
 .env
 
-# This repo only ever sources ai-documents and sacscoc-institutions. Any other
-# plugin folder here (e.g. copied down from prod for local testing) is
-# third-party/vendor code and must never be tracked in this repo.
+# This repo only ever sources ai-documents, sacscoc-institutions and
+# global-search. Any other plugin folder here (e.g. copied down from prod for
+# local testing) is third-party/vendor code and must never be tracked in this
+# repo.
 plugins/*
 !plugins/ai-documents
 !plugins/sacscoc-institutions
+!plugins/global-search

@@ -9,15 +9,24 @@ plugin requires another to be installed or active.
 plugins/
 ├── ai-documents/          AI Policies — policy library with AI-assisted
 │                          metadata, semantic search and a conversational finder
-└── sacscoc-institutions/  SACSCOC Institutions — synchronises the SACSCOC
-                           institution directory into WordPress and publishes it
+├── sacscoc-institutions/  SACSCOC Institutions — synchronises the SACSCOC
+│                          institution directory into WordPress and publishes it
+└── global-search/         Global Search — a generic unified search box, with
+                           WordPress/Policies/Institutions as its first three
+                           providers behind a provider interface
 ```
 
 | Plugin                  | Directory / slug            | Main file                       | Version |
 | ----------------------- | --------------------------- | ------------------------------- | ------- |
 | AI Policies             | `ai-documents`              | `ai-documents.php`              | 1.5.0   |
 | SACSCOC Institutions    | `sacscoc-institutions`      | `sacscoc-institutions.php`      | 0.10.0  |
+| Global Search           | `global-search`              | `global-search.php`             | 0.1.0   |
 |                         |                             |                                 |         |
+
+Global Search deliberately depends on neither other plugin: it detects
+Policies/Institutions at runtime through a provider interface and runs on
+WordPress content alone if either (or both) is missing. See its own
+`README.md` for how that provider system works.
 
 AI Policies was called AI Documents through 1.4.0. Everything a reader or an
 editor sees — the plugin's name, its menu, its public URLs — was renamed in

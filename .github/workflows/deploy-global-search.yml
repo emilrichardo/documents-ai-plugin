@@ -1,0 +1,74 @@
+name: Deploy Global Search
+
+# One workflow per plugin. The `paths` filter is what keeps each plugin
+# independent: touching plugins/global-search never redeploys ai-documents
+# or sacscoc-institutions, and vice versa. Each can also be pushed on its own
+# from the Actions tab via workflow_dispatch.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/global-search/**'
+      - '.github/workflows/deploy-global-search.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-global-search
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Everything dev-only (.git, .github, .claude, .gitignore) now lives at
+      # the repository root, outside the plugin directory, so it is already
+      # excluded by local_path. Only the built zip and macOS cruft remain.
+      - name: Strip dev-only files before deploy
+        run: |
+          rm -rf plugins/global-search/docs/downloads
+          find plugins/global-search -name '.DS_Store' -delete
+
+
+      # `put -r` will not create its destination, and sftp_only: true stops the
+      # action from creating it either ("skip the command to create a
+      # directory"). A plugin's first ever deploy therefore has nowhere to
+      # land — which is exactly how this one failed. The leading dash on
+      # -mkdir tells sftp to carry on when the directory is already there, so
+      # this is a no-op on every deploy after the first.
+      - name: Ensure the remote directory exists
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          # -b implies BatchMode=yes, and BatchMode disables password
+          # authentication outright — which is why the first attempt at this
+          # step was refused with "Permission denied (publickey,password)"
+          # despite holding the same password the deploy itself uses. Turning
+          # it back off is what lets sshpass answer the prompt.
+          sshpass -p "$SFTP_PASSWORD" sftp \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=no \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<'SFTP'
+          -mkdir public_html/wp-content/plugins/global-search
+          bye
+          SFTP
+
+      - name: Deploy to server via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: './plugins/global-search/*'
+          remote_path: 'public_html/wp-content/plugins/global-search'
+          sftp_only: true
