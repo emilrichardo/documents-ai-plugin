@@ -25,57 +25,54 @@
  */
 
 .global-search {
-	--global-search-gap: 0.5rem;
+	--global-search-height: 48px;
 	--global-search-border: #d0d5dd;
 	--global-search-accent: var(--e-global-color-primary, #1d4ed8);
 	--global-search-accent-2: var(--e-global-color-accent, var(--global-search-accent));
 	--global-search-muted: #6b7280;
 	--global-search-badge-bg: #eef2ff;
 	--global-search-badge-text: #3730a3;
-	--global-search-radius: 0.375rem;
 
 	position: relative;
 	max-width: 720px;
 }
 
-.global-search--rounded {
-	--global-search-radius: 999px;
-}
-
 .global-search .global-search__form {
 	display: flex;
 	align-items: stretch;
-	gap: var(--global-search-gap);
+	gap: 0;
 }
 
-.global-search--rounded .global-search__form {
-	gap: 0;
+/* Both shapes share: a fixed, equal height on the input and the button (the
+   two were drifting apart in different browsers/themes because each only had
+   its own padding to go on) and no gap between them — the button is welded
+   to the end of the field, matching sacscoc-institutions' own
+   `.sacscoc-search--stacked` bar, which is the reference this was asked to
+   match. Only the corners and border treatment differ per shape below. */
+.global-search .global-search__input,
+.global-search .global-search__submit {
+	box-sizing: border-box;
+	height: var(--global-search-height);
+	margin: 0;
+	font-size: 1rem;
+	line-height: normal;
 }
 
 .global-search .global-search__input {
 	flex: 1 1 auto;
 	min-width: 0;
-	margin: 0;
-	padding: 0.6em 0.9em;
+	padding: 0 0.9em;
 	border: 1px solid var(--global-search-border);
-	border-radius: var(--global-search-radius);
+	border-right: 0;
 	box-shadow: none;
-	font-size: 1rem;
 	font-weight: 400;
-	line-height: 1.4;
 	background: #fff;
 	color: inherit;
 }
 
-.global-search--rounded .global-search__input {
-	border-right: 0;
-	border-top-right-radius: 0;
-	border-bottom-right-radius: 0;
-}
-
 .global-search .global-search__input:focus-visible {
 	outline: 2px solid var(--global-search-accent);
-	outline-offset: 1px;
+	outline-offset: -2px;
 }
 
 .global-search .global-search__submit {
@@ -84,29 +81,64 @@
 	align-items: center;
 	justify-content: center;
 	gap: 0.4em;
-	margin: 0;
-	padding: 0.6em 1.2em;
+	padding: 0 1.2em;
 	border: 1px solid var(--global-search-accent);
-	border-radius: var(--global-search-radius);
 	box-shadow: none;
 	background: var(--global-search-accent);
 	color: #fff;
-	font-size: 1rem;
 	font-weight: 600;
-	line-height: 1.4;
 	cursor: pointer;
+	transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+/* Rectangular (default): sharp corners, flush seam — sacscoc-institutions'
+   own reference bar for this shape. */
+.global-search--rectangular .global-search__input,
+.global-search--rectangular .global-search__submit {
+	border-radius: 0;
+}
+
+/* Rounded: a pill, split at the seam. */
+.global-search--rounded .global-search__input {
+	border-radius: 999px 0 0 999px;
 }
 
 .global-search--rounded .global-search__submit {
-	border-top-left-radius: 0;
-	border-bottom-left-radius: 0;
+	border-radius: 0 999px 999px 0;
+}
+
+/* Hover/focus: swap to the secondary accent, the same navy-to-gold swap
+   sacscoc-institutions' own .sacscoc-btn:hover uses — applied to both
+   shapes, which is what was missing before (only a bare :focus-visible
+   outline, no visible :hover feedback at all). A visible focus ring
+   (keyboard) stays in addition to the color swap; a mouse hover does not
+   also draw one, same split sacscoc-institutions makes. */
+.global-search .global-search__submit:hover,
+.global-search .global-search__submit:focus-visible {
 	background: var(--global-search-accent-2);
 	border-color: var(--global-search-accent-2);
+	box-shadow: none;
 }
 
 .global-search .global-search__submit:focus-visible {
-	outline: 2px solid var(--global-search-accent);
+	outline: 2px solid var(--global-search-accent-2);
 	outline-offset: 2px;
+}
+
+/* The theme's own button:hover rule (`.elementor-kit-10 button:hover`) adds
+   a pseudo-class to its selector, which out-specifies a plain (non-:hover)
+   `.global-search--rectangular .global-search__submit { border-radius: 0 }`
+   — so on hover the corners silently rounded back off. Re-asserting the
+   radius inside our own :hover/:focus-visible rule matches its specificity
+   and wins, the same way the color swap above already does. */
+.global-search--rectangular .global-search__submit:hover,
+.global-search--rectangular .global-search__submit:focus-visible {
+	border-radius: 0;
+}
+
+.global-search--rounded .global-search__submit:hover,
+.global-search--rounded .global-search__submit:focus-visible {
+	border-radius: 0 999px 999px 0;
 }
 
 .global-search .global-search__submit-icon {
@@ -176,6 +208,15 @@
 
 .global-search .global-search__filter:hover,
 .global-search .global-search__filter:focus-visible {
+	/* Re-asserted here, not just on the base rule above: the theme's own
+	   `.elementor-kit-10 button:hover` (a class+pseudo+tag selector) out-
+	   specifies a plain, non-:hover `.global-search__filter` rule, so
+	   without this a hover would turn these back into a boxed, shadowed
+	   pill — exactly the button look these are meant not to have. */
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	background: none;
 	text-decoration: underline;
 	color: var(--global-search-accent);
 }
