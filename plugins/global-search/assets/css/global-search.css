@@ -1,8 +1,21 @@
 /*
  * Everything scoped under .global-search — no bare element selectors
- * (button/a/input), no !important, no dependency on Astra. Typography and
- * base colors are inherited from the theme on purpose; only layout, spacing
- * and the source badges are opinionated here.
+ * (button/a/input) as the ONLY thing determining a rule's specificity, no
+ * !important, no dependency on Astra. Typography and base colors are
+ * inherited from the theme on purpose; only layout, spacing and the source
+ * badges are opinionated here.
+ *
+ * The input/button/filter rules below are all double-scoped
+ * (`.global-search .global-search__input` rather than plain
+ * `.global-search__input`) on purpose: this site's own Astra + Elementor
+ * global "Buttons" style targets the bare `button`/`input` tags with a
+ * *class-plus-tag* selector (`.elementor-kit-10 button`, specificity 0,1,1),
+ * which otherwise beats a lone class like `.global-search__submit`
+ * (0,1,0) and replaced our padding/radius/shadow with theirs — visible as
+ * an oversized, drop-shadowed pill that overflowed its row on narrow
+ * viewports. Doubling the class (0,2,0) wins without a single !important,
+ * the same fix sacscoc-institutions already uses for this exact class of
+ * conflict (see its assets/css/sacscoc-institutions.css, `.sacscoc-btn`).
  *
  * Color tokens fall back to this site's own Elementor global kit colors
  * (--e-global-color-*) when present, so a default install of this plugin on
@@ -29,8 +42,9 @@
 	--global-search-radius: 999px;
 }
 
-.global-search__form {
+.global-search .global-search__form {
 	display: flex;
+	align-items: stretch;
 	gap: var(--global-search-gap);
 }
 
@@ -38,14 +52,19 @@
 	gap: 0;
 }
 
-.global-search__input {
+.global-search .global-search__input {
 	flex: 1 1 auto;
 	min-width: 0;
+	margin: 0;
 	padding: 0.6em 0.9em;
 	border: 1px solid var(--global-search-border);
 	border-radius: var(--global-search-radius);
+	box-shadow: none;
 	font-size: 1rem;
+	font-weight: 400;
+	line-height: 1.4;
 	background: #fff;
+	color: inherit;
 }
 
 .global-search--rounded .global-search__input {
@@ -54,21 +73,27 @@
 	border-bottom-right-radius: 0;
 }
 
-.global-search__input:focus-visible {
+.global-search .global-search__input:focus-visible {
 	outline: 2px solid var(--global-search-accent);
 	outline-offset: 1px;
 }
 
-.global-search__submit {
+.global-search .global-search__submit {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 0.4em;
+	margin: 0;
 	padding: 0.6em 1.2em;
 	border: 1px solid var(--global-search-accent);
 	border-radius: var(--global-search-radius);
+	box-shadow: none;
 	background: var(--global-search-accent);
 	color: #fff;
+	font-size: 1rem;
+	font-weight: 600;
+	line-height: 1.4;
 	cursor: pointer;
 }
 
@@ -79,12 +104,12 @@
 	border-color: var(--global-search-accent-2);
 }
 
-.global-search__submit:focus-visible {
+.global-search .global-search__submit:focus-visible {
 	outline: 2px solid var(--global-search-accent);
 	outline-offset: 2px;
 }
 
-.global-search__submit-icon {
+.global-search .global-search__submit-icon {
 	display: inline-block;
 	width: 0.9em;
 	height: 0.9em;
@@ -93,7 +118,7 @@
 	position: relative;
 }
 
-.global-search__submit-icon::after {
+.global-search .global-search__submit-icon::after {
 	content: "";
 	position: absolute;
 	width: 2px;
@@ -106,7 +131,7 @@
 
 /* Dropdown panel: anchored under the input, closed until there is something
    to show it for — never an always-visible block on the page. */
-.global-search__panel {
+.global-search .global-search__panel {
 	position: absolute;
 	inset-inline: 0;
 	top: 100%;
@@ -121,7 +146,7 @@
 	overflow-y: auto;
 }
 
-.global-search__filters {
+.global-search .global-search__filters {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -132,47 +157,53 @@
 	font-size: 0.85rem;
 }
 
-/* Subtle discreet links, not chip/pill buttons. */
-.global-search__filter {
+/* Subtle discreet links, not chip/pill buttons — and double-scoped for the
+   same reason as the submit button above: these are <button> elements too. */
+.global-search .global-search__filter {
+	margin: 0;
 	padding: 0;
 	border: 0;
+	border-radius: 0;
+	box-shadow: none;
 	background: none;
 	color: var(--global-search-muted);
 	cursor: pointer;
 	font-size: inherit;
+	font-weight: 400;
+	line-height: inherit;
 	text-decoration: none;
 }
 
-.global-search__filter:hover,
-.global-search__filter:focus-visible {
+.global-search .global-search__filter:hover,
+.global-search .global-search__filter:focus-visible {
 	text-decoration: underline;
 	color: var(--global-search-accent);
 }
 
-.global-search__filter.is-active {
+.global-search .global-search__filter.is-active {
 	color: var(--global-search-accent);
 	font-weight: 600;
 	text-decoration: underline;
 }
 
-.global-search__filter + .global-search__filter::before {
+.global-search .global-search__filter + .global-search__filter::before {
 	content: "\00b7";
 	display: inline-block;
 	margin-inline-end: 0.6rem;
 	color: var(--global-search-border);
 }
 
-.global-search__status {
+.global-search .global-search__status {
 	margin: 0;
 }
 
-.global-search__results {
+.global-search .global-search__results {
 	display: flex;
 	flex-direction: column;
 	gap: 0;
 }
 
-.global-search__group-heading {
+.global-search .global-search__group-heading {
 	margin: 1rem 0 0.4rem;
 	font-size: 0.8rem;
 	text-transform: uppercase;
@@ -180,11 +211,11 @@
 	color: var(--global-search-muted);
 }
 
-.global-search__group-heading:first-child {
+.global-search .global-search__group-heading:first-child {
 	margin-top: 0;
 }
 
-.global-search__list {
+.global-search .global-search__list {
 	list-style: none;
 	margin: 0;
 	padding: 0;
@@ -192,16 +223,16 @@
 	flex-direction: column;
 }
 
-.global-search__result {
+.global-search .global-search__result {
 	padding: 0.6rem 0;
 	border-bottom: 1px solid #f0f0f0;
 }
 
-.global-search__result:last-child {
+.global-search .global-search__result:last-child {
 	border-bottom: 0;
 }
 
-.global-search__badge {
+.global-search .global-search__badge {
 	display: inline-block;
 	margin-bottom: 0.3rem;
 	padding: 0.1em 0.55em;
@@ -213,25 +244,25 @@
 	letter-spacing: 0.04em;
 }
 
-.global-search__title {
+.global-search .global-search__title {
 	display: block;
 	font-size: 1rem;
 	font-weight: 600;
 	text-decoration: none;
 }
 
-.global-search__title:hover,
-.global-search__title:focus-visible {
+.global-search .global-search__title:hover,
+.global-search .global-search__title:focus-visible {
 	text-decoration: underline;
 }
 
-.global-search__excerpt {
+.global-search .global-search__excerpt {
 	margin: 0.3rem 0;
 	color: var(--global-search-muted);
 	font-size: 0.9rem;
 }
 
-.global-search__view {
+.global-search .global-search__view {
 	font-size: 0.8rem;
 }
 

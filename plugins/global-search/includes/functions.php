@@ -27,7 +27,10 @@ function gsearch_default_settings(): array {
 			'documents'    => [ 'enabled' => true, 'label' => 'Policies' ],
 			'institutions' => [ 'enabled' => true, 'label' => 'Institutions' ],
 		],
-		'live_search'       => false,
+		// On by default: a dropdown-panel search box reads as a typeahead,
+		// so requiring a separate click/Enter before anything happens is a
+		// worse default UX for this presentation than the debounce below.
+		'live_search'       => true,
 		'min_characters'    => 3,
 		'debounce_ms'       => 300,
 	];
@@ -89,6 +92,12 @@ function gsearch_asset_version( string $relative_path ): string {
 function gsearch_normalize_result( array $result, string $fallback_source ): array {
 	$excerpt = (string) ( $result['excerpt'] ?? '' );
 	$excerpt = wp_strip_all_tags( $excerpt );
+	// wp_strip_all_tags() removes markup but leaves entities like "&hellip;"
+	// (get_the_excerpt()'s own "[&hellip;]" ending) as literal text; the
+	// frontend writes this straight into textContent (deliberately, to stay
+	// safe from injected HTML), which never decodes entities — so without
+	// this, visitors would see the literal string "&hellip;" in results.
+	$excerpt = html_entity_decode( $excerpt, ENT_QUOTES, 'UTF-8' );
 
 	return [
 		'source'  => sanitize_key( (string) ( $result['source'] ?? $fallback_source ) ),
