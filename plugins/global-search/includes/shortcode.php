@@ -10,7 +10,14 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-add_action( 'wp_enqueue_scripts', 'gsearch_register_assets' );
+// 'init', not 'wp_enqueue_scripts': the latter never fires in wp-admin, so
+// registering there left the block editor with no idea this stylesheet
+// existed and the block preview rendered unstyled. Registering (not
+// enqueuing) on 'init' works in both contexts; includes/blocks.php then
+// hands the 'global-search' style handle to register_block_type()'s own
+// 'style' argument, which is what actually gets WordPress to load it in the
+// editor iframe as well as the front end.
+add_action( 'init', 'gsearch_register_assets' );
 function gsearch_register_assets(): void {
 	wp_register_style(
 		'global-search',
@@ -53,6 +60,7 @@ function gsearch_enqueue_assets(): void {
 			'searchLabel'   => __( 'Search', 'global-search' ),
 			'searchButton'  => __( 'Search', 'global-search' ),
 			'noResults'     => __( 'No results', 'global-search' ),
+			'resultsFound'  => __( 'results found', 'global-search' ),
 			'loading'       => __( 'Searching…', 'global-search' ),
 			'error'         => __( 'Something went wrong. Please try again.', 'global-search' ),
 			'all'           => __( 'All', 'global-search' ),
@@ -69,6 +77,7 @@ function gsearch_shortcode( $atts ): string {
 		'results_per_page'  => '',
 		'variant'           => 'default',
 		'placeholder'       => '',
+		'shape'             => 'rectangular',
 	], $atts, 'global_search' );
 
 	return gsearch_render( $atts );
@@ -78,12 +87,21 @@ function gsearch_shortcode( $atts ): string {
  * Shared renderer for the shortcode and the block. $atts uses the same keys
  * as the shortcode's own attributes (strings, as shortcodes always give
  * them) so both call sites can pass through unmodified.
+ *
+ * Results render into a dropdown panel anchored under the input (like a
+ * typeahead), not an always-visible block on the page — closed and empty
+ * until a search actually returns something. There is no static "No
+ * results" placeholder in this markup at all: an empty state is announced
+ * to screen readers only (assets/js/global-search.js writes it into
+ * .global-search__status, which is visually hidden but aria-live), never
+ * shown as a visible line under the box.
  */
 function gsearch_render( array $atts ): string {
 	gsearch_enqueue_assets();
 
 	$show_filters = ! in_array( strtolower( (string) $atts['show_filters'] ), [ 'no', 'false', '0', '' ], true );
 	$variant      = in_array( $atts['variant'], [ 'default', 'compact' ], true ) ? $atts['variant'] : 'default';
+	$shape        = in_array( $atts['shape'] ?? '', [ 'rectangular', 'rounded' ], true ) ? $atts['shape'] : 'rectangular';
 
 	$sources = array_filter( array_map( 'sanitize_key', array_map( 'trim', explode( ',', (string) $atts['sources'] ) ) ) );
 
@@ -100,7 +118,7 @@ function gsearch_render( array $atts ): string {
 	ob_start();
 	?>
 	<div
-		class="global-search global-search--<?php echo esc_attr( $variant ); ?>"
+		class="global-search global-search--<?php echo esc_attr( $variant ); ?> global-search--<?php echo esc_attr( $shape ); ?>"
 		data-global-search
 		data-sources="<?php echo esc_attr( implode( ',', $sources ) ); ?>"
 		data-results-per-page="<?php echo esc_attr( (string) $results_per_page ); ?>"
@@ -115,19 +133,24 @@ function gsearch_render( array $atts ): string {
 				id="<?php echo esc_attr( $instance_id ); ?>"
 				class="global-search__input"
 				placeholder="<?php echo esc_attr( $placeholder ); ?>"
+				role="combobox"
+				aria-expanded="false"
+				aria-haspopup="listbox"
+				autocomplete="off"
 			/>
 			<button type="submit" class="global-search__submit">
-				<?php esc_html_e( 'Search', 'global-search' ); ?>
+				<span class="global-search__submit-icon" aria-hidden="true"></span>
+				<span class="global-search__submit-label"><?php esc_html_e( 'Search', 'global-search' ); ?></span>
 			</button>
 		</form>
 
-		<?php if ( $show_filters ) : ?>
-			<div class="global-search__filters" role="tablist" aria-label="<?php esc_attr_e( 'Filter results by source', 'global-search' ); ?>" hidden></div>
-		<?php endif; ?>
+		<div class="global-search__panel" hidden>
+			<?php if ( $show_filters ) : ?>
+				<div class="global-search__filters" role="tablist" aria-label="<?php esc_attr_e( 'Filter results by source', 'global-search' ); ?>" hidden></div>
+			<?php endif; ?>
 
-		<p class="global-search__status" aria-live="polite"></p>
-		<div class="global-search__results" aria-live="polite">
-			<p class="global-search__empty"><?php esc_html_e( 'No results', 'global-search' ); ?></p>
+			<p class="global-search__status screen-reader-text" aria-live="polite"></p>
+			<div class="global-search__results" role="listbox" aria-label="<?php esc_attr_e( 'Search results', 'global-search' ); ?>"></div>
 		</div>
 	</div>
 	<?php

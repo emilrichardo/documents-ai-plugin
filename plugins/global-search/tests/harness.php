@@ -114,12 +114,19 @@ gsearch_assert( 'query field has tags stripped', strpos( $xss['query'], '<script
 echo "\n== Shortcode renders ==\n";
 $html = do_shortcode( '[global_search]' );
 gsearch_assert( 'shortcode outputs the search wrapper', strpos( $html, 'global-search' ) !== false );
-gsearch_assert( 'shortcode outputs no results before searching', strpos( $html, 'global-search__empty' ) !== false );
+gsearch_assert( 'shortcode outputs a closed results panel before searching (no visible "no results" text)', strpos( $html, 'global-search__panel" hidden' ) !== false );
+gsearch_assert( 'shortcode markup carries no visible empty-state copy', strpos( $html, 'global-search__empty' ) === false );
 $html_compact = do_shortcode( '[global_search variant="compact" show_filters="no"]' );
 gsearch_assert( 'compact variant renders', strpos( $html_compact, 'global-search--compact' ) !== false );
+$html_rounded = do_shortcode( '[global_search shape="rounded"]' );
+gsearch_assert( 'rounded shape renders', strpos( $html_rounded, 'global-search--rounded' ) !== false );
 
 echo "\n== Gutenberg block registered ==\n";
-gsearch_assert( 'block type is registered', WP_Block_Type_Registry::get_instance()->is_registered( 'global-search/search' ) );
+$block_registry = WP_Block_Type_Registry::get_instance();
+gsearch_assert( 'block type is registered', $block_registry->is_registered( 'global-search/search' ) );
+$block_type = $block_registry->get_registered( 'global-search/search' );
+gsearch_assert( 'block declares its stylesheet handle (so the block editor loads real CSS, not browser defaults)', $block_type && $block_type->style === 'global-search' );
+gsearch_assert( 'the style handle is actually registered', wp_style_is( 'global-search', 'registered' ) );
 
 echo "\n== REST route registered ==\n";
 $routes = rest_get_server()->get_routes();

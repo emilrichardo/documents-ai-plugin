@@ -13,7 +13,8 @@
 		"showFilters": { "type": "boolean", "default": true },
 		"resultsPerPage": { "type": "number", "default": 10 },
 		"sources": { "type": "string", "default": "" },
-		"variant": { "type": "string", "default": "default" }
+		"variant": { "type": "string", "default": "default" },
+		"shape": { "type": "string", "default": "rectangular" }
 	},
 	"supports": {
 		"html": false,

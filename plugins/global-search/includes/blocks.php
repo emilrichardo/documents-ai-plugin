@@ -33,6 +33,11 @@ function gsearch_register_block(): void {
 	] );
 
 	register_block_type( GSEARCH_DIR . 'blocks/search', [
+		// Handing WordPress the registered style handle (not enqueuing it
+		// ourselves) is what gets the real global-search.css loaded inside
+		// the block editor's iframe, not just on the published page — without
+		// this the editor preview rendered with browser-default styles.
+		'style'           => 'global-search',
 		'editor_script'   => 'global-search-block',
 		'render_callback' => 'gsearch_render_block',
 	] );
@@ -45,5 +50,6 @@ function gsearch_render_block( array $attributes ): string {
 		'results_per_page' => (string) ( $attributes['resultsPerPage'] ?? '' ),
 		'variant'          => (string) ( $attributes['variant'] ?? 'default' ),
 		'placeholder'      => (string) ( $attributes['placeholder'] ?? '' ),
+		'shape'            => (string) ( $attributes['shape'] ?? 'rectangular' ),
 	] );
 }

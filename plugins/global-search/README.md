@@ -83,19 +83,39 @@ inactive plugin is skipped, never a fatal error.
 
 ```
 [global_search]
-[global_search show_filters="yes" sources="wordpress,documents,institutions" results_per_page="20" variant="default"]
+[global_search show_filters="yes" sources="wordpress,documents,institutions" results_per_page="20" variant="default" shape="rectangular"]
 ```
 
-| Attribute           | Default   | Notes                                          |
-| ------------------- | --------- | ----------------------------------------------- |
-| `show_filters`      | `yes`     | `no`/`false`/`0` hides the source tabs          |
-| `sources`            | *(all)*   | Comma list of provider ids to restrict to       |
-| `results_per_page`   | 10        | Per-source cap, not a total — see Ranking below |
-| `variant`            | `default` | `compact` is reserved for a future header use   |
+| Attribute           | Default        | Notes                                          |
+| ------------------- | -------------- | ----------------------------------------------- |
+| `show_filters`      | `yes`          | `no`/`false`/`0` hides the source filter links  |
+| `sources`            | *(all)*        | Comma list of provider ids to restrict to       |
+| `results_per_page`   | 10             | Per-source cap, not a total — see Ranking below |
+| `variant`            | `default`      | `compact` is reserved for a future header use   |
+| `shape`              | `rectangular`  | `rounded` — a pill-shaped input/button, joined at the seam, matching the existing Institutions navbar search widget |
 
-Renders only the search box + an empty "No results" state. Nothing is
-queried until a real search runs (empty query ⇒ zero results from every
-provider, no provider even called).
+Renders only the search box; results are never on the page by default.
+Nothing is queried until a real search runs (empty query ⇒ zero results from
+every provider, no provider even called), and there is no visible "No
+results" placeholder either — see "Presentation" below.
+
+### Presentation
+
+Results render into a dropdown panel anchored under the input — a typeahead,
+not an always-visible block of markup on the page. It opens only once a
+search returns at least one result, and closes again when the query is
+cleared, when there are zero results, on outside click, or on Escape.
+There is deliberately no visible "No results" line: an empty result set is
+announced to screen readers only, through the (visually hidden)
+`.global-search__status` region, so requirement #22's accessible
+loading/empty states are still met without printing copy nobody asked to
+see.
+
+The "All | Policies | Institutions | Site" filters render as plain
+underline-on-hover text links inside the panel (`.global-search__filter`),
+not button chips — deliberately understated since they sit right above a
+list of results, not as a separate UI element competing with the search box
+itself.
 
 ## Gutenberg block
 
@@ -103,9 +123,16 @@ provider, no provider even called).
 attributes as the shortcode, rendered through the identical
 `gsearch_render()` function — a block and the shortcode can never show
 different markup for the same settings. Inspector controls: Placeholder,
-Show source filters, Results per page, Variant, and a Sources checklist
-built from whichever providers are actually available right now (a
-deactivated plugin's checkbox never appears).
+Show source filters, Results per page, Variant, Shape (Rectangular /
+Rounded), and a Sources checklist built from whichever providers are
+actually available right now (a deactivated plugin's checkbox never
+appears).
+
+The block registers its stylesheet through `register_block_type()`'s own
+`style` argument (`includes/blocks.php`) rather than only enqueueing it on
+the front end — that's what gets the real `global-search.css` loaded inside
+the block editor's iframe, so the editor preview matches the published page
+instead of falling back to unstyled browser defaults.
 
 ## REST API
 

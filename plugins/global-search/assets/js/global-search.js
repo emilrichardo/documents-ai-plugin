@@ -8,6 +8,14 @@
  * just re-rendering the one response already in memory, grouped or filtered
  * by `result.source`. A second request per tab would only be justified once
  * per-source pagination exists, which V1 does not have.
+ *
+ * Presentation: results render into a dropdown panel anchored under the
+ * input (like a typeahead), not an always-visible block on the page. There
+ * is no visible "No results" placeholder — an empty result set just closes
+ * the panel; the only trace of it is an aria-live announcement for screen
+ * reader users (.global-search__status, visually hidden via
+ * screen-reader-text), which keeps requirement #22 (accessible loading/empty
+ * states) without a line of copy nobody asked to see.
  */
 ( function () {
 	'use strict';
@@ -32,13 +40,14 @@
 	}
 
 	function initInstance( root ) {
-		var form       = root.querySelector( '.global-search__form' );
-		var input      = root.querySelector( '.global-search__input' );
-		var filtersEl  = root.querySelector( '.global-search__filters' );
-		var statusEl   = root.querySelector( '.global-search__status' );
-		var resultsEl  = root.querySelector( '.global-search__results' );
+		var form      = root.querySelector( '.global-search__form' );
+		var input     = root.querySelector( '.global-search__input' );
+		var panel     = root.querySelector( '.global-search__panel' );
+		var filtersEl = root.querySelector( '.global-search__filters' );
+		var statusEl  = root.querySelector( '.global-search__status' );
+		var resultsEl = root.querySelector( '.global-search__results' );
 
-		if ( ! form || ! input || ! resultsEl ) {
+		if ( ! form || ! input || ! resultsEl || ! panel ) {
 			return;
 		}
 
@@ -72,15 +81,15 @@
 			filtersEl.innerHTML = '';
 			filtersEl.hidden = false;
 
-			filtersEl.appendChild( makeFilterButton( 'all', i18n.all || 'All' ) );
+			filtersEl.appendChild( makeFilterLink( 'all', i18n.all || 'All' ) );
 			providers.forEach( function ( p ) {
-				filtersEl.appendChild( makeFilterButton( p.id, p.label ) );
+				filtersEl.appendChild( makeFilterLink( p.id, p.label ) );
 			} );
 
 			updateFilterCounts();
 		}
 
-		function makeFilterButton( id, label ) {
+		function makeFilterLink( id, label ) {
 			var btn = document.createElement( 'button' );
 			btn.type = 'button';
 			btn.className = 'global-search__filter' + ( id === state.activeSource ? ' is-active' : '' );
@@ -121,39 +130,41 @@
 			return state.providerLabels[ sourceId ] || humanize( sourceId );
 		}
 
-		function setStatus( text ) {
+		function announce( text ) {
 			statusEl && ( statusEl.textContent = text );
+		}
+
+		function openPanel() {
+			panel.hidden = false;
+			input.setAttribute( 'aria-expanded', 'true' );
+		}
+
+		function closePanel() {
+			panel.hidden = true;
+			input.setAttribute( 'aria-expanded', 'false' );
 		}
 
 		function clearResults() {
 			resultsEl.innerHTML = '';
 		}
 
-		function renderEmptyState( message ) {
-			clearResults();
-			var p = document.createElement( 'p' );
-			p.className = 'global-search__empty';
-			p.textContent = message;
-			resultsEl.appendChild( p );
-		}
-
 		function renderResults() {
 			clearResults();
 
-			if ( ! state.response ) {
-				renderEmptyState( i18n.noResults || 'No results' );
-				return;
-			}
-
-			var all = state.response.results || [];
+			var all = state.response ? ( state.response.results || [] ) : [];
 			var filtered = state.activeSource === 'all'
 				? all
 				: all.filter( function ( r ) { return r.source === state.activeSource; } );
 
 			if ( ! filtered.length ) {
-				renderEmptyState( i18n.noResults || 'No results' );
+				// No visible "No results" line — the panel simply has
+				// nothing to show, so it closes instead of sitting open
+				// and empty.
+				closePanel();
 				return;
 			}
+
+			openPanel();
 
 			if ( state.activeSource === 'all' ) {
 				var order = [];
@@ -188,6 +199,7 @@
 		function renderItem( item ) {
 			var li = document.createElement( 'li' );
 			li.className = 'global-search__result global-search__result--' + item.type;
+			li.setAttribute( 'role', 'option' );
 
 			var badge = document.createElement( 'span' );
 			badge.className = 'global-search__badge';
@@ -225,8 +237,8 @@
 
 			if ( query.length === 0 ) {
 				state.response = null;
-				setStatus( '' );
-				renderEmptyState( i18n.noResults || 'No results' );
+				announce( '' );
+				closePanel();
 				updateFilterCounts();
 				return;
 			}
@@ -234,7 +246,7 @@
 			var controller = new AbortController();
 			state.abortController = controller;
 
-			setStatus( i18n.loading || 'Searching…' );
+			announce( i18n.loading || 'Searching…' );
 			resultsEl.setAttribute( 'aria-busy', 'true' );
 
 			var url = restUrl + 'search?q=' + encodeURIComponent( query ) + '&results_per_page=' + encodeURIComponent( resultsPerPage );
@@ -251,7 +263,9 @@
 				} )
 				.then( function ( data ) {
 					state.response = data;
-					setStatus( '' );
+					announce( data.total > 0
+						? ( data.total + ' ' + ( i18n.resultsFound || 'results found' ) )
+						: ( i18n.noResults || 'No results' ) );
 					updateFilterCounts();
 					renderResults();
 				} )
@@ -259,8 +273,8 @@
 					if ( err && err.name === 'AbortError' ) {
 						return; // superseded by a newer request — not an error
 					}
-					setStatus( i18n.error || 'Something went wrong. Please try again.' );
-					renderEmptyState( i18n.error || 'Something went wrong. Please try again.' );
+					announce( i18n.error || 'Something went wrong. Please try again.' );
+					closePanel();
 				} )
 				.finally( function () {
 					resultsEl.removeAttribute( 'aria-busy' );
@@ -273,12 +287,34 @@
 			runSearch( input.value.trim() );
 		} );
 
+		input.addEventListener( 'focus', function () {
+			if ( state.response && ( state.response.results || [] ).length ) {
+				openPanel();
+			}
+		} );
+
+		input.addEventListener( 'keydown', function ( e ) {
+			if ( e.key === 'Escape' ) {
+				closePanel();
+			}
+		} );
+
+		document.addEventListener( 'click', function ( e ) {
+			if ( ! root.contains( e.target ) ) {
+				closePanel();
+			}
+		} );
+
 		var debounceTimer = null;
 		if ( config.liveSearch ) {
 			input.addEventListener( 'input', function () {
 				clearTimeout( debounceTimer );
 				var value = input.value.trim();
-				if ( value.length > 0 && value.length < config.minCharacters ) {
+				if ( value.length === 0 ) {
+					runSearch( value );
+					return;
+				}
+				if ( value.length < config.minCharacters ) {
 					return; // below the minimum — wait for more characters, no request fired
 				}
 				debounceTimer = setTimeout( function () { runSearch( value ); }, config.debounceMs || 0 );

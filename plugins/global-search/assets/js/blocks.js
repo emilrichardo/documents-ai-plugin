@@ -21,6 +21,7 @@
 	var RangeControl = components.RangeControl;
 	var SelectControl = components.SelectControl;
 	var CheckboxControl = components.CheckboxControl;
+	var RadioControl = components.RadioControl;
 	var ServerSideRender = serverSideRender;
 
 	// Populated from PHP (includes/blocks.php) with the providers actually
@@ -98,6 +99,15 @@
 								{ label: __( 'Compact (for headers)', 'global-search' ), value: 'compact' },
 							],
 							onChange: function ( value ) { setAttributes( { variant: value } ); },
+						} ),
+						el( RadioControl, {
+							label: __( 'Shape', 'global-search' ),
+							selected: attributes.shape,
+							options: [
+								{ label: __( 'Rectangular', 'global-search' ), value: 'rectangular' },
+								{ label: __( 'Rounded (navbar style)', 'global-search' ), value: 'rounded' },
+							],
+							onChange: function ( value ) { setAttributes( { shape: value } ); },
 						} ),
 						el(
 							'p',
