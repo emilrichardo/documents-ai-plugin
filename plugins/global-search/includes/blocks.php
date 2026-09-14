@@ -50,6 +50,12 @@ function gsearch_render_block( array $attributes ): string {
 		'results_per_page' => (string) ( $attributes['resultsPerPage'] ?? '' ),
 		'variant'          => (string) ( $attributes['variant'] ?? 'default' ),
 		'placeholder'      => (string) ( $attributes['placeholder'] ?? '' ),
+		'button_label'     => (string) ( $attributes['buttonLabel'] ?? '' ),
 		'shape'            => (string) ( $attributes['shape'] ?? 'rectangular' ),
+		'results_url'      => (string) ( $attributes['resultsUrl'] ?? '' ),
+		'results'          => (string) ( $attributes['results'] ?? 'auto' ),
+		// 0 is the block's "leave it to the variant" value; the renderer's is ''.
+		'max_results'      => ! empty( $attributes['maxResults'] ) ? (string) (int) $attributes['maxResults'] : '',
+		'view_all'         => '',
 	] );
 }

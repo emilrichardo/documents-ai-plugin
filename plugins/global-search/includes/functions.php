@@ -33,7 +33,64 @@ function gsearch_default_settings(): array {
 		'live_search'       => true,
 		'min_characters'    => 3,
 		'debounce_ms'       => 300,
+		// The page carrying the full results — where the compact header box
+		// sends a visitor who presses GO or Enter, and where its dropdown's
+		// "View all results" goes. 0 means none is configured yet; see
+		// gsearch_results_url() for what happens then.
+		'results_page'      => 0,
+		// How many rows the compact dropdown shows before it stops. Small on
+		// purpose: a header typeahead that drops thirty rows over the page is
+		// not a quicker way to find something than the results page is.
+		'compact_max_results' => 6,
 	];
+}
+
+/**
+ * Where a search box submits to — the full results page.
+ *
+ * Resolved the four ways the two sibling plugins resolve theirs
+ * (sacscoc_inst_results_url(), aidocs_search_results_url()), deliberately:
+ * three plugins on one site should not ask an editor to learn three different
+ * ways to say "the results are over there".
+ *
+ *   ''            Settings → Global Search → Results Page
+ *   "123"         a page id
+ *   "/search/"    a site-relative path
+ *   an absolute URL, but only one on this site — an off-site value is
+ *                 ignored rather than honoured, so a typo in a shortcode
+ *                 attribute cannot send a visitor's search somewhere else.
+ *
+ * With nothing configured and nothing passed, this returns '' rather than
+ * guessing. The caller decides what that means: the compact box falls back to
+ * WordPress's own /?s= search, which is never wrong, only plainer.
+ */
+function gsearch_results_url( string $target = '' ): string {
+	$target = trim( $target );
+
+	if ( $target === '' ) {
+		$page_id = (int) ( gsearch_get_settings()['results_page'] ?? 0 );
+		if ( $page_id > 0 && get_post_status( $page_id ) === 'publish' ) {
+			return (string) get_permalink( $page_id );
+		}
+		return '';
+	}
+
+	if ( ctype_digit( $target ) ) {
+		$id = (int) $target;
+		return ( $id > 0 && get_post_status( $id ) === 'publish' )
+			? (string) get_permalink( $id )
+			: gsearch_results_url();
+	}
+
+	if ( preg_match( '#^https?://#i', $target ) ) {
+		$host = wp_parse_url( $target, PHP_URL_HOST );
+		$home = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		return ( $host && $home && strcasecmp( $host, $home ) === 0 )
+			? esc_url_raw( $target )
+			: gsearch_results_url();
+	}
+
+	return esc_url_raw( home_url( '/' . ltrim( $target, '/' ) ) );
 }
 
 function gsearch_get_settings(): array {

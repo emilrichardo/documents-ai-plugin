@@ -79,6 +79,12 @@
 							value: attributes.placeholder,
 							onChange: function ( value ) { setAttributes( { placeholder: value } ); },
 						} ),
+						el( TextControl, {
+							label: __( 'Button label', 'global-search' ),
+							help: __( 'Empty for "Search".', 'global-search' ),
+							value: attributes.buttonLabel,
+							onChange: function ( value ) { setAttributes( { buttonLabel: value } ); },
+						} ),
 						el( ToggleControl, {
 							label: __( 'Show source filters', 'global-search' ),
 							checked: !! attributes.showFilters,
@@ -90,6 +96,22 @@
 							min: 1,
 							max: 50,
 							onChange: function ( value ) { setAttributes( { resultsPerPage: value } ); },
+						} ),
+						el( TextControl, {
+							label: __( 'Results page URL', 'global-search' ),
+							help: __( 'Where Search goes. Empty for Settings → Results Page.', 'global-search' ),
+							value: attributes.resultsUrl,
+							onChange: function ( value ) { setAttributes( { resultsUrl: value } ); },
+						} ),
+						el( SelectControl, {
+							label: __( 'Results presentation', 'global-search' ),
+							value: attributes.results,
+							options: [
+								{ label: __( 'Automatic', 'global-search' ), value: 'auto' },
+								{ label: __( 'Dropdown', 'global-search' ), value: 'dropdown' },
+								{ label: __( 'On the page', 'global-search' ), value: 'inline' },
+							],
+							onChange: function ( value ) { setAttributes( { results: value } ); },
 						} ),
 						el( SelectControl, {
 							label: __( 'Variant', 'global-search' ),

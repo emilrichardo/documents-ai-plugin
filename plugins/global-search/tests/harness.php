@@ -114,7 +114,7 @@ gsearch_assert( 'query field has tags stripped', strpos( $xss['query'], '<script
 echo "\n== Shortcode renders ==\n";
 $html = do_shortcode( '[global_search]' );
 gsearch_assert( 'shortcode outputs the search wrapper', strpos( $html, 'global-search' ) !== false );
-gsearch_assert( 'shortcode outputs a closed results panel before searching (no visible "no results" text)', strpos( $html, 'global-search__panel" hidden' ) !== false );
+gsearch_assert( 'shortcode outputs a closed results panel before searching (no visible "no results" text)', preg_match( '/class="global-search__panel"[^>]*\shidden/', $html ) === 1 );
 gsearch_assert( 'shortcode markup carries no visible empty-state copy', strpos( $html, 'global-search__empty' ) === false );
 $html_compact = do_shortcode( '[global_search variant="compact" show_filters="no"]' );
 gsearch_assert( 'compact variant renders', strpos( $html_compact, 'global-search--compact' ) !== false );
@@ -142,6 +142,87 @@ $data = $response->get_data();
 gsearch_assert( 'REST response has query/total/counts/results', isset( $data['query'], $data['total'], $data['counts'], $data['results'] ) );
 $json = wp_json_encode( $data );
 gsearch_assert( 'REST response encodes to valid JSON', $json !== false && json_decode( $json ) !== null );
+
+echo "\n== Compact (header) variant ==\n";
+$compact = do_shortcode( '[global_search variant="compact" shape="rounded" button_label="GO" placeholder="Search Site ..." show_filters="no"]' );
+gsearch_assert( 'compact renders', strpos( $compact, 'global-search--compact' ) !== false );
+gsearch_assert( 'button_label="GO" is the visible label', strpos( $compact, '>GO</span>' ) !== false );
+gsearch_assert( 'the button keeps an accessible name of its own', strpos( $compact, 'aria-label="Search"' ) !== false );
+gsearch_assert( 'placeholder matches the header the site already has', strpos( $compact, 'placeholder="Search Site ..."' ) !== false );
+gsearch_assert( 'compact is always a dropdown, never inline', strpos( $compact, 'data-mode="dropdown"' ) !== false );
+gsearch_assert( 'compact caps its rows', (int) preg_replace( '/\D/', '', (string) ( preg_match( '/data-max-results="(\d+)"/', $compact, $m ) ? $m[1] : 0 ) ) <= 8 );
+gsearch_assert( 'no source filters rendered when show_filters="no"', strpos( $compact, 'global-search__filters' ) === false );
+
+echo "\n== The form works without JavaScript ==\n";
+gsearch_assert( 'it is a real GET form', strpos( $compact, 'method="get"' ) !== false );
+gsearch_assert( 'submitting navigates rather than being intercepted', strpos( $compact, 'data-submit="navigate"' ) !== false );
+gsearch_assert( 'GO goes to the results page', strpos( $compact, 'action="' . esc_url( gsearch_results_url() ) . '"' ) !== false );
+gsearch_assert( 'the field is named q, which the results page reads', strpos( $compact, 'name="q"' ) !== false );
+
+echo "\n== View all results ==\n";
+$_GET['q'] = 'accreditation';
+$compact_q = do_shortcode( '[global_search variant="compact"]' );
+gsearch_assert( 'the dropdown offers View all results', strpos( $compact_q, 'data-global-search-view-all' ) !== false );
+gsearch_assert(
+	'its href is the results page carrying the query',
+	strpos( $compact_q, 'href="' . esc_url( add_query_arg( 'q', 'accreditation', gsearch_results_url() ) ) . '"' ) !== false
+);
+gsearch_assert( 'it starts hidden, so it never shows over an empty panel', preg_match( '/class="global-search__view-all"\s+hidden/', $compact_q ) === 1 );
+$_GET = [];
+
+echo "\n== Query from the URL ==\n";
+$_GET['q'] = 'accreditation';
+$inline = do_shortcode( '[global_search]' );
+gsearch_assert( 'the field arrives filled in', strpos( $inline, 'value="accreditation"' ) !== false );
+gsearch_assert( 'a URL carrying ?q= renders as a results page, not a search box', strpos( $inline, 'data-mode="inline"' ) !== false );
+gsearch_assert( 'the results panel is open rather than hidden', preg_match( '/class="global-search__panel"[^>]*\shidden/', $inline ) === 0 );
+gsearch_assert( 'source filters are offered on the results page', strpos( $inline, 'global-search__filters' ) !== false );
+$_GET = [];
+gsearch_assert( 'the same shortcode with no ?q= is still a plain search box', strpos( do_shortcode( '[global_search]' ), 'data-mode="dropdown"' ) !== false );
+
+echo "\n== Where a search is sent ==\n";
+gsearch_assert( 'the configured Results Page resolves', gsearch_results_url() !== '' );
+gsearch_assert( 'a site-relative path is accepted', gsearch_results_url( '/site-search/' ) === home_url( '/site-search/' ) );
+gsearch_assert( 'an off-site URL is ignored, not honoured', gsearch_results_url( 'https://elsewhere.example/x' ) === gsearch_results_url() );
+gsearch_assert( 'an unpublished page id falls back', gsearch_results_url( '999999' ) === gsearch_results_url() );
+
+echo "\n== Accessibility of the compact box ==\n";
+gsearch_assert( 'the input is a combobox', strpos( $compact, 'role="combobox"' ) !== false );
+gsearch_assert( 'it announces its collapsed state', strpos( $compact, 'aria-expanded="false"' ) !== false );
+gsearch_assert( 'it points at the list it controls', preg_match( '/aria-controls="([^"]+)"/', $compact, $m ) === 1 && strpos( $compact, 'id="' . $m[1] . '"' ) !== false );
+gsearch_assert( 'it declares list autocomplete', strpos( $compact, 'aria-autocomplete="list"' ) !== false );
+gsearch_assert( 'the results are a listbox', strpos( $compact, 'role="listbox"' ) !== false );
+gsearch_assert( 'the field has a label', strpos( $compact, 'global-search__label' ) !== false );
+gsearch_assert( 'there is a polite live region for the states', strpos( $compact, 'aria-live="polite"' ) !== false );
+
+echo "\n== Providers ==\n";
+foreach ( $service->get_providers() as $provider ) {
+	gsearch_assert( 'provider available: ' . $provider->get_id(), $provider->is_available() );
+}
+$per_source = $service->search( 'university' );
+gsearch_assert( 'WordPress provider returns results', ( $per_source['counts']['wordpress'] ?? 0 ) > 0 );
+gsearch_assert( 'Policies provider returns results', ( $service->search( 'policy' )['counts']['documents'] ?? 0 ) > 0 );
+gsearch_assert( 'Institutions provider returns results', ( $per_source['counts']['institutions'] ?? 0 ) > 0 );
+gsearch_assert( 'source counts add up to the total', array_sum( array_diff_key( $per_source['counts'], [ 'all' => 1 ] ) ) === $per_source['total'] );
+
+echo "\n== A disabled provider contributes nothing ==\n";
+$saved = gsearch_get_settings();
+$off = $saved;
+$off['providers']['institutions']['enabled'] = false;
+gsearch_update_settings( $off );
+$without = gsearch_service( true )->search( 'university' );
+gsearch_assert( 'no institutions results once the provider is disabled', ( $without['counts']['institutions'] ?? 0 ) === 0 );
+gsearch_assert( 'the other providers keep working', ( $without['counts']['wordpress'] ?? 0 ) > 0 );
+gsearch_update_settings( $saved );
+$service = gsearch_service( true );
+gsearch_assert( 'and it comes back when re-enabled', ( $service->search( 'university' )['counts']['institutions'] ?? 0 ) > 0 );
+
+echo "\n== An empty query asks nobody anything ==\n";
+$empty = $service->search( '' );
+gsearch_assert( 'empty query returns zero results', $empty['total'] === 0 );
+gsearch_assert( 'empty query returns an empty result list', $empty['results'] === [] );
+$blank = $service->search( '   ' );
+gsearch_assert( 'a whitespace-only query is empty too', $blank['total'] === 0 );
 
 echo "\n== Plugin activation independence ==\n";
 gsearch_assert( 'Global Search main file has no require_once on other plugins', strpos( file_get_contents( GSEARCH_DIR . 'global-search.php' ), 'ai-documents' ) === false && strpos( file_get_contents( GSEARCH_DIR . 'global-search.php' ), 'sacscoc' ) === false );

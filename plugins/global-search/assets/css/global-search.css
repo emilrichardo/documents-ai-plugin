@@ -1,325 +1,545 @@
-/*
- * Everything scoped under .global-search — no bare element selectors
- * (button/a/input) as the ONLY thing determining a rule's specificity, no
- * !important, no dependency on Astra. Typography and base colors are
- * inherited from the theme on purpose; only layout, spacing and the source
- * badges are opinionated here.
+/**
+ * Global Search — dressed in the same design language as the rest of this
+ * monorepo's front end.
  *
- * The input/button/filter rules below are all double-scoped
- * (`.global-search .global-search__input` rather than plain
- * `.global-search__input`) on purpose: this site's own Astra + Elementor
+ * The reference is sacscoc-institutions' own stylesheet, which is itself
+ * dressed in the theme's language (see its header comment). The three
+ * plugins stay independent — nothing is shared at runtime — so the token
+ * contract below is a deliberate *copy* of that vocabulary, not an import:
+ *
+ *   · every colour reads an Elementor global first and falls back to the
+ *     SACSCOC literal, so re-branding the site re-brands this too;
+ *   · no boxes. Results are rows divided by hairlines, never outlined cards
+ *     with shadows;
+ *   · the only round things are the controls and the buttons, which is where
+ *     the theme rounds things too;
+ *   · rules and tints are ink-over-page (rgba of black), not literal greys,
+ *     so they survive a tinted page background.
+ *
+ * ── Specificity ─────────────────────────────────────────────────────────────
+ * Every input/button/filter rule is double-scoped (`.global-search
+ * .global-search__input`, not a lone class). This site's Astra + Elementor
  * global "Buttons" style targets the bare `button`/`input` tags with a
- * *class-plus-tag* selector (`.elementor-kit-10 button`, specificity 0,1,1),
- * which otherwise beats a lone class like `.global-search__submit`
- * (0,1,0) and replaced our padding/radius/shadow with theirs — visible as
- * an oversized, drop-shadowed pill that overflowed its row on narrow
- * viewports. Doubling the class (0,2,0) wins without a single !important,
- * the same fix sacscoc-institutions already uses for this exact class of
- * conflict (see its assets/css/sacscoc-institutions.css, `.sacscoc-btn`).
- *
- * Color tokens fall back to this site's own Elementor global kit colors
- * (--e-global-color-*) when present, so a default install of this plugin on
- * this site already matches its navbar without any configuration — and
- * falls back to sane defaults when those variables don't exist (a different
- * theme, or no Elementor at all).
+ * class-plus-tag selector (`.elementor-kit-10 button`, specificity 0,1,1),
+ * which beats a lone class (0,1,0) and replaces our padding/radius/shadow
+ * with its own. Doubling the class (0,2,0) wins with no !important — the
+ * same fix sacscoc-institutions uses for `.sacscoc-btn`. Hover states repeat
+ * the assertion because the theme's `button:hover` rule adds a pseudo-class
+ * and so out-specifies a plain, non-:hover rule of ours.
  */
 
 .global-search {
-	--global-search-height: 48px;
-	--global-search-border: #d0d5dd;
-	--global-search-accent: var(--e-global-color-primary, #1d4ed8);
-	--global-search-accent-2: var(--e-global-color-accent, var(--global-search-accent));
-	--global-search-muted: #6b7280;
-	--global-search-badge-bg: #eef2ff;
-	--global-search-badge-text: #3730a3;
+  /* Palette — the theme's own globals, SACSCOC values as fallback. */
+  --gs-navy: var(--e-global-color-primary, #003a5d);
+  --gs-blue: var(--e-global-color-secondary, #4d758e);
+  --gs-gold: var(--e-global-color-accent, #cc9f53);
+  --gs-ink: var(--e-global-color-text, #454545);
+  --gs-muted: #686868;
 
-	position: relative;
-	max-width: 720px;
+  /* Ink over the page rather than literal greys — see the note above. */
+  --gs-line: rgba(0, 0, 0, 0.09);
+  --gs-line-strong: rgba(0, 0, 0, 0.16);
+  --gs-surface: rgba(0, 0, 0, 0.03);
+
+  /* Resolves to the theme's heading face with an Elementor kit, and is
+     dropped as invalid (so the theme's own font stands) without one. */
+  --gs-font-heading: var(--e-global-typography-primary-font-family, inherit);
+
+  --gs-text: clamp(15px, 0.3vw + 14px, 17px);
+  --gs-text-sm: clamp(13px, 0.2vw + 12.4px, 14px);
+  --gs-label: clamp(12px, 0.15vw + 11.5px, 13px);
+  --gs-name: clamp(18px, 0.6vw + 16px, 22px);
+
+  --gs-radius: 6px;
+  --gs-control-height: 46px;
+
+  position: relative;
+  max-width: 720px;
+  color: var(--gs-ink);
+  font-size: var(--gs-text);
+  line-height: 1.6;
 }
+
+.global-search * { box-sizing: border-box; }
+
+/* Astra styles `.entry-content p` at (0,1,1), which beats a plain class, and
+   this renders inside .entry-content — so every paragraph here would pick up
+   the theme's 1.75em bottom margin. Zeroed at (0,2,0); everything that wants
+   a margin asks for one below, at the same weight. */
+.global-search.global-search :where(p, ul, ol, li) { margin: 0; padding: 0; }
+
+/* ── The search bar ──────────────────────────────────────────────
+   Input and button share one fixed height and sit welded together, the same
+   shape sacscoc-institutions' own search bar takes. */
 
 .global-search .global-search__form {
-	display: flex;
-	align-items: stretch;
-	gap: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
 }
 
-/* Both shapes share: a fixed, equal height on the input and the button (the
-   two were drifting apart in different browsers/themes because each only had
-   its own padding to go on) and no gap between them — the button is welded
-   to the end of the field, matching sacscoc-institutions' own
-   `.sacscoc-search--stacked` bar, which is the reference this was asked to
-   match. Only the corners and border treatment differ per shape below. */
 .global-search .global-search__input,
 .global-search .global-search__submit {
-	box-sizing: border-box;
-	height: var(--global-search-height);
-	margin: 0;
-	font-size: 1rem;
-	line-height: normal;
+  height: var(--gs-control-height);
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--gs-text-sm);
+  line-height: normal;
+  box-shadow: none;
+  transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out;
 }
 
 .global-search .global-search__input {
-	flex: 1 1 auto;
-	min-width: 0;
-	padding: 0 0.9em;
-	border: 1px solid var(--global-search-border);
-	border-right: 0;
-	box-shadow: none;
-	font-weight: 400;
-	background: #fff;
-	color: inherit;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 20px;
+  border: 1px solid var(--gs-line-strong);
+  border-right: 0;
+  background: #fff;
+  color: var(--gs-ink);
+  font-weight: 400;
 }
 
+.global-search .global-search__input::placeholder {
+  color: var(--gs-muted);
+  opacity: 1;
+}
+
+.global-search .global-search__input:focus,
 .global-search .global-search__input:focus-visible {
-	outline: 2px solid var(--global-search-accent);
-	outline-offset: -2px;
+  outline: none;
+  border-color: var(--gs-blue);
+  box-shadow: inset 0 0 0 1px var(--gs-blue);
 }
 
+/* The theme's pill button: uppercase heading face, letter-spaced, navy —
+   turning gold on hover, exactly as .sacscoc-btn does. */
 .global-search .global-search__submit {
-	flex: 0 0 auto;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.4em;
-	padding: 0 1.2em;
-	border: 1px solid var(--global-search-accent);
-	box-shadow: none;
-	background: var(--global-search-accent);
-	color: #fff;
-	font-weight: 600;
-	cursor: pointer;
-	transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 28px;
+  border: 1px solid var(--gs-navy);
+  background: var(--gs-navy);
+  color: #fff;
+  font-family: var(--gs-font-heading), sans-serif;
+  font-size: var(--gs-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
-/* Rectangular (default): sharp corners, flush seam — sacscoc-institutions'
-   own reference bar for this shape. */
-.global-search--rectangular .global-search__input,
-.global-search--rectangular .global-search__submit {
-	border-radius: 0;
-}
-
-/* Rounded: a pill, split at the seam. */
-.global-search--rounded .global-search__input {
-	border-radius: 999px 0 0 999px;
-}
-
-.global-search--rounded .global-search__submit {
-	border-radius: 0 999px 999px 0;
-}
-
-/* Hover/focus: swap to the secondary accent, the same navy-to-gold swap
-   sacscoc-institutions' own .sacscoc-btn:hover uses — applied to both
-   shapes, which is what was missing before (only a bare :focus-visible
-   outline, no visible :hover feedback at all). A visible focus ring
-   (keyboard) stays in addition to the color swap; a mouse hover does not
-   also draw one, same split sacscoc-institutions makes. */
 .global-search .global-search__submit:hover,
 .global-search .global-search__submit:focus-visible {
-	background: var(--global-search-accent-2);
-	border-color: var(--global-search-accent-2);
-	box-shadow: none;
+  background: var(--gs-gold);
+  border-color: var(--gs-gold);
+  color: #fff;
+  box-shadow: none;
 }
 
 .global-search .global-search__submit:focus-visible {
-	outline: 2px solid var(--global-search-accent-2);
-	outline-offset: 2px;
+  outline: 2px solid var(--gs-gold);
+  outline-offset: 2px;
 }
 
-/* The theme's own button:hover rule (`.elementor-kit-10 button:hover`) adds
-   a pseudo-class to its selector, which out-specifies a plain (non-:hover)
-   `.global-search--rectangular .global-search__submit { border-radius: 0 }`
-   — so on hover the corners silently rounded back off. Re-asserting the
-   radius inside our own :hover/:focus-visible rule matches its specificity
-   and wins, the same way the color swap above already does. */
+/* Rectangular: sharp corners, flush seam — the institutions search bar. */
+.global-search--rectangular .global-search__input,
+.global-search--rectangular .global-search__submit,
 .global-search--rectangular .global-search__submit:hover,
 .global-search--rectangular .global-search__submit:focus-visible {
-	border-radius: 0;
+  border-radius: 0;
 }
 
+/* Rounded: a pill split at the seam — the theme's header search. */
+.global-search--rounded .global-search__input { border-radius: 999px 0 0 999px; }
+
+.global-search--rounded .global-search__submit,
 .global-search--rounded .global-search__submit:hover,
 .global-search--rounded .global-search__submit:focus-visible {
-	border-radius: 0 999px 999px 0;
+  border-radius: 0 999px 999px 0;
 }
 
 .global-search .global-search__submit-icon {
-	display: inline-block;
-	width: 0.9em;
-	height: 0.9em;
-	border: 2px solid currentColor;
-	border-radius: 50%;
-	position: relative;
+  position: relative;
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-radius: 50%;
 }
 
 .global-search .global-search__submit-icon::after {
-	content: "";
-	position: absolute;
-	width: 2px;
-	height: 0.5em;
-	background: currentColor;
-	right: -0.25em;
-	bottom: -0.35em;
-	transform: rotate(-45deg);
+  content: "";
+  position: absolute;
+  right: -0.25em;
+  bottom: -0.35em;
+  width: 2px;
+  height: 0.5em;
+  background: currentColor;
+  transform: rotate(-45deg);
 }
 
-/* Dropdown panel: anchored under the input, closed until there is something
-   to show it for — never an always-visible block on the page. */
+/* ── Dropdown panel ──────────────────────────────────────────────
+   Anchored under the input and closed until there is something to show. The
+   one place this file draws a box, because a typeahead has to float above
+   the page to be readable at all. */
 .global-search .global-search__panel {
-	position: absolute;
-	inset-inline: 0;
-	top: 100%;
-	z-index: 20;
-	margin-top: 0.4rem;
-	padding: 0.75rem;
-	background: #fff;
-	border: 1px solid var(--global-search-border);
-	border-radius: 0.5rem;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-	max-height: 70vh;
-	overflow-y: auto;
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  z-index: 20;
+  margin-top: 6px;
+  padding: 6px 20px 14px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--gs-line-strong);
+  border-radius: var(--gs-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
+/* ── Source filters ──────────────────────────────────────────────
+   Discreet links, not chips: they sit directly above a list of results and
+   should not compete with the search bar itself. */
 .global-search .global-search__filters {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.6rem;
-	margin: 0 0 0.6rem;
-	padding-bottom: 0.6rem;
-	border-bottom: 1px solid var(--global-search-border);
-	font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 10px;
+  margin: 8px 0 0;
+  padding: 0 0 10px;
+  font-size: var(--gs-text-sm);
 }
 
-/* Subtle discreet links, not chip/pill buttons — and double-scoped for the
-   same reason as the submit button above: these are <button> elements too. */
 .global-search .global-search__filter {
-	margin: 0;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	box-shadow: none;
-	background: none;
-	color: var(--global-search-muted);
-	cursor: pointer;
-	font-size: inherit;
-	font-weight: 400;
-	line-height: inherit;
-	text-decoration: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--gs-muted);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease-in-out;
 }
 
+/* Repeated inside :hover because the theme's own `button:hover` rule carries
+   a pseudo-class and would otherwise box these back up. */
 .global-search .global-search__filter:hover,
 .global-search .global-search__filter:focus-visible {
-	/* Re-asserted here, not just on the base rule above: the theme's own
-	   `.elementor-kit-10 button:hover` (a class+pseudo+tag selector) out-
-	   specifies a plain, non-:hover `.global-search__filter` rule, so
-	   without this a hover would turn these back into a boxed, shadowed
-	   pill — exactly the button look these are meant not to have. */
-	border: 0;
-	border-radius: 0;
-	box-shadow: none;
-	background: none;
-	text-decoration: underline;
-	color: var(--global-search-accent);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--gs-navy);
+  text-decoration: underline;
 }
 
 .global-search .global-search__filter.is-active {
-	color: var(--global-search-accent);
-	font-weight: 600;
-	text-decoration: underline;
+  color: var(--gs-navy);
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .global-search .global-search__filter + .global-search__filter::before {
-	content: "\00b7";
-	display: inline-block;
-	margin-inline-end: 0.6rem;
-	color: var(--global-search-border);
+  content: "\00b7";
+  display: inline-block;
+  margin-inline-end: 10px;
+  color: var(--gs-line-strong);
 }
 
-.global-search .global-search__status {
-	margin: 0;
-}
+.global-search .global-search__status { margin: 0; }
 
-.global-search .global-search__results {
-	display: flex;
-	flex-direction: column;
-	gap: 0;
-}
+/* ── Results ─────────────────────────────────────────────────────
+   Rows divided by hairlines — the theme's news list, and the same shape
+   sacscoc-institutions' own results take. No cards, no shadows. */
 
 .global-search .global-search__group-heading {
-	margin: 1rem 0 0.4rem;
-	font-size: 0.8rem;
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	color: var(--global-search-muted);
-}
-
-.global-search .global-search__group-heading:first-child {
-	margin-top: 0;
+  margin: 14px 0 0;
+  font-family: var(--gs-font-heading), sans-serif;
+  font-size: var(--gs-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gs-muted);
 }
 
 .global-search .global-search__list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--gs-line);
 }
 
 .global-search .global-search__result {
-	padding: 0.6rem 0;
-	border-bottom: 1px solid #f0f0f0;
+  position: relative;
+  padding: 14px 8px;
+  border-bottom: 1px solid var(--gs-line);
+  transition: background-color 0.15s ease-in-out;
 }
 
-.global-search .global-search__result:last-child {
-	border-bottom: 0;
+.global-search .global-search__result:hover,
+.global-search .global-search__result:focus-within {
+  background-color: var(--gs-surface);
 }
 
+/* A type label, not a coloured pill — the page already has enough boxes. */
 .global-search .global-search__badge {
-	display: inline-block;
-	margin-bottom: 0.3rem;
-	padding: 0.1em 0.55em;
-	border-radius: 0.25rem;
-	background: var(--global-search-badge-bg);
-	color: var(--global-search-badge-text);
-	font-size: 0.65rem;
-	font-weight: 600;
-	letter-spacing: 0.04em;
+  display: block;
+  margin: 0 0 4px;
+  padding: 0;
+  background: none;
+  color: var(--gs-gold);
+  font-family: var(--gs-font-heading), sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .global-search .global-search__title {
-	display: block;
-	font-size: 1rem;
-	font-weight: 600;
-	text-decoration: none;
+  display: block;
+  font-family: var(--gs-font-heading), sans-serif;
+  font-size: var(--gs-name);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--gs-navy);
+  text-decoration: none;
+  transition: color 0.15s ease-in-out;
 }
 
+.global-search .global-search__result:hover .global-search__title,
 .global-search .global-search__title:hover,
 .global-search .global-search__title:focus-visible {
-	text-decoration: underline;
+  color: var(--gs-blue);
 }
 
 .global-search .global-search__excerpt {
-	margin: 0.3rem 0;
-	color: var(--global-search-muted);
-	font-size: 0.9rem;
+  margin: 4px 0 0;
+  color: var(--gs-muted);
+  font-size: var(--gs-text-sm);
 }
 
 .global-search .global-search__view {
-	font-size: 0.8rem;
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--gs-blue);
+  font-size: var(--gs-text-sm);
+  text-decoration: none;
 }
+
+.global-search .global-search__view:hover,
+.global-search .global-search__view:focus-visible { text-decoration: underline; }
+
+/* ── Panel states ────────────────────────────────────────────────
+   Loading, empty and error, said where the rows would have been. Only ever
+   after a search has been asked for — there is no resting "No results" line
+   under an untouched search box. */
+
+.global-search .global-search__message {
+  margin: 10px 0;
+  padding: 0;
+  color: var(--gs-muted);
+  font-size: var(--gs-text-sm);
+}
+
+.global-search .global-search__message--error { color: var(--gs-navy); }
+
+/* A search in flight, without a spinner to load or animate: the panel simply
+   reads as busy. */
+.global-search.is-loading .global-search__results { opacity: 0.55; }
+
+/* ── View all results ────────────────────────────────────────────
+   The dropdown's last row, and the honest answer to a cap of six: the rest
+   are on the results page. A real link with a real href from the server, so
+   it is followable the moment it is visible. */
+
+.global-search .global-search__view-all {
+  display: block;
+  margin-top: 4px;
+  padding: 12px 8px 4px;
+  border-top: 1px solid var(--gs-line);
+  color: var(--gs-navy);
+  font-family: var(--gs-font-heading), sans-serif;
+  font-size: var(--gs-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.global-search .global-search__view-all:hover,
+.global-search .global-search__view-all:focus-visible {
+  color: var(--gs-gold);
+  text-decoration: underline;
+}
+
+/* ── Inline: the results page ────────────────────────────────────
+   The panel stops floating and becomes page content — no box, no shadow, no
+   absolute positioning, because here the results *are* the page and have
+   nothing to float above. */
+
+.global-search--inline { max-width: none; }
+
+.global-search--inline .global-search__panel {
+  position: static;
+  margin-top: 18px;
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.global-search--inline .global-search__status {
+  margin: 0 0 4px;
+  color: var(--gs-muted);
+  font-size: var(--gs-text-sm);
+}
+
+/* ── Compact (header) variant ──────────────────────────────────
+   Sized to sit in a header bar beside a menu: one row, never wrapping, never
+   taller than the row it is in. --gs-compact-height is the one number to
+   change to match a particular header; everything else follows it. */
 
 .global-search--compact {
-	max-width: 320px;
+  --gs-control-height: var(--gs-compact-height, 40px);
+  max-width: var(--gs-compact-width, 320px);
+  width: 100%;
+  font-size: var(--gs-text-sm);
 }
 
-.global-search--compact .global-search__group-heading {
-	display: none;
+/* The header's own type, not ours: a search box that shouts in a different
+   face than the menu beside it reads as bolted on. */
+.global-search--compact .global-search__input,
+.global-search--compact .global-search__submit-label {
+  font-family: inherit;
+}
+
+.global-search--compact .global-search__form {
+  flex-wrap: nowrap;
+}
+
+.global-search--compact .global-search__input {
+  padding: 0 14px;
+  font-size: var(--gs-text-sm);
+}
+
+/* Narrower than the full bar's 28px, and with the word kept on one line, so
+   "GO" (or a longer label) cannot be what pushes the header taller. */
+.global-search--compact .global-search__submit {
+  padding: 0 16px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* The icon is the full bar's affordance; in a header the word is enough, and
+   two glyphs in 40px of height is one too many. */
+.global-search--compact .global-search__submit-icon { display: none; }
+
+/* Grouped, as the brief's own sketch has it: Policies / Institutions / Site,
+   each heading over its own rows. The cap is what keeps that short. */
+.global-search--compact .global-search__group-heading { margin-top: 10px; }
+
+.global-search--compact .global-search__result { padding: 10px 8px; }
+.global-search--compact .global-search__title { font-size: var(--gs-text); }
+.global-search--compact .global-search__excerpt { display: none; }
+
+/* A row in a header dropdown is a destination, so the whole row behaves like
+   one. renderItem() attaches the click; this is the half that says so. */
+.global-search--compact .global-search__result { cursor: pointer; }
+
+/* The panel is wider than a 320px header box wants to be, and grows leftward
+   from the box's right edge so it cannot run off the side of the viewport on
+   a header sitting hard against it. */
+.global-search--compact .global-search__panel {
+  inset-inline: auto 0;
+  width: max(100%, 340px);
+  max-width: calc(100vw - 32px);
+  max-height: min(60vh, 420px);
+
+  /* A column, so the rows are the only part that scrolls and "View all
+     results" stays pinned at the bottom where it can be seen. Scrolling the
+     whole panel put the one link that reaches the rest of the matches below
+     the fold of a 420px box — which is the one place it must never be. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.global-search--compact .global-search__results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.global-search--compact .global-search__view-all {
+  flex: 0 0 auto;
+  background: #fff;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 782px) {
+  /* Tablet: the panel may now be wider than the space beside it, so cap it
+     against the viewport rather than against the box. */
+  .global-search--compact .global-search__panel {
+    width: min(360px, calc(100vw - 32px));
+  }
+}
+
+@media (max-width: 600px) {
+  /* Phone: a 340px panel hanging off a shrunken header box is unreadable, so
+     it takes nearly the whole screen width, still anchored under the box and
+     still growing leftward from its right edge.
+
+     Deliberately still `absolute`, not `fixed`: a fixed panel would escape a
+     header with `overflow: hidden` — which is the one thing that could clip
+     it — but inside any transformed or filtered ancestor (a sticky Elementor
+     header, an animation) `fixed` is positioned against that ancestor instead
+     of the viewport, and lands somewhere arbitrary. Absolute is predictable
+     everywhere; the header needing `overflow: visible` is documented instead
+     of guessed at. */
+  .global-search--compact .global-search__panel {
+    /* Back to the box's own edges, both of them.
+
+       On desktop the panel is wider than the box and hangs leftward from its
+       right edge, because a 320px header box is too narrow to read results
+       in. That trick cannot survive a phone: the box is no longer near the
+       right edge of anything, so a panel wider than it overhangs on the left
+       — measured at -7px on a 375px screen — and there is no way to say "but
+       stop at the viewport" in an absolutely-positioned box.
+
+       A phone header gives the box most of the width anyway, so matching it
+       is both readable and, by construction, inside the screen. */
+    inset-inline: 0;
+    width: auto;
+    max-width: none;
+    max-height: 60vh;
+  }
+
+  /* The bar itself stays one row: the label shrinks before it wraps. */
+  .global-search--compact .global-search__submit { padding: 0 12px; }
+
+  .global-search .global-search__title { font-size: var(--gs-text); }
 }
 
 .screen-reader-text {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	overflow: hidden;
-	clip: rect(1px, 1px, 1px, 1px);
-	white-space: nowrap;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(1px, 1px, 1px, 1px);
+  white-space: nowrap;
 }

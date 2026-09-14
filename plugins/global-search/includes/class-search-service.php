@@ -108,7 +108,16 @@ class Global_Search_Service {
 			];
 		}
 
-		$cache_key = 'gsearch_' . md5( $query . '|' . $per_provider . '|' . implode( ',', $requested_sources ?? [ '*' ] ) );
+		// The settings fingerprint is part of the key, not just the query:
+		// without it, turning a provider off in Settings leaves its results
+		// being served from cache for another five minutes — which reads as
+		// the setting not working.
+		$cache_key = 'gsearch_' . md5( implode( '|', [
+			$query,
+			(string) $per_provider,
+			implode( ',', $requested_sources ?? [ '*' ] ),
+			(string) wp_json_encode( gsearch_get_settings() ),
+		] ) );
 		$cached    = get_transient( $cache_key );
 		if ( is_array( $cached ) ) {
 			return $cached;
@@ -151,9 +160,17 @@ class Global_Search_Service {
 	}
 }
 
-function gsearch_service(): Global_Search_Service {
+/**
+ * The one service instance for a request.
+ *
+ * @param bool $fresh rebuild it rather than reusing the one already made.
+ *   The provider list is assembled once in the constructor from the settings,
+ *   so a test (or an admin screen) that changes those settings mid-request
+ *   needs a new one to see the change.
+ */
+function gsearch_service( bool $fresh = false ): Global_Search_Service {
 	static $instance = null;
-	if ( $instance === null ) {
+	if ( $instance === null || $fresh ) {
 		$instance = new Global_Search_Service();
 	}
 	return $instance;

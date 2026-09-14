@@ -10,11 +10,15 @@
 	"textdomain": "global-search",
 	"attributes": {
 		"placeholder": { "type": "string", "default": "" },
+		"buttonLabel": { "type": "string", "default": "" },
 		"showFilters": { "type": "boolean", "default": true },
 		"resultsPerPage": { "type": "number", "default": 10 },
 		"sources": { "type": "string", "default": "" },
 		"variant": { "type": "string", "default": "default" },
-		"shape": { "type": "string", "default": "rectangular" }
+		"shape": { "type": "string", "default": "rectangular" },
+		"resultsUrl": { "type": "string", "default": "" },
+		"results": { "type": "string", "default": "auto" },
+		"maxResults": { "type": "number", "default": 0 }
 	},
 	"supports": {
 		"html": false,

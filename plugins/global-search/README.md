@@ -79,11 +79,92 @@ Each provider guards its `is_available()` on the other plugin's own version
 constant (`AIDOCS_VERSION` / `SACSCOC_INST_VERSION`), so a missing or
 inactive plugin is skipped, never a fatal error.
 
+## Replacing the site's header search
+
+The header search on this site is **not** Astra's. Astra's header builder has
+no search element enabled (`header-desktop-items.primary.primary_right` is
+`["menu-1", "social-icons-1"]`). It is an **Elementor Search widget** inside
+the Theme Builder header template **`*GLOBAL_Header (All Pages)`**
+(`elementor_library` post **75**), at
+`container#9867790 > container#6927bca > widget/search#6ef4bda`, configured
+with:
+
+| Setting | Value |
+| --- | --- |
+| `search_input_placeholder_text` | `Search Site ...` |
+| `submit_button_text` | `GO` |
+
+It submits `?s=` to WordPress core search, which lands on the Theme Builder
+template `*GLOBAL_Search Results Template` (post 748) — a Posts widget. That
+reaches pages, posts and policies (`aidoc` is a public post type), and cannot
+reach institutions at all: those live in this monorepo's own
+`wp_sacscoc_*` tables, which `WP_Query` has never heard of.
+
+### The "subscriber" display condition is stored but switched off
+
+The widget carries this in its settings:
+
+```json
+"display_condition_list": [ { "display_condition_login_status": "subscriber", "_id": "1b98b8b" } ]
+```
+
+That is **not an active restriction**. It belongs to Ultimate Addons for
+Elementor (`ultimate-elementor/modules/display-conditions/display-conditions.php`),
+not to Elementor Pro, and that module only evaluates the list when
+`display_condition_enable === 'yes'`:
+
+```php
+if ( isset( $settings['display_condition_enable'] ) && 'yes' === $settings['display_condition_enable'] ) {
+```
+
+The widget has no `display_condition_enable` key at all, so the filter returns
+`$should_render` untouched. The stored row is UAEL's own hard-coded default for
+the repeater (`role` / `is` / `subscriber`) — what the control shows before
+anyone configures it. **Every visitor sees the header search today**, which a
+logged-out request against the local copy confirms.
+
+So there is nothing to preserve or decide here: "keep the condition" and "show
+it to everyone" describe the same current behaviour. Removing the widget
+removes the stored row with it.
+
+### The swap, once approved
+
+Nothing here has been changed — `*GLOBAL_Header (All Pages)` is untouched.
+
+1. Elementor → Templates → Theme Builder → **`*GLOBAL_Header (All Pages)`**.
+2. Select the **Search** widget in the right-hand container (`#6ef4bda`).
+3. Replace it with a **Shortcode** widget in the same container, carrying:
+
+   ```
+   [global_search variant="compact" shape="rounded" button_label="GO" placeholder="Search Site ..." show_filters="no"]
+   ```
+
+   The placeholder and button label are deliberately the ones the header
+   already uses: the results behind the box change, the control visitors know
+   does not.
+4. Settings → Global Search → **Results page** must name the page carrying
+   `[global_search]`. Without it the box falls back to WordPress's own `?s=`
+   search — plainer, never broken, but not the point of the exercise.
+5. Check the container the widget sits in does not clip the dropdown:
+   Advanced → Layout → **Overflow: Default** (not Hidden). The panel is
+   positioned `absolute`, deliberately (see the stylesheet's own note), so a
+   `hidden` overflow on an ancestor is the one thing that can cut it off.
+
+### What changes for a visitor
+
+| | Today | After |
+| --- | --- | --- |
+| Searches | Pages, posts, policies | Pages, posts, policies **and institutions** |
+| Feedback | None until the results page | A grouped dropdown after 3 characters |
+| GO / Enter | `/?s=…` → theme's results template | `/site-search/?q=…` → full results with source filters |
+| Without JavaScript | Works | Works — it is a plain GET form either way |
+
 ## Shortcode
 
 ```
 [global_search]
 [global_search show_filters="yes" sources="wordpress,documents,institutions" results_per_page="20" variant="default" shape="rectangular"]
+[global_search variant="compact" shape="rounded" button_label="GO" placeholder="Search Site ..." show_filters="no"]
 ```
 
 | Attribute           | Default        | Notes                                          |
@@ -91,8 +172,58 @@ inactive plugin is skipped, never a fatal error.
 | `show_filters`      | `yes`          | `no`/`false`/`0` hides the source filter links  |
 | `sources`            | *(all)*        | Comma list of provider ids to restrict to       |
 | `results_per_page`   | 10             | Per-source cap, not a total — see Ranking below |
-| `variant`            | `default`      | `compact` is reserved for a future header use   |
+| `results_url`        | *(settings)*   | Where the form submits. A path, a page id, or a URL on this site; an off-site value is ignored. Empty → Settings → Results page, and failing that WordPress's own `?s=` search |
+| `results`            | `auto`         | `dropdown` (a typeahead), `inline` (a results page), or `auto`: inline when the URL carries `?q=`, dropdown otherwise. `compact` is always a dropdown |
+| `max_results`        | *(per variant)*| Rows the dropdown shows before "View all results". 6 for `compact`, `results_per_page` otherwise |
+| `view_all`           | *(auto)*       | `no` drops the "View all results" link. On by default in a dropdown once there is a results page to link to |
+| `variant`            | `default`      | `compact` — narrower, for a header or a navbar  |
+| `placeholder`        | *(per variant)*| Overrides the input's placeholder text          |
+| `button_label`       | `Search`       | The submit button's visible text. The theme's current header search says `GO`; a replacement that quietly renames a control visitors already know is a worse replacement. The button keeps `aria-label="Search"` either way |
 | `shape`              | `rectangular`  | `rounded` — a pill-shaped input/button, joined at the seam, matching the existing Institutions navbar search widget |
+
+### Two modes
+
+```
+[global_search]                    a search box; results in a dropdown
+[global_search variant="compact"]  the same, sized and capped for a header
+[global_search]  on /…/?q=term     a results page: filters, all results, open
+```
+
+The third is not a different shortcode. `results="auto"` (the default) looks
+for `q` in the URL — this plugin's own parameter, never WordPress's `s` — and
+renders inline when it finds one. That is what makes a page carrying a bare
+`[global_search]` work as the destination for every other box on the site
+without being configured as one.
+
+### The form always works
+
+`method="get"`, a real `action`, and a field named `q`. Submitting is a
+navigation, not a fetch, so GO and the Enter key reach the results page with
+the script absent, broken or still loading. The dropdown is layered over that,
+never in front of it. The one exception is a default-variant box on a page
+with no results page configured anywhere, which has nowhere to navigate to and
+searches in place instead; `data-submit` on the wrapper says which case a given
+box is.
+
+### The dropdown
+
+Opens after `min_characters` (3) and a `debounce_ms` (300) pause, capped at
+`max_results` rows dealt **round-robin across sources** rather than sliced off
+the top: a global `slice(0, 6)` of a score-ranked list lets one source take
+every row, so "accreditation" would report that the site has no policies about
+accreditation. Ends with "View all results →", pinned below the scroll area,
+pointing at `<results page>?q=…`.
+
+States are shown where the rows would be — `Searching…`, `No results found`,
+`Search is temporarily unavailable.` — and never before a search has been
+asked for. A failed request never takes the header down with it: the panel
+says so and the form underneath still submits.
+
+Keyboard: `↓`/`↑` move a row (`aria-selected`, `aria-activedescendant`), Enter
+follows the selected row or, with none selected, submits the form; `Escape`
+and a click outside close it. The input is a `role="combobox"` with
+`aria-expanded`/`aria-controls` over a `role="listbox"`, and a polite live
+region carries the same states to a screen reader.
 
 Renders only the search box; results are never on the page by default.
 Nothing is queried until a real search runs (empty query ⇒ zero results from

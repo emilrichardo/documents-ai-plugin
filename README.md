@@ -18,9 +18,9 @@ plugins/
 
 | Plugin                  | Directory / slug            | Main file                       | Version |
 | ----------------------- | --------------------------- | ------------------------------- | ------- |
-| AI Policies             | `ai-documents`              | `ai-documents.php`              | 1.5.0   |
+| AI Policies             | `ai-documents`              | `ai-documents.php`              | 1.6.0   |
 | SACSCOC Institutions    | `sacscoc-institutions`      | `sacscoc-institutions.php`      | 0.10.0  |
-| Global Search           | `global-search`              | `global-search.php`             | 0.1.0   |
+| Global Search           | `global-search`              | `global-search.php`             | 0.2.0   |
 |                         |                             |                                 |         |
 
 Global Search deliberately depends on neither other plugin: it detects

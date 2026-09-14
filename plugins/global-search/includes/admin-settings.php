@@ -98,6 +98,43 @@ function gsearch_render_settings_page(): void {
 				<?php endforeach; ?>
 			</table>
 
+			<h2><?php esc_html_e( 'Results page', 'global-search' ); ?></h2>
+			<p class="description" style="max-width:44em;margin-bottom:12px;">
+				<?php esc_html_e( 'The page carrying the full results — where a compact header search box sends a visitor who presses Search or Enter, and where its dropdown\'s "View all results" link goes. The page needs a Global Search block, or the [global_search] shortcode, on it. Left as None, a header box falls back to WordPress\'s own search instead: plainer, but never broken.', 'global-search' ); ?>
+			</p>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="gsearch_results_page"><?php esc_html_e( 'Results page', 'global-search' ); ?></label></th>
+					<td>
+						<?php
+						wp_dropdown_pages( [
+							'name'              => 'results_page',
+							'id'                => 'gsearch_results_page',
+							'selected'          => (int) $settings['results_page'],
+							'show_option_none'  => __( '— None (use WordPress search) —', 'global-search' ),
+							'option_none_value' => 0,
+						] );
+						?>
+						<?php $resolved = gsearch_results_url(); ?>
+						<p class="description">
+							<?php if ( $resolved !== '' ) : ?>
+								<?php esc_html_e( 'Searches go to:', 'global-search' ); ?>
+								<code><?php echo esc_html( $resolved ); ?></code>
+							<?php else : ?>
+								<?php esc_html_e( 'Searches go to WordPress\'s own search results.', 'global-search' ); ?>
+							<?php endif; ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="gsearch_compact_max"><?php esc_html_e( 'Rows in the compact dropdown', 'global-search' ); ?></label></th>
+					<td>
+						<input type="number" id="gsearch_compact_max" name="compact_max_results" min="1" max="20" value="<?php echo esc_attr( (string) $settings['compact_max_results'] ); ?>" />
+						<p class="description"><?php esc_html_e( 'How many matches a header search box shows before "View all results". Small on purpose.', 'global-search' ); ?></p>
+					</td>
+				</tr>
+			</table>
+
 			<h2><?php esc_html_e( 'Live search', 'global-search' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -134,6 +171,8 @@ function gsearch_handle_settings_save(): void {
 	$settings['live_search']       = ! empty( $_POST['live_search'] );
 	$settings['min_characters']    = max( 1, min( 10, absint( $_POST['min_characters'] ?? 3 ) ) );
 	$settings['debounce_ms']       = max( 0, min( 2000, absint( $_POST['debounce_ms'] ?? 300 ) ) );
+	$settings['results_page']        = absint( $_POST['results_page'] ?? 0 );
+	$settings['compact_max_results'] = max( 1, min( 20, absint( $_POST['compact_max_results'] ?? 6 ) ) );
 
 	$posted_providers = is_array( $_POST['providers'] ?? null ) ? $_POST['providers'] : [];
 	foreach ( $posted_providers as $id => $fields ) {
