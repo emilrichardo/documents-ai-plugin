@@ -1494,3 +1494,237 @@
   border-top: 1px solid var(--sacscoc-line);
   font-style: italic;
 }
+
+
+/* Standalone search visual API. Only an explicit visual option enables these
+   component rules; directory results and existing embeds keep their styles. */
+.sacscoc-institution-search {
+  --sacscoc-search-field-height: 2.875rem;
+  --sacscoc-search-field-gap: 1.125rem;
+  --sacscoc-search-label-gap: .4375rem;
+  --sacscoc-search-label-size: .8125rem;
+  --sacscoc-search-field-size: .875rem;
+  --sacscoc-search-padding: clamp(1.25rem, 2.5vw, 1.75rem);
+  --sacscoc-search-margin: clamp(2rem, 5vw, 4.5rem);
+  --sacscoc-search-actions-gap: 1.5rem;
+  --sacscoc-search-max-width: 75rem;
+  --sacscoc-search-text: var(--sacscoc-ink);
+  --sacscoc-search-label: var(--sacscoc-navy);
+  --sacscoc-search-surface: var(--sacscoc-surface);
+  --sacscoc-search-field-bg: #fff;
+  --sacscoc-search-field-text: #323b43;
+  --sacscoc-search-placeholder: #586570;
+  --sacscoc-search-border: #778792;
+  --sacscoc-search-focus: var(--sacscoc-navy);
+  --sacscoc-search-button-bg: var(--sacscoc-navy);
+  --sacscoc-search-button-text: #fff;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sacscoc-institution-search.sacscoc-contain-width {
+  max-width: min(1200px, 100%);
+}
+
+.sacscoc-institution-search--width-auto {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.sacscoc-institution-search--width-contained {
+  width: 100%;
+  max-width: min(var(--sacscoc-search-max-width), 100%);
+  margin-inline: auto;
+}
+
+.sacscoc-institution-search--width-full {
+  width: 100%;
+  max-width: 100%;
+}
+
+.sacscoc-institution-search--theme-light {
+  --sacscoc-search-text: var(--sacscoc-ink);
+  --sacscoc-search-label: var(--sacscoc-navy);
+}
+
+.sacscoc-institution-search--theme-dark {
+  --sacscoc-search-text: #fff;
+  --sacscoc-search-label: #fff;
+  --sacscoc-search-surface: transparent;
+  --sacscoc-search-border: #a5b6c2;
+  --sacscoc-search-focus: #fff;
+  --sacscoc-search-button-bg: var(--sacscoc-gold);
+  --sacscoc-search-button-text: var(--sacscoc-navy);
+}
+
+.sacscoc-institution-search--size-compact {
+  --sacscoc-search-field-height: 2.5rem;
+  --sacscoc-search-field-gap: .625rem;
+  --sacscoc-search-label-gap: .25rem;
+  --sacscoc-search-label-size: .75rem;
+  --sacscoc-search-field-size: .875rem;
+  --sacscoc-search-padding: .875rem;
+  --sacscoc-search-margin: .5rem;
+  --sacscoc-search-actions-gap: .75rem;
+}
+
+.sacscoc-institution-search--size-large {
+  --sacscoc-search-field-height: 3.5rem;
+  --sacscoc-search-field-gap: 1.25rem;
+  --sacscoc-search-label-gap: .5rem;
+  --sacscoc-search-label-size: .875rem;
+  --sacscoc-search-field-size: 1.0625rem;
+  --sacscoc-search-padding: clamp(1.5rem, 3vw, 2rem);
+  --sacscoc-search-actions-gap: 1.5rem;
+}
+
+.sacscoc-institution-search--visual.sacscoc-institution-search {
+  margin-block: var(--sacscoc-search-margin);
+  color: var(--sacscoc-search-text);
+}
+
+.sacscoc-institution-search--visual .sacscoc-search {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: var(--sacscoc-search-padding);
+  background: var(--sacscoc-search-surface);
+  border-radius: var(--sacscoc-radius);
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-block__heading {
+  color: var(--sacscoc-search-label);
+  border-color: var(--sacscoc-search-border);
+  margin-bottom: var(--sacscoc-search-field-gap);
+  padding-bottom: var(--sacscoc-search-field-gap);
+}
+
+.sacscoc-institution-search--visual .sacscoc-search__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sacscoc-search-field-gap);
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.sacscoc-institution-search--visual .sacscoc-field {
+  min-width: 0;
+  border: 0;
+}
+
+.sacscoc-institution-search--visual .sacscoc-field__label {
+  color: var(--sacscoc-search-label);
+  font-size: var(--sacscoc-search-label-size);
+  margin-bottom: var(--sacscoc-search-label-gap);
+  letter-spacing: .035em;
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-control {
+  min-width: 0;
+  max-width: 100%;
+  height: var(--sacscoc-search-field-height);
+  min-height: var(--sacscoc-search-field-height);
+  padding-block: 0;
+  border: 1px solid var(--sacscoc-search-border);
+  border-radius: 999px;
+  background-color: var(--sacscoc-search-field-bg);
+  color: var(--sacscoc-search-field-text);
+  font-size: var(--sacscoc-search-field-size);
+  line-height: normal;
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-control::placeholder {
+  color: var(--sacscoc-search-placeholder);
+  opacity: 1;
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-search__actions {
+  display: flex;
+  gap: .75rem;
+  margin-top: var(--sacscoc-search-actions-gap);
+  align-items: center;
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-btn {
+  min-height: var(--sacscoc-search-field-height);
+  padding: .625rem 1.5rem;
+  border-radius: 999px;
+  background: var(--sacscoc-search-button-bg);
+  border-color: var(--sacscoc-search-button-bg);
+  color: var(--sacscoc-search-button-text);
+  font-size: var(--sacscoc-search-label-size);
+}
+
+.sacscoc-institution-search--visual .sacscoc-search .sacscoc-btn:hover {
+  background: var(--sacscoc-search-button-text);
+  color: var(--sacscoc-search-button-bg);
+}
+
+.sacscoc-institution-search--visual .sacscoc-search :is(.sacscoc-control, button, a):focus-visible {
+  outline: 3px solid var(--sacscoc-search-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px var(--sacscoc-search-field-bg);
+}
+
+.sacscoc-institution-search--theme-dark .sacscoc-search .sacscoc-reset {
+  color: var(--sacscoc-search-label);
+  text-decoration: underline;
+}
+
+/* Hidden labels remain associated with uniquely identified fields. The yes
+   rule also restores labels hidden by the legacy horizontal treatment. */
+.sacscoc-institution-search--labels-yes .sacscoc-search .sacscoc-field__label {
+  position: static;
+  margin: 0 0 var(--sacscoc-search-label-gap);
+  width: auto;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+}
+
+.sacscoc-institution-search--labels-no .sacscoc-search .sacscoc-field__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (min-width: 720px) {
+  .sacscoc-institution-search--visual.sacscoc-institution-search--layout-horizontal .sacscoc-search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--sacscoc-search-field-gap);
+  }
+
+  .sacscoc-institution-search--visual.sacscoc-institution-search--layout-horizontal .sacscoc-search__fields {
+    flex: 1 1 38rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+    align-items: end;
+  }
+
+  .sacscoc-institution-search--visual.sacscoc-institution-search--layout-horizontal .sacscoc-search__actions {
+    flex: 0 1 auto;
+    margin: 0;
+  }
+}
+
+@media (max-width: 719px) {
+  .sacscoc-institution-search--visual .sacscoc-search .sacscoc-control {
+    font-size: max(1rem, var(--sacscoc-search-field-size));
+  }
+
+  .sacscoc-institution-search--visual .sacscoc-search .sacscoc-btn {
+    width: 100%;
+  }
+}

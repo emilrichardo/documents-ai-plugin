@@ -639,6 +639,36 @@ it is; this only sends visitors to it.
 | `results_url` | *(empty)* | A path, a page id, or a URL on this site | Where Search goes. Left out, **Settings → Policies Page** — the right answer for a site with one catalogue. An off-site URL is ignored rather than honoured. |
 | `type` | *(empty)* | A Document Type name | Pre-selects that type's tab, for a form that is only ever about one kind of policy. |
 | `show_heading` | `yes` | `yes` / `no` | `no` drops the card's own title and subtitle, for a section that already has a heading above the form. |
+| `theme` | *(legacy light)* | `light` / `dark` | Light surfaces, or light labels and text for a dark hero with contrasting fields. |
+| `layout` | *(legacy horizontal)* | `horizontal` / `vertical` | Keyword and Search button in a responsive row, or one column. |
+| `size` | *(legacy default)* | `compact` / `default` / `large` | Controls field/button height, typography, padding, label spacing and gaps. |
+| `width` | *(legacy 900px max)* | `auto` / `contained` / `full` | Fit content, center up to 64rem, or fill the parent. |
+| `show_labels` | *(legacy hidden)* | `yes` / `no` | Show the field label, or visually hide it while retaining its accessible association. |
+
+For a prominent form on the **Principles, Standards & Policies** page:
+
+```
+[aidocs_policy_search results_url="/policies/" theme="light" layout="horizontal" size="large" width="contained" show_labels="yes"]
+```
+
+For a compact form in a dark column:
+
+```
+[aidocs_policy_search results_url="/policies/" show_heading="no" theme="dark" layout="vertical" size="compact" width="full" show_labels="yes"]
+```
+
+These options work in an **Elementor Shortcode** widget without Gutenberg.
+`contained` and `full` also let that widget fill its parent, while retaining the
+form's own width limit. Horizontal controls stack below 600px and wrap when
+their parent is narrower; vertical always stays in one column. Visible labels,
+contrasting placeholders and keyboard focus indicators are included. A hidden
+label remains associated with its uniquely identified field.
+
+Omitting the new attributes preserves the existing appearance; invalid values
+fall back to that same legacy behavior. They also work with
+`[aidocs_search mode="form"]`, and never change the catalogue, query parameters
+or result destination. The existing Gutenberg blocks remain catalogue/entry
+blocks; no additional form-only block is needed to use these options.
 
 This is a plain GET form. It runs no JavaScript, makes no AJAX call and needs
 no nonce — submitting it is an ordinary navigation, so the result is a

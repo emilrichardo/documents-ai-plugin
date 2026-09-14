@@ -80,6 +80,42 @@ this site learns it once, not three times.
 Each receiving page reads its parameters back, refills its own fields and runs
 the search on arrival, so a redirect never costs the visitor their query.
 
+## Embedded form appearance
+
+Institutions Search and Policies Search share the same optional visual API:
+
+| Attribute | Values |
+| --- | --- |
+| `theme` | `light`, `dark` |
+| `layout` | `horizontal`, `vertical` |
+| `size` | `compact`, `default`, `large` |
+| `width` | `auto`, `contained`, `full` |
+| `show_labels` | `yes`, `no` |
+
+Omitting these options preserves each plugin's existing presentation, including
+its label and width defaults. Hidden labels remain available to assistive
+technology. Valid explicit width options take priority over Institutions'
+older `contain_width` option. The existing Institutions layout aliases remain
+supported.
+
+For a dark institution hero:
+
+```text
+[sacscoc_institution_search results_url="/institutions/" show_heading="no" theme="dark" layout="vertical" size="compact" width="full" show_labels="yes"]
+```
+
+For a larger policy search section:
+
+```text
+[aidocs_policy_search results_url="/policies/" theme="light" layout="horizontal" size="large" width="contained" show_labels="yes"]
+```
+
+These options work in Elementor Shortcode widgets. The Institutions Search
+block exposes the same controls; Policies keeps a reusable presentation helper
+for a future form block. Each plugin owns its scoped CSS variables and works
+independently. Search parameters, destinations, result rendering and Global
+Search are unaffected. See each plugin's README for its CSS tokens.
+
 ## Deployment
 
 `.github/workflows/deploy-<slug>.yml` deploys one plugin, over SFTP, to

@@ -309,7 +309,21 @@ function sacscoc_inst_page_uses_plugin(): bool {
 
     $content = (string) $post->post_content;
 
-    return has_shortcode( $content, 'sacscoc_institutions_search' )
+    $elementor = json_decode( (string) get_post_meta( $post->ID, '_elementor_data', true ), true );
+    $elementor_search = false;
+    if ( is_array( $elementor ) ) {
+        array_walk_recursive( $elementor, static function ( $value ) use ( &$elementor_search ): void {
+            if ( is_string( $value ) && (
+                has_shortcode( $value, 'sacscoc_institution_search' )
+                || has_shortcode( $value, 'sacscoc_institutions_search' )
+            ) ) {
+                $elementor_search = true;
+            }
+        } );
+    }
+
+    return $elementor_search
+        || has_shortcode( $content, 'sacscoc_institutions_search' )
         || has_shortcode( $content, 'sacscoc_institution_search' )
         || has_shortcode( $content, 'sacscoc_institution' )
         || has_block( 'sacscoc-institutions/search', $content )
@@ -687,6 +701,27 @@ function sacscoc_inst_directory_shortcode( $atts ): string {
 // ──────────────────────────────────────────────
 
 /**
+ * Shared visual contract for the shortcode and the Search block.
+ * Empty values keep the existing theme, contain_width and layout-based labels.
+ * Presentation settings never enter request filters or the form destination.
+ */
+function sacscoc_inst_search_visual_options( array $args ): array {
+    $choices = [
+        'theme'       => [ '', 'light', 'dark' ],
+        'size'        => [ 'default', 'compact', 'large' ],
+        'width'       => [ '', 'auto', 'contained', 'full' ],
+        'show_labels' => [ '', 'yes', 'no' ],
+    ];
+    $visual = [];
+    foreach ( $choices as $key => $allowed ) {
+        $value = isset( $args[ $key ] ) && is_scalar( $args[ $key ] )
+            ? strtolower( trim( (string) $args[ $key ] ) ) : $allowed[0];
+        $visual[ $key ] = in_array( $value, $allowed, true ) ? $value : $allowed[0];
+    }
+    return $visual;
+}
+
+/**
  * The standalone search form's actual rendering, from already-typed arguments.
  *
  * [sacscoc_institutions_search] and the Institutions Search block
@@ -726,16 +761,19 @@ function sacscoc_inst_render_search( array $args ): string {
     sacscoc_inst_enqueue_styles();
     sacscoc_inst_enqueue_script();
 
+    $visual = sacscoc_inst_search_visual_options( $args );
+    $layout = sacscoc_inst_clean_search_layout( (string) ( $args['layout'] ?? 'vertical' ) );
+
     $form = sacscoc_inst_load_template( 'search-form.php', [
         'filters'      => $filters,
         'action'       => sacscoc_inst_results_url( (string) ( $args['results_url'] ?? '' ) ),
         'group'        => sacscoc_inst_clean_group( (string) ( $args['group'] ?? 'default' ) ),
-        'stacked'      => sacscoc_inst_clean_search_layout( (string) ( $args['layout'] ?? 'vertical' ) ) === 'horizontal',
+        'stacked'      => $layout === 'horizontal',
         'heading'      => (string) ( $args['heading'] ?? '' ),
         'show_heading' => (bool) ( $args['show_heading'] ?? true ),
     ], true );
 
-    $contain_width = (bool) ( $args['contain_width'] ?? true );
+    $contain_width = $visual['width'] === '' && (bool) ( $args['contain_width'] ?? true );
 
     // A styling context of its own, not a directory: it carries the same
     // tokens, resets and component styles (buttons, controls, field labels —
@@ -743,7 +781,17 @@ function sacscoc_inst_render_search( array $args ): string {
     // without the data-sacscoc-directory marker that tells the script "this is
     // a results region to initialise". Only the form inside carries that
     // marker, via data-sacscoc-form in search-form.php.
-    $class = 'sacscoc-directory sacscoc-search-standalone' . ( $contain_width ? ' sacscoc-contain-width' : '' );
+    $class = 'sacscoc-directory sacscoc-search-standalone sacscoc-institution-search'
+        . ( $contain_width ? ' sacscoc-contain-width' : '' )
+        . ' sacscoc-institution-search--layout-' . $layout;
+    foreach ( $visual as $key => $value ) {
+        if ( $value !== '' ) {
+            $class .= ' sacscoc-institution-search--' . ( $key === 'show_labels' ? 'labels' : $key ) . '-' . $value;
+        }
+    }
+    if ( $visual['theme'] !== '' || $visual['size'] !== 'default' || $visual['show_labels'] !== '' ) {
+        $class .= ' sacscoc-institution-search--visual';
+    }
 
     return '<div class="' . esc_attr( $class ) . '">' . $form . '</div>';
 }
@@ -816,6 +864,10 @@ function sacscoc_inst_search_shortcode( $atts ): string {
         'contain_width' => 'yes',
         'show_heading'  => 'yes',
         'results_url'   => '',
+        'theme'         => '',
+        'size'          => 'default',
+        'width'         => '',
+        'show_labels'   => '',
     ], $atts, 'sacscoc_institutions_search' );
 
     return sacscoc_inst_render_search( [
@@ -825,6 +877,10 @@ function sacscoc_inst_search_shortcode( $atts ): string {
         'contain_width' => $atts['contain_width'] !== 'no',
         'show_heading'  => $atts['show_heading'] !== 'no',
         'results_url'   => (string) $atts['results_url'],
+        'theme'         => $atts['theme'],
+        'size'          => $atts['size'],
+        'width'         => $atts['width'],
+        'show_labels'   => $atts['show_labels'],
     ] );
 }
 
@@ -1195,7 +1251,6 @@ function sacscoc_inst_enqueue_styles(): void {
     // is unknown because this fired earlier), register it here too.
     if ( ! wp_style_is( 'sacscoc-institutions', 'registered' ) ) {
         sacscoc_inst_register_styles();
-        return;
     }
 
     wp_enqueue_style( 'sacscoc-institutions' );

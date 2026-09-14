@@ -466,3 +466,59 @@ shareable URL and it is safe behind a page cache. The catalogue reads `q` and
 `type` back, fills its own field and tab in, and runs the search on load, so
 nothing had to change there to make the redirect carry a search. Same
 attributes as `mode="form"` above.
+
+#### Visual options for embedded forms
+
+The standalone form and `[aidocs_search mode="form"]` accept the same visual
+vocabulary as Institutions Search. Omit these attributes to keep the existing
+light card, horizontal controls, normal size, 900px maximum width, and hidden
+accessible field label. Invalid values are ignored; they never reach CSS or
+the submitted query string. Visual options have no effect on the results mode.
+
+| Attribute | Values | Effect |
+|---|---|---|
+| `theme` | `light`, `dark` | Light background styling, or light text and labels for a dark hero with a contrasting white field. |
+| `layout` | `horizontal`, `vertical` | Keyword and Search button share a row when space permits, or stay in one column. The existing type buttons retain their submit behavior. |
+| `size` | `compact`, `default`, `large` | Changes field/button height, text, label spacing, gaps and card padding. |
+| `width` | `auto`, `contained`, `full` | Fit content, center up to 64rem, or use the entire parent width. All modes stay within their parent. |
+| `show_labels` | `yes`, `no` | Display “Search policies” or keep its associated label visually hidden and accessible. |
+
+Recommended for `/principles-standards-policies/`:
+
+```
+[aidocs_policy_search results_url="/policies/" theme="light" layout="horizontal" size="large" width="contained" show_labels="yes"]
+```
+
+For a compact form in a dark column:
+
+```
+[aidocs_policy_search results_url="/policies/" show_heading="no" theme="dark" layout="vertical" size="compact" width="full" show_labels="yes"]
+```
+
+Styles are emitted once when the shortcode renders, including inside an
+Elementor Shortcode widget, without Gutenberg, JavaScript or a head-time
+shortcode scan. A scoped Elementor integration lets widgets containing an
+explicit `width="contained"` or `width="full"` form use their parent width.
+Below 600px, horizontal controls stack; vertical controls remain a column at
+every width. Fields never lose their unique ID or associated label.
+
+The variant layer lives in `assets/css/policy-search.css`, scoped to
+`.aidocs-policy-search--visual`. It inherits the plugin's existing accent,
+gold, surface and typography tokens and exposes `--search-text`,
+`--search-label`, `--search-muted`, `--search-bg`, `--search-field-bg`,
+`--search-field-text`, `--search-placeholder`, `--search-border`,
+`--search-button-bg`, `--search-button-text`, `--search-button-hover`,
+`--search-button-hover-text`, `--search-focus`, `--search-field-height`,
+`--search-field-gap`, `--search-label-gap`, `--search-font-size`,
+`--search-label-size`, `--search-button-size`, `--search-button-padding`,
+`--search-card-padding`, `--search-section-gap`, `--search-heading-size`,
+`--search-container-max-width`, `--search-contained-width` and
+`--search-field-radius`. No new `!important` declarations are needed.
+
+There is no form-only Gutenberg block. The existing Policies catalogue and
+Policy entry blocks are unchanged. `includes/aidocs-search-visual.php` exposes
+the option schema, defaults and normalization for a future form block to reuse.
+
+Run `php tests/run.php` for the regression suite, including each visual value,
+invalid and legacy defaults, 72 complete combinations, unique labels/IDs,
+render-time style delivery and unchanged GET submission controls.

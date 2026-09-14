@@ -866,3 +866,60 @@ with `DELETE` as the fallback for hosts that withhold the `DROP` privilege
 directory, and only this directory, to
 `/public_html/wp-content/plugins/sacscoc-institutions`. A push touching only
 `plugins/ai-documents/**` does not trigger it.
+
+
+### Visual options for embedded search
+
+Both `[sacscoc_institution_search]` and `[sacscoc_institutions_search]` accept:
+
+| Attribute | Values | When omitted or invalid |
+| --- | --- | --- |
+| `theme` | `light`, `dark` | Existing theme appearance |
+| `layout` | `horizontal`, `vertical` | Existing `vertical` default |
+| `size` | `compact`, `default`, `large` | Existing `default` size |
+| `width` | `auto`, `contained`, `full` | Existing `contain_width` setting |
+| `show_labels` | `yes`, `no` | Existing layout behavior: visible vertically, hidden on horizontal desktop and visible on mobile |
+
+Existing shortcodes keep their appearance. An explicit theme, compact/large size
+or label setting enables the new presentation rules; no search filters, query
+parameter names, providers, result markup or destinations change. `width` takes
+precedence over `contain_width` only when it has a valid explicit value. `auto`
+fits the content within the parent, `contained` fills the parent up to the
+`--sacscoc-search-max-width` token (75rem), and `full` fills the parent.
+
+Recommended for the dark Find an Institution hero:
+
+```text
+[sacscoc_institution_search results_url="/institutions/" show_heading="no" theme="dark" layout="vertical" size="compact" width="full" show_labels="yes"]
+```
+
+The dark variant uses light labels and clearly contrasted light fields. Compact
+reduces field height, label gaps, padding and outer margins; large increases field
+height and type. Horizontal forms wrap within the available parent width and
+stack below 720px; vertical stays in one column. Hidden labels stay in the DOM,
+associated with unique field IDs, so controls keep accessible names. Focus rings
+are visible for fields, the submit button and links.
+
+All variant CSS lives under `.sacscoc-institution-search`, with tokens named
+`--sacscoc-search-*`: field-height, field-gap, label-gap, label-size, field-size,
+padding, margin, actions-gap, max-width, text, label, surface, field-bg,
+field-text, placeholder, border, focus, button-bg and button-text. Theme colors
+reuse the plugin palette and Elementor globals. The new CSS does not style the
+directory results or other forms.
+
+The existing **Institutions Search** Gutenberg block offers Theme, Layout, Size,
+Width and Show labels controls. Empty choices preserve older block settings;
+`containWidth` remains supported and its toggle appears when Width uses the
+existing setting. Elementor Shortcode widgets use the same renderer and styles;
+shortcodes in Elementor data are detected before the head stylesheet is printed,
+including multiline shortcode values.
+
+Run the standalone visual/compatibility tests with:
+
+```sh
+php plugins/sacscoc-institutions/tests/run.php
+```
+
+These exercise the real renderer, shortcode aliases, native GET field names and
+values, destinations, unique labels, enum fallbacks, old width behavior, block
+attribute forwarding and Elementor stylesheet loading, without a database.

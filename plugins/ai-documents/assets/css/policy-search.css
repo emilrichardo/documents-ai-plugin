@@ -1,0 +1,140 @@
+/* Only explicit visual options use this layer. Existing results keep their CSS. */
+.aidocs-policy-search.aidocs-policy-search--visual {
+    --search-text: var(--aidocs-fg, #1d1f25);
+    --search-label: var(--aidocs-accent-strong, #003a5d);
+    --search-muted: #565f68;
+    --search-bg: var(--aidocs-surface, #f5f6f7);
+    --search-field-bg: #fff;
+    --search-field-text: #1d1f25;
+    --search-placeholder: #626a73;
+    --search-border: #788591;
+    --search-button-bg: var(--aidocs-accent-strong, #003a5d);
+    --search-button-text: #fff;
+    --search-button-hover: #002c47;
+    --search-button-hover-text: #fff;
+    --search-focus: var(--aidocs-accent-strong, #003a5d);
+    --search-field-height: 2.875rem;
+    --search-field-gap: .625rem;
+    --search-label-gap: .375rem;
+    --search-font-size: .875rem;
+    --search-label-size: .875rem;
+    --search-button-size: .8125rem;
+    --search-button-padding: 1.75rem;
+    --search-card-padding: clamp(1.25rem, 2.5vw, 1.75rem);
+    --search-section-gap: 1.125rem;
+    --search-heading-size: var(--aidocs-subheading, 1.375rem);
+    --search-container-max-width: 56.25rem;
+    --search-contained-width: 64rem;
+    --search-field-radius: 999px;
+    color: var(--search-text);
+    min-width: 0;
+    max-width: min(100%, var(--search-container-max-width));
+    box-sizing: border-box;
+}
+
+.aidocs-policy-search.aidocs-policy-search--theme-dark {
+    --search-text: #fff;
+    --search-label: #fff;
+    --search-muted: #e0e7ed;
+    --search-bg: transparent;
+    --search-border: #bdcbd6;
+    --search-button-bg: var(--aidocs-gold, #cc9f53);
+    --search-button-text: #102b3c;
+    --search-button-hover: #fff;
+    --search-button-hover-text: #102b3c;
+    --search-focus: #f2c572;
+}
+
+.aidocs-policy-search.aidocs-policy-search--size-compact {
+    --search-field-height: 2.5rem;
+    --search-field-gap: .5rem;
+    --search-label-gap: .25rem;
+    --search-label-size: .8125rem;
+    --search-button-size: .75rem;
+    --search-button-padding: 1.125rem;
+    --search-card-padding: .875rem;
+    --search-section-gap: .625rem;
+    --search-heading-size: 1.1875rem;
+}
+
+.aidocs-policy-search.aidocs-policy-search--size-large {
+    --search-field-height: 3.75rem;
+    --search-field-gap: 1rem;
+    --search-label-gap: .5rem;
+    --search-font-size: 1.125rem;
+    --search-label-size: 1rem;
+    --search-button-size: 1rem;
+    --search-button-padding: 2rem;
+    --search-card-padding: clamp(1.5rem, 3vw, 2.5rem);
+    --search-section-gap: 1.5rem;
+    --search-heading-size: clamp(1.5rem, 2vw, 1.875rem);
+}
+
+.aidocs-policy-search.aidocs-policy-search--width-auto { width: fit-content; max-width: 100%; margin-inline: 0; }
+.aidocs-policy-search.aidocs-policy-search--width-contained { width: 100%; max-width: min(100%, var(--search-contained-width)); margin-inline: auto; }
+.aidocs-policy-search.aidocs-policy-search--width-full { width: 100%; max-width: 100%; margin-inline: 0; }
+
+/* Elementor flex containers otherwise size a Shortcode widget to its content.
+   Only widgets containing an explicit wide form opt into this integration. */
+.elementor-widget-shortcode:has(.aidocs-policy-search--width-contained),
+.elementor-widget-shortcode:has(.aidocs-policy-search--width-full) { width: 100%; min-width: 0; max-width: 100%; align-self: stretch; }
+
+.aidocs-policy-search--visual.aidocs-scope form.cd-fs-card--form {
+    color: var(--search-text);
+    background: var(--search-bg);
+    padding: var(--search-card-padding);
+    margin: 0;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-title { color: var(--search-label); font-size: var(--search-heading-size); line-height: 1.3; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-subtitle { color: var(--search-muted); font-size: var(--search-label-size); margin-bottom: var(--search-section-gap); flex-wrap: wrap; line-height: 1.5; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-subtitle-badge { color: var(--search-field-text); background: var(--search-field-bg); border-color: var(--search-border); }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-type-tabs { gap: .25rem 1rem; margin: 0 0 var(--search-section-gap); align-items: baseline; }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__type-tab {
+    appearance: none; background: transparent; border: 0; border-radius: 0; box-shadow: none;
+    padding: .25rem 0; margin: 0; min-width: 0; max-width: 100%; min-height: 1.5rem; height: auto;
+    color: var(--search-muted); font-family: inherit; font-size: var(--search-font-size);
+    font-weight: 400; line-height: 1.5; letter-spacing: normal; text-transform: none;
+    text-align: start; white-space: normal; overflow-wrap: anywhere; cursor: pointer;
+}
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__type-tab:hover,
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__type-tab.is-active { color: var(--search-label); text-decoration: underline; text-underline-offset: .2em; }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__type-tab.is-active { font-weight: 600; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--search-field-gap); }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__field { flex: 1 1 15rem; min-width: 0; max-width: 100%; }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__label { display: block; margin: 0 0 var(--search-label-gap); color: var(--search-label); font-size: var(--search-label-size); font-weight: 600; line-height: 1.4; }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__label--hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword-wrap { width: 100%; min-width: 0; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword-wrap > svg { color: var(--search-placeholder); }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword-wrap .cd-fs-keyword {
+    height: var(--search-field-height); min-width: 0; max-width: 100%; margin: 0;
+    padding: 0 1rem 0 2.625rem; color: var(--search-field-text); background: var(--search-field-bg);
+    border: 1px solid var(--search-border); border-radius: var(--search-field-radius);
+    font-family: inherit; font-size: var(--search-font-size); line-height: 1.4; box-shadow: none;
+}
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword::placeholder { color: var(--search-placeholder); opacity: 1; }
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__submit {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem; flex: 0 0 auto;
+    appearance: none; height: var(--search-field-height); min-height: var(--search-field-height); max-width: 100%; margin: 0;
+    padding: 0 var(--search-button-padding); background: var(--search-button-bg); color: var(--search-button-text);
+    border: 1px solid var(--search-button-bg); border-radius: var(--search-field-radius); box-shadow: none;
+    font-family: var(--aidocs-font-heading), sans-serif; font-size: var(--search-button-size); font-weight: 600;
+    line-height: 1.3; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+}
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__submit:hover { background: var(--search-button-hover); color: var(--search-button-hover-text); border-color: var(--search-button-hover); }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword:focus,
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__submit:focus-visible,
+.aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__type-tab:focus-visible { outline: 2px solid var(--search-focus); outline-offset: 3px; box-shadow: none; }
+.aidocs-policy-search--visual.aidocs-scope .cd-fs-default-submit { min-height: 0; min-width: 0; }
+.aidocs-policy-search--layout-vertical.aidocs-scope .cd-fs-controls { flex-direction: column; align-items: stretch; }
+.aidocs-policy-search--layout-vertical.aidocs-scope .aidocs-policy-search__field { flex: none; width: 100%; }
+.aidocs-policy-search--layout-vertical.aidocs-scope .aidocs-policy-search__submit { width: 100%; }
+
+@media (max-width: 600px) {
+    .aidocs-policy-search--visual.aidocs-scope .cd-fs-controls { flex-direction: column; align-items: stretch; }
+    .aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__field { flex: none; width: 100%; }
+    .aidocs-policy-search--visual.aidocs-scope .aidocs-policy-search__submit { width: 100%; }
+    .aidocs-policy-search--visual.aidocs-scope .cd-fs-keyword-wrap .cd-fs-keyword { font-size: max(1rem, var(--search-font-size)); }
+}

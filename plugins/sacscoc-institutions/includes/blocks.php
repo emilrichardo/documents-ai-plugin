@@ -198,6 +198,10 @@ function sacscoc_inst_render_search_block( array $attributes ): string {
         'contain_width' => (bool) ( $attributes['containWidth'] ?? true ),
         'show_heading'  => (bool) ( $attributes['showHeading'] ?? true ),
         'results_url'   => (string) ( $attributes['resultsUrl'] ?? '' ),
+        'theme'         => $attributes['theme'] ?? '',
+        'size'          => $attributes['size'] ?? 'default',
+        'width'         => $attributes['width'] ?? '',
+        'show_labels'   => $attributes['showLabels'] ?? '',
     ] );
 
     return sprintf( '<div %s>%s</div>', get_block_wrapper_attributes(), $content );

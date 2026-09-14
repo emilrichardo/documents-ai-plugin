@@ -207,6 +207,47 @@
 								: __( 'The same panel the Institutions Directory block’s own inline form uses.', 'sacscoc-institutions' ),
 							onChange: function ( value ) { setAttributes( { layout: value } ); }
 						} ),
+						el( SelectControl, {
+							label: __( 'Theme', 'sacscoc-institutions' ),
+							value: attributes.theme,
+							options: [
+								{ label: __( 'Inherit existing appearance', 'sacscoc-institutions' ), value: '' },
+								{ label: __( 'Light background', 'sacscoc-institutions' ), value: 'light' },
+								{ label: __( 'Dark background', 'sacscoc-institutions' ), value: 'dark' }
+							],
+							onChange: function ( value ) { setAttributes( { theme: value } ); }
+						} ),
+						el( SelectControl, {
+							label: __( 'Size', 'sacscoc-institutions' ),
+							value: attributes.size,
+							options: [
+								{ label: __( 'Compact', 'sacscoc-institutions' ), value: 'compact' },
+								{ label: __( 'Default', 'sacscoc-institutions' ), value: 'default' },
+								{ label: __( 'Large', 'sacscoc-institutions' ), value: 'large' }
+							],
+							onChange: function ( value ) { setAttributes( { size: value } ); }
+						} ),
+						el( SelectControl, {
+							label: __( 'Width', 'sacscoc-institutions' ),
+							value: attributes.width,
+							options: [
+								{ label: __( 'Use existing width setting', 'sacscoc-institutions' ), value: '' },
+								{ label: __( 'Auto', 'sacscoc-institutions' ), value: 'auto' },
+								{ label: __( 'Contained', 'sacscoc-institutions' ), value: 'contained' },
+								{ label: __( 'Full container', 'sacscoc-institutions' ), value: 'full' }
+							],
+							onChange: function ( value ) { setAttributes( { width: value } ); }
+						} ),
+						el( SelectControl, {
+							label: __( 'Show labels', 'sacscoc-institutions' ),
+							value: attributes.showLabels,
+							options: [
+								{ label: __( 'Use existing layout behavior', 'sacscoc-institutions' ), value: '' },
+								{ label: __( 'Yes', 'sacscoc-institutions' ), value: 'yes' },
+								{ label: __( 'No — keep accessible labels', 'sacscoc-institutions' ), value: 'no' }
+							],
+							onChange: function ( value ) { setAttributes( { showLabels: value } ); }
+						} ),
 						el( ToggleControl, {
 							label: __( 'Show the heading', 'sacscoc-institutions' ),
 							help: attributes.showHeading
@@ -234,7 +275,7 @@
 							help: __( 'Must match the Institutions Directory block’s own Group, on the page where that block has “Show the search form” turned off. Only needed when a page has more than one pair.', 'sacscoc-institutions' ),
 							onChange: function ( value ) { setAttributes( { group: value || 'default' } ); }
 						} ),
-						el( ToggleControl, {
+						! attributes.width && el( ToggleControl, {
 							label: __( 'Constrain width to match the directory', 'sacscoc-institutions' ),
 							help: attributes.containWidth
 								? __( 'Capped at the same measure as the Institutions Directory block, centred — on by default so a search panel placed above a directory lines up with it.', 'sacscoc-institutions' )

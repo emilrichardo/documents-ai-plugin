@@ -47,6 +47,7 @@ require_once AIDOCS_DIR . 'includes/aidocs-documentation.php';
 // typing a shortcode.
 require_once AIDOCS_DIR . 'includes/aidocs-listing-page.php';
 require_once AIDOCS_DIR . 'includes/aidocs-blocks.php';
+require_once AIDOCS_DIR . 'includes/aidocs-search-visual.php';
 
 // Default Document Types — seeded once and then admin-configurable from
 // Settings (see aidocs_get_types()). Adding a new type there does not
@@ -5194,6 +5195,8 @@ function aidocs_settings_page() { // phpcs:ignore
             <p class="cd-sc-desc"><?php esc_html_e( 'The same search card, with nothing underneath it. Submitting goes to the listing — the page set as Policies Page above, or whatever results_url names — with the keyword and the type in the query string, where the search runs and the results appear. For a page that introduces the policies rather than listing them, where the whole library printed under the box is not what anyone came for.' ); ?></p>
             <div class="cd-sc-code"><code id="cd-sc-12">[aidocs_policy_search]</code><button class="cd-sc-copy" data-target="cd-sc-12"><?php esc_html_e( 'Copy' ); ?></button></div>
             <div class="cd-sc-code"><code id="cd-sc-13">[aidocs_policy_search results_url="/policies/" show_heading="no"]</code><button class="cd-sc-copy" data-target="cd-sc-13"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <p class="cd-sc-desc"><?php esc_html_e( 'Visual options for the form only: theme="light|dark", layout="horizontal|vertical", size="compact|default|large", width="auto|contained|full", show_labels="yes|no". Omit them to keep the existing appearance. These also work in Elementor Shortcode widgets.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-14">[aidocs_policy_search results_url="/policies/" theme="light" layout="horizontal" size="large" width="contained" show_labels="yes"]</code><button class="cd-sc-copy" data-target="cd-sc-14"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Pre-filtered by Document Type' ); ?></h3>
@@ -5870,12 +5873,22 @@ function aidocs_search_results_url( string $target = '' ): string {
  *   @type bool   $show_heading false drops the card's own title and subtitle,
  *                             for a section that already has a heading of its
  *                             own above the form
+ *   @type string $theme       light|dark; omit visual options to preserve legacy styles
+ *   @type string $layout      horizontal|vertical
+ *   @type string $size        compact|default|large
+ *   @type string $width       auto|contained|full
+ *   @type string $show_labels yes|no; a hidden label remains accessible
  * }
  */
 function aidocs_render_search_form( array $args ): string {
     $types        = aidocs_get_types();
     $action       = aidocs_search_results_url( (string) ( $args['results_url'] ?? '' ) );
     $show_heading = (bool) ( $args['show_heading'] ?? true );
+    $visual_options = aidocs_normalize_search_visual_options( $args );
+    $visual = (bool) array_filter( $visual_options );
+    $show_labels = $visual_options['show_labels'] === 'yes';
+    $type_tab_class = $visual ? 'aidocs-policy-search__type-tab' : 'cd-fs-type-tab';
+    $submit_class = $visual ? 'aidocs-policy-search__submit' : 'cd-fs-search-btn';
 
     // The URL wins over the attribute for the same reason it does in the
     // listing: a form rendered on a results URL that already carries a type
@@ -5890,9 +5903,10 @@ function aidocs_render_search_form( array $args ): string {
 
     ob_start();
     aidocs_search_styles();
+    if ( $visual ) aidocs_search_visual_styles();
     ?>
 
-    <div class="aidocs-scope cd-fs-wrap">
+    <div class="aidocs-scope cd-fs-wrap <?php echo esc_attr( aidocs_search_visual_classes( $visual_options ) ); ?>">
         <form class="cd-fs-card cd-fs-card--form" method="get" action="<?php echo esc_url( $action ); ?>" role="search">
             <?php
             // Pressing Enter in the keyword field submits the form through its
@@ -5925,27 +5939,34 @@ function aidocs_render_search_form( array $args ): string {
             <!-- Type tabs, as submit buttons: clicking one searches that type
                  with whatever is already typed, with no script involved. -->
             <div class="cd-fs-type-tabs">
-                <button type="submit" name="type" value="" class="cd-fs-type-tab <?php echo $matched_type === '' ? 'is-active' : ''; ?>">
+                <button type="submit" name="type" value="" class="<?php echo esc_attr( $type_tab_class ); ?> <?php echo $matched_type === '' ? 'is-active' : ''; ?>">
                     <?php esc_html_e( 'All' ); ?>
                 </button>
                 <?php foreach ( $types as $t ) : ?>
-                <button type="submit" name="type" value="<?php echo esc_attr( $t ); ?>" class="cd-fs-type-tab <?php echo $matched_type === $t ? 'is-active' : ''; ?>">
+                <button type="submit" name="type" value="<?php echo esc_attr( $t ); ?>" class="<?php echo esc_attr( $type_tab_class ); ?> <?php echo $matched_type === $t ? 'is-active' : ''; ?>">
                     <?php echo esc_html( $t ); ?>
                 </button>
                 <?php endforeach; ?>
             </div>
 
             <div class="cd-fs-controls">
+                <?php if ( $visual ) : ?>
+                <div class="aidocs-policy-search__field">
+                    <label class="aidocs-policy-search__label<?php echo $show_labels ? '' : ' aidocs-policy-search__label--hidden'; ?>" for="<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Search policies' ); ?></label>
+                <?php endif; ?>
                 <div class="cd-fs-keyword-wrap">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <?php if ( ! $visual ) : ?>
                     <label class="screen-reader-text" for="<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Search policies' ); ?></label>
+                    <?php endif; ?>
                     <input type="search" id="<?php echo esc_attr( $uid ); ?>" name="q" class="cd-fs-keyword"
                            placeholder="<?php esc_attr_e( 'e.g. reduced credit for undergraduate degree…' ); ?>"
                            value="<?php echo esc_attr( sanitize_text_field( $_GET['q'] ?? '' ) ); ?>">
                 </div>
+                <?php if ( $visual ) : ?></div><?php endif; ?>
                 <?php // Carries the active type for the same reason the first button does. ?>
-                <button type="submit" name="type" value="<?php echo esc_attr( $matched_type ); ?>" class="cd-fs-search-btn">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <button type="submit" name="type" value="<?php echo esc_attr( $matched_type ); ?>" class="<?php echo esc_attr( $submit_class ); ?>">
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <?php esc_html_e( 'Search' ); ?>
                 </button>
             </div>
@@ -5968,7 +5989,7 @@ add_shortcode( 'aidocs_search', 'aidocs_search_shortcode' );
 add_shortcode( 'aidocs_policy_search', 'aidocs_search_shortcode' );
 
 function aidocs_search_shortcode( $atts, $content = '', $tag = '' ) {
-    $atts = shortcode_atts( [
+    $atts = shortcode_atts( array_merge( aidocs_search_visual_defaults(), [
         'type'      => '',
         'per_page'  => 20,
         'show_ai'   => 'true',
@@ -5987,14 +6008,14 @@ function aidocs_search_shortcode( $atts, $content = '', $tag = '' ) {
         'mode'         => $tag === 'aidocs_policy_search' ? 'form' : 'results',
         'results_url'  => '',
         'show_heading' => 'yes',
-    ], $atts );
+    ] ), $atts );
 
     if ( strtolower( (string) $atts['mode'] ) === 'form' ) {
-        return aidocs_render_search_form( [
+        return aidocs_render_search_form( array_merge( aidocs_normalize_search_visual_options( $atts ), [
             'type'         => (string) $atts['type'],
             'results_url'  => (string) $atts['results_url'],
             'show_heading' => $atts['show_heading'] !== 'no' && $atts['show_heading'] !== 'false',
-        ] );
+        ] ) );
     }
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );

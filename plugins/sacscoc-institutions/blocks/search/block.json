@@ -12,6 +12,10 @@
 		"group": { "type": "string", "default": "default" },
 		"heading": { "type": "string", "default": "" },
 		"layout": { "type": "string", "default": "vertical" },
+		"theme": { "type": "string", "default": "" },
+		"size": { "type": "string", "default": "default" },
+		"width": { "type": "string", "default": "" },
+		"showLabels": { "type": "string", "default": "" },
 		"containWidth": { "type": "boolean", "default": true },
 		"showHeading": { "type": "boolean", "default": true },
 		"resultsUrl": { "type": "string", "default": "" }

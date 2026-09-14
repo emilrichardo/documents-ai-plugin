@@ -75,6 +75,7 @@ $active      = sacscoc_inst_has_filters( $filters );
 $heading     = trim( (string) ( $heading ?? '' ) );
 $heading     = $heading !== '' ? $heading : __( 'Institution Search', 'sacscoc-institutions' );
 $show_reset  = (bool) ( $show_reset ?? true );
+$field_id    = wp_unique_id( 'sacscoc-search-' );
 
 // The directory's own inline form always prints its heading — it is what names
 // the panel beside the results. A standalone form can be told not to, for the
@@ -113,9 +114,9 @@ $clear = static function ( array $filters, string $key, string $label ): void {
 
     <div class="sacscoc-search__fields">
         <p class="sacscoc-field">
-            <label class="sacscoc-field__label" for="si_q"><?php esc_html_e( 'Institution Name', 'sacscoc-institutions' ); ?></label>
+            <label class="sacscoc-field__label" for="<?php echo esc_attr( $field_id . '-si_q' ); ?>"><?php esc_html_e( 'Institution Name', 'sacscoc-institutions' ); ?></label>
             <span class="sacscoc-field__control">
-                <input class="sacscoc-control" type="search" id="si_q" name="si_q"
+                <input class="sacscoc-control" type="search" id="<?php echo esc_attr( $field_id . '-si_q' ); ?>" name="si_q"
                        value="<?php echo esc_attr( $filters['q'] ); ?>"
                        autocomplete="off"
                        placeholder="<?php esc_attr_e( 'Search…', 'sacscoc-institutions' ); ?>" />
@@ -127,9 +128,9 @@ $clear = static function ( array $filters, string $key, string $label ): void {
 
         <?php if ( ! in_array( 'state', $locked, true ) ) : ?>
         <p class="sacscoc-field">
-            <label class="sacscoc-field__label" for="si_state"><?php esc_html_e( 'State', 'sacscoc-institutions' ); ?></label>
+            <label class="sacscoc-field__label" for="<?php echo esc_attr( $field_id . '-si_state' ); ?>"><?php esc_html_e( 'State', 'sacscoc-institutions' ); ?></label>
             <span class="sacscoc-field__control">
-                <select class="sacscoc-control sacscoc-control--select" id="si_state" name="si_state">
+                <select class="sacscoc-control sacscoc-control--select" id="<?php echo esc_attr( $field_id . '-si_state' ); ?>" name="si_state">
                     <option value=""><?php esc_html_e( 'Any State', 'sacscoc-institutions' ); ?></option>
                     <?php foreach ( sacscoc_inst_states() as $code => $label ) : ?>
                         <option value="<?php echo esc_attr( $code ); ?>" <?php selected( $filters['state'], $code ); ?>>
@@ -146,9 +147,9 @@ $clear = static function ( array $filters, string $key, string $label ): void {
 
         <?php if ( ! in_array( 'degree', $locked, true ) ) : ?>
         <p class="sacscoc-field">
-            <label class="sacscoc-field__label" for="si_degree"><?php esc_html_e( 'Highest Degree Offered', 'sacscoc-institutions' ); ?></label>
+            <label class="sacscoc-field__label" for="<?php echo esc_attr( $field_id . '-si_degree' ); ?>"><?php esc_html_e( 'Highest Degree Offered', 'sacscoc-institutions' ); ?></label>
             <span class="sacscoc-field__control">
-                <select class="sacscoc-control sacscoc-control--select" id="si_degree" name="si_degree">
+                <select class="sacscoc-control sacscoc-control--select" id="<?php echo esc_attr( $field_id . '-si_degree' ); ?>" name="si_degree">
                     <option value=""><?php esc_html_e( 'Any Degree', 'sacscoc-institutions' ); ?></option>
                     <?php
                     // Lowest to highest, the order the current site lists them in.
@@ -167,9 +168,9 @@ $clear = static function ( array $filters, string $key, string $label ): void {
 
         <?php if ( ! in_array( 'year', $locked, true ) ) : ?>
         <p class="sacscoc-field">
-            <label class="sacscoc-field__label" for="si_year"><?php esc_html_e( 'Next Reaffirmation Year', 'sacscoc-institutions' ); ?></label>
+            <label class="sacscoc-field__label" for="<?php echo esc_attr( $field_id . '-si_year' ); ?>"><?php esc_html_e( 'Next Reaffirmation Year', 'sacscoc-institutions' ); ?></label>
             <span class="sacscoc-field__control">
-                <select class="sacscoc-control sacscoc-control--select" id="si_year" name="si_year">
+                <select class="sacscoc-control sacscoc-control--select" id="<?php echo esc_attr( $field_id . '-si_year' ); ?>" name="si_year">
                     <option value=""><?php esc_html_e( 'Any Year', 'sacscoc-institutions' ); ?></option>
                     <?php foreach ( sacscoc_inst_reaffirm_years() as $year ) : ?>
                         <option value="<?php echo esc_attr( (string) $year ); ?>" <?php selected( $filters['year'], (string) $year ); ?>>
