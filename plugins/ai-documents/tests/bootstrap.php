@@ -137,6 +137,48 @@ function esc_url( $str ) {
 function wp_parse_url( $url, $component = -1 ) {
     return $component === -1 ? parse_url( $url ) : parse_url( $url, $component );
 }
+function esc_url_raw( $str ) { return (string) $str; }
+function sanitize_title( $title ) {
+    $title = strtolower( remove_accents_ish( (string) $title ) );
+    $title = preg_replace( '/[^a-z0-9_\-]+/', '-', $title );
+    return trim( (string) $title, '-' );
+}
+function remove_accents_ish( $str ) {
+    return (string) iconv( 'UTF-8', 'ASCII//TRANSLIT//IGNORE', $str );
+}
+function home_url( $path = '/' ) { return 'http://example.test' . $path; }
+
+/**
+ * Enough of the page store for aidocs_policies_page_id() to answer, and for
+ * aidocs_search_results_url() to tell a published page id from a bogus one.
+ */
+class WP_Post {
+    public $ID = 0;
+    public $post_type = 'post';
+    public $post_status = 'publish';
+    public $post_content = '';
+}
+function aidocs_test_seed_page( $id, $status = 'publish', $type = 'page' ) {
+    $page = new WP_Post();
+    $page->ID          = (int) $id;
+    $page->post_type   = $type;
+    $page->post_status = $status;
+    $GLOBALS['__aidocs_test_posts'][ (int) $id ] = $page;
+}
+function get_post( $id = 0 ) {
+    $post = $GLOBALS['__aidocs_test_posts'][ (int) $id ] ?? null;
+    return is_object( $post ) ? $post : null;
+}
+function get_post_status( $id = 0 ) {
+    $post = get_post( $id );
+    return $post ? $post->post_status : false;
+}
+
+// Unique within the request, which is all the real one promises.
+function wp_unique_id( $prefix = '' ) {
+    static $n = 0;
+    return $prefix . ( ++$n );
+}
 function __( $str, $domain = null ) { return $str; }
 function _e( $str, $domain = null ) { echo $str; }
 function absint( $n ) { return abs( (int) $n ); }
@@ -172,6 +214,19 @@ function add_filter( $hook, $cb, $priority = 10, $args = 1 ) {}
 function do_action( $hook, ...$args ) {}
 function apply_filters( $hook, $value, ...$args ) { return $value; }
 function add_shortcode( $tag, $cb ) {}
+/**
+ * The real one, near enough: defaults overridden by whatever the caller
+ * passed, unknown attributes dropped. The `$shortcode` argument is ignored
+ * here — WordPress only uses it to fire a filter.
+ */
+function shortcode_atts( $pairs, $atts, $shortcode = '' ) {
+    $atts = (array) $atts;
+    $out  = [];
+    foreach ( $pairs as $name => $default ) {
+        $out[ $name ] = array_key_exists( $name, $atts ) ? $atts[ $name ] : $default;
+    }
+    return $out;
+}
 function register_activation_hook( $file, $cb ) {}
 function register_deactivation_hook( $file, $cb ) {}
 function flush_rewrite_rules() {}

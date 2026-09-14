@@ -1,0 +1,32 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 2,
+	"name": "ai-documents/policies",
+	"title": "Policies",
+	"category": "widgets",
+	"icon": "media-document",
+	"description": "The policy listing with its search bar — the same thing the [aidocs_search] shortcode renders, configured here instead of by typing attributes.",
+	"keywords": [ "policies", "policy", "documents", "search", "listing" ],
+	"textdomain": "ai-documents",
+	"attributes": {
+		"type": { "type": "string", "default": "" },
+		"perPage": { "type": "number", "default": 20 },
+		"showAi": { "type": "boolean", "default": true }
+	},
+	"supports": {
+		"html": false,
+		"color": {
+			"background": true,
+			"text": true,
+			"gradients": true
+		},
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	}
+}

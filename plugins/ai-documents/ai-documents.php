@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.5.0' );
+define( 'AIDOCS_VERSION', '1.6.0' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -40,6 +40,13 @@ require_once AIDOCS_DIR . 'includes/aidocs-doc-parser.php';
 // Documents → Documentation: the manual, generated from docs/DOCUMENTATION.md
 // by tools/build-docs.sh so it never drifts from the version it ships with.
 require_once AIDOCS_DIR . 'includes/aidocs-documentation.php';
+
+// The Policies Page — a real, editable page carrying the listing, in place of
+// the post type archive WordPress conjures up on its own — and the two
+// Gutenberg blocks that put the listing (or one policy) on it without anyone
+// typing a shortcode.
+require_once AIDOCS_DIR . 'includes/aidocs-listing-page.php';
+require_once AIDOCS_DIR . 'includes/aidocs-blocks.php';
 
 // Default Document Types — seeded once and then admin-configurable from
 // Settings (see aidocs_get_types()). Adding a new type there does not
@@ -721,12 +728,46 @@ function aidocs_document_layout_css() {
  * is a name no theme reads, declared on a class no theme uses.
  */
 function aidocs_scope_css() {
+    // The shared vocabulary this monorepo's three front ends are dressed in.
+    // sacscoc-institutions' stylesheet is the reference; the names differ per
+    // plugin (nothing is shared at runtime — each plugin stands alone) but the
+    // roles and values are deliberately the same, so a search box here and one
+    // there read as the same component.
     $css = '.aidocs-scope{'
         . '--aidocs-accent:var(--e-global-color-secondary,var(--ast-global-color-1,#4d758e));'
         . '--aidocs-accent-strong:var(--e-global-color-primary,var(--ast-global-color-0,#003a5d));'
+        . '--aidocs-gold:var(--e-global-color-accent,#cc9f53);'
         . '--aidocs-fg:var(--e-global-color-text,var(--ast-global-color-3,#1d1f25));'
+        . '--aidocs-muted:#686868;'
         . '--aidocs-base:#fdfdfd;'
-        . '--aidocs-radius:8px;'
+        // Rules and tints as ink over the page rather than literal greys, so
+        // they survive a theme with a tinted background.
+        . '--aidocs-line:rgba(0,0,0,0.09);'
+        . '--aidocs-line-strong:rgba(0,0,0,0.16);'
+        . '--aidocs-surface:rgba(0,0,0,0.03);'
+        // Resolves to the theme's heading face with an Elementor kit, and is
+        // dropped as invalid (so the theme's own font stands) without one.
+        . '--aidocs-font-heading:var(--e-global-typography-primary-font-family,inherit);'
+        . '--aidocs-text:clamp(15px,0.3vw + 14px,17px);'
+        . '--aidocs-text-sm:clamp(13px,0.2vw + 12.4px,14px);'
+        . '--aidocs-label:clamp(12px,0.15vw + 11.5px,13px);'
+        . '--aidocs-name:clamp(18px,0.6vw + 16px,22px);'
+        . '--aidocs-subheading:clamp(19px,0.7vw + 16.5px,22px);'
+        . '--aidocs-radius:6px;'
+        . '--aidocs-control-height:46px;'
+        // Where the floating assistant sits, as one number rather than three.
+        //
+        // It clears the theme's own "Back to top" arrow, which Astra pins at
+        // bottom:30px and which is roughly 40px tall — the bubble used to sit
+        // at 28px and covered it outright at the foot of a long page. Anything
+        // that has to move with the bubble (the panel above it, below) is
+        // derived from this, so a site that wants it somewhere else overrides
+        // one token and nothing drifts out of step.
+        . '--aidocs-bubble-bottom:80px;'
+        . '--aidocs-bubble-right:28px;'
+        // The bubble's own height plus the gap the panel leaves above it —
+        // what separates the two, independent of where the pair sits.
+        . '--aidocs-bubble-gap:62px;'
         . '}';
 
     /**
@@ -5011,6 +5052,10 @@ function aidocs_settings_page() { // phpcs:ignore
         // written from the presence of the key rather than from its value.
         update_option( 'aidocs_chat_sitewide', isset( $_POST['aidocs_chat_sitewide'] ) ? '1' : '0' );
 
+        // Where the listing lives. 0 is a real choice — "no page, use the
+        // /policies/ archive" — so it is stored rather than skipped.
+        update_option( 'aidocs_policies_page', absint( $_POST['aidocs_policies_page'] ?? 0 ) );
+
         $raw_types = sanitize_textarea_field( $_POST['aidocs_types_list'] ?? '' );
         update_option( 'aidocs_types_list', $raw_types );
         foreach ( array_filter( array_map( 'trim', explode( "\n", $raw_types ) ) ) as $term ) {
@@ -5051,6 +5096,19 @@ function aidocs_settings_page() { // phpcs:ignore
 
     <form method="post">
     <?php wp_nonce_field( 'aidocs_settings_save', 'aidocs_settings_nonce' ); ?>
+
+    <div class="cd-settings-section">
+        <h2><?php esc_html_e( 'Policies Page' ); ?></h2>
+        <p class="description" style="margin-bottom:16px;max-width:44em;">
+            <?php esc_html_e( 'The listing does not have to live on the automatic /policies/ archive — a URL that exists only as a rewrite rule, that nothing in wp-admin lists, and that nobody can add an intro paragraph to. Point this at a page instead and the listing becomes ordinary page content: a Policies block, or the [aidocs_search] shortcode, with anything you like around it.' ); ?>
+        </p>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th><label for="aidocs_policies_page"><?php esc_html_e( 'Listing Page' ); ?></label></th>
+                <td><?php aidocs_render_policies_page_picker(); ?></td>
+            </tr>
+        </table>
+    </div>
 
     <div class="cd-settings-section">
         <h2><?php esc_html_e( 'AI' ); ?></h2>
@@ -5120,10 +5178,22 @@ function aidocs_settings_page() { // phpcs:ignore
     </form>
 
     <div class="cd-settings-section">
-        <h2><?php esc_html_e( 'Shortcodes' ); ?></h2>
+        <h2><?php esc_html_e( 'Blocks and shortcodes' ); ?></h2>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'In the block editor: Policies and Policy' ); ?></h3>
+            <p class="cd-sc-desc">
+                <?php esc_html_e( 'Two blocks in the inserter — search for "Policies". The Policies block is the listing with its search bar, with the type, results per page and AI suggestions set from the block sidebar instead of typed as attributes; the Policy block embeds one entry. Both render the same PHP the shortcodes below do, so neither can show anything different from the other. Everything after this box is for pages without a block editor, and for anyone who prefers typing it.' ); ?>
+            </p>
+        </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Basic — all policies with search' ); ?></h3>
             <div class="cd-sc-code"><code id="cd-sc-1">[aidocs_search]</code><button class="cd-sc-copy" data-target="cd-sc-1"><?php esc_html_e( 'Copy' ); ?></button></div>
+        </div>
+        <div class="cd-sc-box">
+            <h3><?php esc_html_e( 'The search form on its own, without results' ); ?></h3>
+            <p class="cd-sc-desc"><?php esc_html_e( 'The same search card, with nothing underneath it. Submitting goes to the listing — the page set as Policies Page above, or whatever results_url names — with the keyword and the type in the query string, where the search runs and the results appear. For a page that introduces the policies rather than listing them, where the whole library printed under the box is not what anyone came for.' ); ?></p>
+            <div class="cd-sc-code"><code id="cd-sc-12">[aidocs_policy_search]</code><button class="cd-sc-copy" data-target="cd-sc-12"><?php esc_html_e( 'Copy' ); ?></button></div>
+            <div class="cd-sc-code"><code id="cd-sc-13">[aidocs_policy_search results_url="/policies/" show_heading="no"]</code><button class="cd-sc-copy" data-target="cd-sc-13"><?php esc_html_e( 'Copy' ); ?></button></div>
         </div>
         <div class="cd-sc-box">
             <h3><?php esc_html_e( 'Pre-filtered by Document Type' ); ?></h3>
@@ -5492,8 +5562,412 @@ register_deactivation_hook( __FILE__, 'flush_rewrite_rules' );
 // ──────────────────────────────────────────────
 // 8. Frontend Document Search Shortcode
 // ──────────────────────────────────────────────
+/**
+ * The search interface's stylesheet, printed inline once per request.
+ *
+ * Its own function because the interface is two things now rather than
+ * one: the listing ([aidocs_search]) and the standalone form
+ * ([aidocs_policy_search]) that submits to it. They share every control —
+ * the card, the type tabs, the keyword field, the Search button — and so
+ * they share every rule that dresses one. See aidocs_render_search_form().
+ *
+ * Guarded, so a page carrying both prints this once.
+ */
+function aidocs_search_styles() {
+    static $printed = false;
+    if ( $printed ) return;
+    $printed = true;
+
+    // Every selector below is scoped to `.aidocs-scope`, and every colour in
+    // it reads a token declared on that same class. Print the tokens first or
+    // there is nothing for the colours to resolve to. Guarded internally, so
+    // two of these shortcodes on one page still print it once.
+    aidocs_print_scope_css();
+    ?>
+    <style>
+    .aidocs-scope.cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
+    .aidocs-scope .cd-fs-card{background:var(--aidocs-surface);border:0;border-radius:var(--aidocs-radius);padding:clamp(20px,2.5vw,28px);}
+    /* Matches this site's own heading style (Montserrat 600, navy) — the
+       plugin ships a generic system-font/near-black default for whichever
+       theme it's dropped into, and this card's font-family override above
+       otherwise carries straight through to this h2 by inheritance. */
+    .aidocs-scope .cd-fs-title{font-family:var(--aidocs-font-heading),sans-serif;font-size:var(--aidocs-subheading,22px);font-weight:600;color:var(--aidocs-accent-strong);margin:0 0 4px;}
+    .aidocs-scope .cd-fs-subtitle{font-size:var(--aidocs-text-sm);color:var(--aidocs-muted);margin:0 0 18px;display:flex;align-items:center;gap:6px;}
+    .aidocs-scope .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);border:1px solid color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 30%,#fff);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);}
+    /* Single-row controls */
+    .aidocs-scope .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
+    .aidocs-scope .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
+    .aidocs-scope .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--aidocs-muted);pointer-events:none;}
+    /* input[type="text"] in this theme's own global stylesheet carries an
+       attribute selector, which counts as a class for specificity — putting
+       it a notch above a single plain class like .cd-fs-keyword and letting
+       its own padding win, which left this input's text sitting under the
+       search icon rather than clear of it. The wrapper-qualified selector
+       below outweighs that regardless of style order. */
+    .aidocs-scope .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:var(--aidocs-control-height);padding:0 36px 0 42px;border:1px solid var(--aidocs-line-strong);border-radius:999px;font-size:var(--aidocs-text-sm);color:var(--aidocs-fg);background:#fff;outline:none;transition:border-color .15s ease-in-out,box-shadow .15s ease-in-out;}
+    .aidocs-scope .cd-fs-keyword:focus{border-color:var(--aidocs-accent);box-shadow:0 0 0 3px rgba(77,117,142,.15);}
+    .aidocs-scope .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--aidocs-muted);padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
+    .aidocs-scope .cd-fs-kw-clear:hover{color:var(--aidocs-fg);background:var(--aidocs-surface);}
+    .aidocs-scope .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
+    .aidocs-scope .cd-fs-select-wrap{flex:1;min-width:120px;}
+    .aidocs-scope .cd-fs-select-wrap select{width:100%;height:var(--aidocs-control-height);padding:0 40px 0 20px;border:1px solid var(--aidocs-line-strong);border-radius:999px;font-size:var(--aidocs-text-sm);color:var(--aidocs-fg);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
+    .aidocs-scope .cd-fs-select-wrap select:focus{border-color:var(--aidocs-accent);box-shadow:0 0 0 3px rgba(77,117,142,.15);}
+    /* Search button — !important on the sizing props because this theme's
+       global button styling (Astra's Customizer "Buttons" typography)
+       targets plain <button> elements with its own !important rules, which
+       would otherwise inflate this into an oversized pill. */
+    .aidocs-scope .cd-fs-search-btn{height:var(--aidocs-control-height) !important;padding:0 28px !important;background:var(--aidocs-accent-strong);color:#fff;border:1px solid var(--aidocs-accent-strong);border-radius:999px !important;font-family:var(--aidocs-font-heading),sans-serif;font-size:var(--aidocs-label) !important;font-weight:600;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:background-color .15s ease-in-out,border-color .15s ease-in-out;flex-shrink:0;line-height:normal !important;}
+    .aidocs-scope .cd-fs-search-btn:hover,
+    .aidocs-scope .cd-fs-search-btn:focus-visible{background:var(--aidocs-gold);border-color:var(--aidocs-gold);color:#fff;}
+    /* Document Type tabs — replaces the plain dropdown as the way to switch
+       between Policies / Guidelines / Good Practices / Position Statements
+       (and whichever other types are configured). The <select> with the
+       same values stays in the markup, just hidden, so every existing
+       .cd-fs-type read/write in the JS below keeps working untouched. */
+    .aidocs-scope .cd-fs-type-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:0 10px;margin:14px 0 4px;font-size:var(--aidocs-text-sm);}
+    /* !important on the sizing props for the same reason as .cd-fs-search-btn
+       above — otherwise the theme's global <button> styling blows these
+       pills up well past the compact size they're designed at. */
+    .aidocs-scope .cd-fs-type-tab{background:none !important;border:0 !important;border-radius:0 !important;box-shadow:none !important;padding:0 !important;font-family:inherit;font-size:inherit !important;font-weight:400;color:var(--aidocs-muted);cursor:pointer;transition:color .15s ease-in-out;line-height:inherit !important;height:auto !important;text-decoration:none;}
+    .aidocs-scope .cd-fs-type-tab:hover,
+    .aidocs-scope .cd-fs-type-tab:focus-visible{background:none !important;border:0 !important;box-shadow:none !important;color:var(--aidocs-accent-strong);text-decoration:underline;}
+    .aidocs-scope .cd-fs-type-tab.is-active{background:none !important;border:0 !important;color:var(--aidocs-accent-strong);font-weight:600;text-decoration:underline;}
+    .aidocs-scope .cd-fs-type-tab+.cd-fs-type-tab::before{content:'\00b7';display:inline-block;margin-inline-end:10px;color:var(--aidocs-line-strong);}
+    .aidocs-scope .cd-fs-type-select-hidden{display:none;}
+
+    /* Form-only mode: the card *is* the <form> ([aidocs_policy_search]), so it
+       needs the margin reset a theme's own form styling would otherwise add,
+       and the tabs lose the top margin that separates them from a heading the
+       form may not be printing. */
+    /* The form's field label, which is for a screen reader rather than the
+       eye — the card's own heading is what a sighted visitor reads. WordPress
+       themes conventionally define .screen-reader-text and Astra does, but a
+       label that becomes visible in a theme that does not is a broken-looking
+       page, so this scopes its own copy rather than borrowing one. */
+    .aidocs-scope .screen-reader-text{position:absolute !important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
+    /* The implicit-submission button: present for the Enter key, absent from
+       the page in every other sense. */
+    .aidocs-scope .cd-fs-default-submit{position:absolute;width:0;height:0;padding:0;border:0;opacity:0;pointer-events:none;}
+    .aidocs-scope form.cd-fs-card--form{margin:0;}
+    .aidocs-scope .cd-fs-card--form .cd-fs-type-tabs{margin-top:0;}
+    /* Results */
+    .aidocs-scope .cd-fs-results{margin-top:22px;}
+    .aidocs-scope .cd-fs-results-header{font-size:var(--aidocs-text-sm);color:var(--aidocs-muted);margin-bottom:12px;}
+    .aidocs-scope .cd-fs-doc-card{display:flex;gap:16px;padding:22px 8px;border:0;border-top:1px solid var(--aidocs-line);border-radius:0;margin:0;background:none;transition:background-color .15s ease-in-out;}
+    .aidocs-scope .cd-fs-doc-card:last-child{border-bottom:1px solid var(--aidocs-line);}
+    .aidocs-scope .cd-fs-doc-card:hover,
+    .aidocs-scope .cd-fs-doc-card:focus-within{background-color:var(--aidocs-surface);}
+    .aidocs-scope .cd-fs-doc-icon{flex-shrink:0;width:34px;height:34px;border-radius:0;display:flex;align-items:flex-start;justify-content:center;background:none;}
+    .aidocs-scope .cd-fs-doc-icon svg{color:var(--aidocs-gold);}
+    .aidocs-scope .cd-fs-doc-body{flex:1;min-width:0;}
+    .aidocs-scope .cd-fs-doc-title{font-family:var(--aidocs-font-heading),sans-serif;font-size:var(--aidocs-name);font-weight:500;line-height:1.3;color:var(--aidocs-accent-strong);margin:0 0 4px;}
+    .aidocs-scope .cd-fs-doc-title a{color:inherit;text-decoration:none;transition:color .15s ease-in-out;}
+    .aidocs-scope .cd-fs-doc-card:hover .cd-fs-doc-title a,
+    .aidocs-scope .cd-fs-doc-title a:hover,
+    .aidocs-scope .cd-fs-doc-title a:focus-visible{color:var(--aidocs-accent);}
+    .aidocs-scope .cd-fs-doc-desc{font-size:var(--aidocs-text-sm);color:var(--aidocs-muted);margin:0 0 8px;line-height:1.6;}
+    .aidocs-scope .cd-fs-doc-snippet{font-size:var(--aidocs-text-sm);color:var(--aidocs-ink);margin:0 0 8px;line-height:1.6;background:none;border-left:2px solid var(--aidocs-line-strong);padding:2px 0 2px 12px;border-radius:0;}
+    .aidocs-scope .cd-fs-doc-snippet mark{background:color-mix(in srgb,var(--aidocs-gold) 32%,#fff);color:inherit;padding:0 2px;border-radius:2px;}
+    .aidocs-scope .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+    .aidocs-scope .cd-fs-doc-tag{font-family:var(--aidocs-font-heading),sans-serif;font-size:11px;padding:0;border-radius:0;font-weight:600;letter-spacing:.1em;text-transform:uppercase;background:none;display:inline-flex;align-items:center;gap:4px;}
+    .aidocs-scope .cd-fs-doc-tag.type{background:none;color:var(--aidocs-gold);}
+    .aidocs-scope .cd-fs-doc-tag.date{background:none;color:var(--aidocs-muted);}
+    .aidocs-scope .cd-fs-doc-tag+.cd-fs-doc-tag::before{content:'\00b7';margin-inline-end:4px;color:var(--aidocs-line-strong);}
+    .aidocs-scope .cd-fs-empty{padding:32px 8px;color:var(--aidocs-muted);font-size:var(--aidocs-text-sm);}
+    .aidocs-scope .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
+    .aidocs-scope .cd-fs-page-btn{height:36px !important;min-width:36px;padding:0 12px !important;border:1px solid var(--aidocs-line-strong);background:none;color:var(--aidocs-ink);border-radius:999px !important;font-family:var(--aidocs-font-heading),sans-serif;font-size:var(--aidocs-label) !important;font-weight:600;cursor:pointer;transition:background-color .15s ease-in-out,border-color .15s ease-in-out,color .15s ease-in-out;line-height:normal !important;}
+    .aidocs-scope .cd-fs-page-btn:hover,
+    .aidocs-scope .cd-fs-page-btn:focus-visible{background:var(--aidocs-gold);color:#fff;border-color:var(--aidocs-gold);}
+    .aidocs-scope .cd-fs-page-btn.active{background:var(--aidocs-accent-strong);color:#fff;border-color:var(--aidocs-accent-strong);}
+    .aidocs-scope .cd-fs-loading{padding:28px 8px;color:var(--aidocs-muted);font-size:var(--aidocs-text-sm);}
+    /* Autocomplete suggestions */
+    .aidocs-scope .cd-fs-suggestions{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--aidocs-line-strong);border-radius:var(--aidocs-radius);z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;display:none;}
+    .aidocs-scope .cd-fs-suggestion{padding:9px 16px 9px 42px;font-size:var(--aidocs-text-sm);color:var(--aidocs-ink);cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--aidocs-line);}
+    .aidocs-scope .cd-fs-suggestion:last-child{border-bottom:none;}
+    .aidocs-scope .cd-fs-suggestion:hover,
+    .aidocs-scope .cd-fs-suggestion.highlighted{background:var(--aidocs-surface);color:var(--aidocs-accent-strong);}
+    .aidocs-scope .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    /* AI explanation */
+    .aidocs-scope .cd-fs-ai-explain{margin-top:16px;}
+    .aidocs-scope .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
+    .aidocs-scope .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--aidocs-accent-strong,#003a5d);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+    .aidocs-scope .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
+    .aidocs-scope .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
+    .aidocs-scope .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--aidocs-fg,#1d1f25);margin-bottom:8px;line-height:1.4;}
+    .aidocs-scope .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .aidocs-scope .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .aidocs-scope .cd-fs-ai-suggest-view:hover{background:var(--aidocs-accent-strong,#003a5d);}
+    @keyframes cd-dot-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
+    .aidocs-scope .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
+    .aidocs-scope .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .aidocs-scope .cd-fs-ai-thinking-icon svg{color:#fff;}
+    .aidocs-scope .cd-fs-ai-thinking-text{font-size:13px;color:var(--aidocs-accent-strong,#003a5d);font-weight:500;}
+    .aidocs-scope .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
+    .aidocs-scope .cd-fs-ai-dots span{width:5px;height:5px;background:var(--aidocs-accent-strong,#003a5d);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
+    .aidocs-scope .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
+    .aidocs-scope .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
+    /* Document modal */
+    .aidocs-scope.cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
+    .aidocs-scope.cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
+    .aidocs-scope .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
+    .aidocs-scope.cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
+    .aidocs-scope .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
+    .aidocs-scope .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
+    .aidocs-scope .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:0 0 10px;line-height:1.4;}
+    .aidocs-scope .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
+    .aidocs-scope .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
+    .aidocs-scope .cd-doc-modal-close:hover{color:var(--aidocs-fg,#1d1f25);background:#f0f2f5;}
+    /* Modal tabs */
+    .aidocs-scope .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
+    .aidocs-scope .cd-doc-modal-pane.active{display:flex;}
+    /* Details pane */
+    .aidocs-scope .cd-doc-modal-body{padding:22px 24px;overflow-y:auto;flex:1;}
+    .aidocs-scope .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
+    .aidocs-scope .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+    .aidocs-scope .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
+    .aidocs-scope .cd-doc-modal-value{font-size:14px;color:var(--aidocs-fg,#1d1f25);font-weight:500;line-height:1.5;}
+    /* Chat pane */
+    /* Ask AI — persistent bar pinned below the panes */
+    .aidocs-scope .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
+    .aidocs-scope .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
+    .aidocs-scope .cd-doc-ask-answers.open{display:flex;}
+    .aidocs-scope .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
+    .aidocs-scope .cd-doc-ask-icon{color:var(--aidocs-accent-strong,#003a5d);flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--aidocs-fg,#1d1f25);}
+    .aidocs-scope .cd-doc-ask-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-send:hover{background:var(--aidocs-accent-strong,#003a5d);}
+    .aidocs-scope .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
+    .aidocs-scope .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
+    .aidocs-scope .cd-doc-ask-collapse:hover{color:var(--aidocs-fg,#1d1f25);}
+    /* One answer in the modal's Ask-AI thread. The floating assistant has
+       the same shape but its own class names and its own stylesheet — see
+       aidocs_chat_styles() — so neither depends on the other being on the
+       page. */
+    .aidocs-scope .cd-doc-ask-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
+    .aidocs-scope .cd-doc-ask-turn.user{align-self:flex-end;align-items:flex-end;}
+    .aidocs-scope .cd-doc-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
+    .aidocs-scope .cd-doc-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
+    .aidocs-scope .cd-doc-ask-turn.bot .cd-doc-ask-msg{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);border-bottom-left-radius:3px;}
+    .aidocs-scope .cd-doc-ask-turn.user .cd-doc-ask-msg{background:var(--aidocs-accent,#4d758e);color:#fff;border-bottom-right-radius:3px;}
+    .aidocs-scope .cd-doc-ask-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
+    .aidocs-scope .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--aidocs-accent,#4d758e);border:1.5px solid var(--aidocs-accent,#4d758e);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
+    .aidocs-scope .cd-doc-modal-permalink:hover{background:var(--aidocs-accent,#4d758e);color:#fff;}
+    /* Structured document content */
+    .aidocs-scope .aidocs-content{margin-top:4px;}
+    .aidocs-scope .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:26px 0 10px;line-height:1.35;}
+    .aidocs-scope .aidocs-content-h2:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--aidocs-accent-strong,#003a5d);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
+    .aidocs-scope .aidocs-content-h3:first-child{margin-top:0;}
+    .aidocs-scope .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
+    .aidocs-scope .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
+    .aidocs-scope .aidocs-content-list li{font-size:14px;color:#374151;line-height:1.7;margin-bottom:7px;}
+    .aidocs-scope .aidocs-content-empty{font-size:13px;color:#9ca3af;font-style:italic;padding:6px 0;}
+    .aidocs-scope .aidocs-content-loading{font-size:13px;color:#9ca3af;padding:6px 0;}
+    <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
+    .aidocs-scope .aidocs-doc-history{margin-top:22px;padding:12px 14px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:12px;color:#6b7280;line-height:1.65;}
+    .aidocs-scope .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:4px;}
+    .aidocs-scope .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:24px 0 10px;padding-top:18px;border-top:1px solid #f0f2f5;}
+    .aidocs-scope .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+    .aidocs-scope .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
+    .aidocs-scope .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
+    .aidocs-scope .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
+    .aidocs-scope .cd-doc-modal-cancel:hover{border-color:var(--aidocs-accent-strong,#003a5d);background:#f0f6ff;}
+    /* card clickable */
+    .aidocs-scope .cd-fs-doc-card{cursor:pointer;}
+    @media(max-width:600px){.aidocs-scope .cd-fs-controls{flex-wrap:wrap;}.aidocs-scope .cd-fs-keyword-wrap{flex:none;width:100%;}.aidocs-scope .cd-fs-select-wrap{flex:1;min-width:calc(50% - 5px);}.aidocs-scope .cd-fs-search-btn{width:100%;justify-content:center;}.aidocs-scope .cd-fs-card{padding:24px 18px;}}
+    </style>
+    <?php
+}
+
+/**
+ * Where a standalone search form submits to: the Policies listing.
+ *
+ * Resolved the same four ways the sibling SACSCOC Institutions plugin
+ * resolves its own results URL (sacscoc_inst_results_url()) — deliberately,
+ * because two plugins on one site should not ask an editor to learn two
+ * different ways to say "the results are over there":
+ *
+ *   ''            Settings → Policies Page, falling back to the /policies/
+ *                 archive. The right answer for a site with one listing.
+ *   "123"         a page id
+ *   "/policies/"  a site-relative path
+ *   an absolute URL, but only one on this site — an off-site value is
+ *                 ignored rather than honoured, so a typo in a shortcode
+ *                 attribute cannot send a visitor's search somewhere else.
+ */
+function aidocs_search_results_url( string $target = '' ): string {
+    $target = trim( $target );
+    if ( $target === '' ) return aidocs_policies_listing_url();
+
+    if ( ctype_digit( $target ) ) {
+        $id = (int) $target;
+        if ( $id > 0 && get_post_status( $id ) === 'publish' ) {
+            return (string) get_permalink( $id );
+        }
+        return aidocs_policies_listing_url();
+    }
+
+    if ( preg_match( '#^https?://#i', $target ) ) {
+        $host = wp_parse_url( $target, PHP_URL_HOST );
+        $home = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+        if ( $host && $home && strcasecmp( $host, $home ) === 0 ) {
+            return esc_url_raw( $target );
+        }
+        return aidocs_policies_listing_url();
+    }
+
+    return esc_url_raw( home_url( '/' . ltrim( $target, '/' ) ) );
+}
+
+/**
+ * Just the search form — no results under it.
+ *
+ * ── Why this exists ────────────────────────────────────────────────────────
+ *
+ * [aidocs_search] is a listing: a form welded to the results it filters, both
+ * rendered by one shortcode, the results fetched over AJAX the moment the page
+ * loads. That is right for /policies/, where the list is the point of the
+ * page. It is wrong for a promotional page — /principles-standards-policies/ —
+ * that wants to offer the search and nothing else, and send the visitor to the
+ * listing to read the answer. Dropping [aidocs_search] there printed the whole
+ * library underneath the box.
+ *
+ * So the two are separate concepts now:
+ *
+ *     policy search form  →  a URL  →  the policies listing
+ *
+ * and this renders the first of them. Same card, same type tabs, same keyword
+ * field, same button, same stylesheet (aidocs_search_styles()) — an editor
+ * moving between the two pages sees one component, not two that resemble each
+ * other.
+ *
+ * ── No JavaScript at all ───────────────────────────────────────────────────
+ *
+ * A plain GET <form>, which is the whole reason this is not just [aidocs_search]
+ * with its results div deleted. Submitting it is a navigation, not a fetch:
+ * `q` and `type` land on the listing as an ordinary query string, so the
+ * result is a shareable URL, the back button works, and nothing here depends
+ * on jQuery, on admin-ajax, or on a nonce that can expire behind a page cache.
+ *
+ * The type tabs are the same trick: real submit buttons carrying `name="type"`
+ * and their own value, so clicking "Board Policies" submits the form with
+ * whatever is already typed in the keyword field and that type — no script to
+ * keep a hidden input in step with which tab looks active, and nothing that
+ * stops working with scripts off.
+ *
+ * The listing reads both parameters already: `q` prefills the keyword field
+ * and `type` selects the matching tab, and its own doSearch() runs once on
+ * load from those values. Nothing had to be added there for a search to
+ * survive the redirect.
+ *
+ * @param array $args {
+ *   @type string $type        a document type to preselect, for a form that is
+ *                             only ever about one kind of policy
+ *   @type string $results_url see aidocs_search_results_url()
+ *   @type bool   $show_heading false drops the card's own title and subtitle,
+ *                             for a section that already has a heading of its
+ *                             own above the form
+ * }
+ */
+function aidocs_render_search_form( array $args ): string {
+    $types        = aidocs_get_types();
+    $action       = aidocs_search_results_url( (string) ( $args['results_url'] ?? '' ) );
+    $show_heading = (bool) ( $args['show_heading'] ?? true );
+
+    // The URL wins over the attribute for the same reason it does in the
+    // listing: a form rendered on a results URL that already carries a type
+    // should come back showing that type, not reset to the attribute.
+    $default_type = sanitize_text_field( $_GET['type'] ?? '' ) ?: (string) ( $args['type'] ?? '' );
+    $matched_type = '';
+    foreach ( $types as $t ) {
+        if ( strtolower( $t ) === strtolower( $default_type ) ) { $matched_type = $t; break; }
+    }
+
+    $uid = 'cdsf_' . wp_unique_id();
+
+    ob_start();
+    aidocs_search_styles();
+    ?>
+
+    <div class="aidocs-scope cd-fs-wrap">
+        <form class="cd-fs-card cd-fs-card--form" method="get" action="<?php echo esc_url( $action ); ?>" role="search">
+            <?php
+            // Pressing Enter in the keyword field submits the form through its
+            // *first* submit button — which would otherwise be the "All" tab,
+            // silently throwing away whichever type is selected. This is that
+            // first button, carrying the active type, and nothing else: no
+            // size, no tab stop, nothing to read out.
+            //
+            // A hidden <input name="type"> would do the same job, but both it
+            // and the clicked tab would be submitted, putting `type` in the
+            // query string twice. PHP keeps the last one, so that works — until
+            // something in front of it (a cache key, an analytics rewrite, any
+            // parser that keeps the first) disagrees about which one counts.
+            // A button contributes its value only when it is the one that
+            // submitted the form, so exactly one `type` is ever sent.
+            ?>
+            <button type="submit" name="type" value="<?php echo esc_attr( $matched_type ); ?>"
+                    class="cd-fs-default-submit" tabindex="-1" aria-hidden="true"></button>
+            <?php if ( $show_heading ) : ?>
+            <h2 class="cd-fs-title"><?php esc_html_e( 'Find what applies to you' ); ?></h2>
+            <p class="cd-fs-subtitle">
+                <span class="cd-fs-subtitle-badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <?php esc_html_e( 'AI-powered' ); ?>
+                </span>
+                <?php esc_html_e( 'Ask in any language and the AI will point you to what answers it.' ); ?>
+            </p>
+            <?php endif; ?>
+
+            <!-- Type tabs, as submit buttons: clicking one searches that type
+                 with whatever is already typed, with no script involved. -->
+            <div class="cd-fs-type-tabs">
+                <button type="submit" name="type" value="" class="cd-fs-type-tab <?php echo $matched_type === '' ? 'is-active' : ''; ?>">
+                    <?php esc_html_e( 'All' ); ?>
+                </button>
+                <?php foreach ( $types as $t ) : ?>
+                <button type="submit" name="type" value="<?php echo esc_attr( $t ); ?>" class="cd-fs-type-tab <?php echo $matched_type === $t ? 'is-active' : ''; ?>">
+                    <?php echo esc_html( $t ); ?>
+                </button>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="cd-fs-controls">
+                <div class="cd-fs-keyword-wrap">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <label class="screen-reader-text" for="<?php echo esc_attr( $uid ); ?>"><?php esc_html_e( 'Search policies' ); ?></label>
+                    <input type="search" id="<?php echo esc_attr( $uid ); ?>" name="q" class="cd-fs-keyword"
+                           placeholder="<?php esc_attr_e( 'e.g. reduced credit for undergraduate degree…' ); ?>"
+                           value="<?php echo esc_attr( sanitize_text_field( $_GET['q'] ?? '' ) ); ?>">
+                </div>
+                <?php // Carries the active type for the same reason the first button does. ?>
+                <button type="submit" name="type" value="<?php echo esc_attr( $matched_type ); ?>" class="cd-fs-search-btn">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <?php esc_html_e( 'Search' ); ?>
+                </button>
+            </div>
+        </form>
+    </div>
+    <?php
+    return (string) ob_get_clean();
+}
+
 add_shortcode( 'aidocs_search', 'aidocs_search_shortcode' );
-function aidocs_search_shortcode( $atts ) {
+
+// The form on its own, under a tag that says so. The same callback, not a
+// copy — it is [aidocs_search mode="form"] with the mode already chosen, the
+// way an editor would rather write it on a page that has no listing:
+//
+//   [aidocs_policy_search results_url="/policies/"]
+//
+// Both spellings are supported and documented, and neither can drift from the
+// other.
+add_shortcode( 'aidocs_policy_search', 'aidocs_search_shortcode' );
+
+function aidocs_search_shortcode( $atts, $content = '', $tag = '' ) {
     $atts = shortcode_atts( [
         'type'      => '',
         'per_page'  => 20,
@@ -5505,7 +5979,23 @@ function aidocs_search_shortcode( $atts ) {
         // bubble, from here, and the one-per-page guard means asking for it
         // twice still produces one.
         'show_chat' => '',
+        // `results` (the default) is the listing: form and results together,
+        // for the page the listing lives on. `form` is the form alone, which
+        // submits to `results_url` instead of fetching anything — for a page
+        // that offers the search and sends the visitor to the listing to read
+        // the answer. See aidocs_render_search_form().
+        'mode'         => $tag === 'aidocs_policy_search' ? 'form' : 'results',
+        'results_url'  => '',
+        'show_heading' => 'yes',
     ], $atts );
+
+    if ( strtolower( (string) $atts['mode'] ) === 'form' ) {
+        return aidocs_render_search_form( [
+            'type'         => (string) $atts['type'],
+            'results_url'  => (string) $atts['results_url'],
+            'show_heading' => $atts['show_heading'] !== 'no' && $atts['show_heading'] !== 'false',
+        ] );
+    }
 
     $url_type     = sanitize_text_field( $_GET['type']     ?? '' );
 
@@ -5835,184 +6325,8 @@ ENDSCRIPT;
     }, 99 );
 
     ob_start();
-
-    // Every selector below is scoped to `.aidocs-scope`, and every colour in
-    // it reads a token declared on that same class. Print the tokens first or
-    // there is nothing for the colours to resolve to. Guarded internally, so
-    // two of these shortcodes on one page still print it once.
-    aidocs_print_scope_css();
+    aidocs_search_styles();
     ?>
-    <style>
-    .aidocs-scope.cd-fs-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;}
-    .aidocs-scope .cd-fs-card{background:#fff;border:1.5px solid #d8dde6;border-radius:14px;padding:36px 40px 32px;}
-    /* Matches this site's own heading style (Montserrat 600, navy) — the
-       plugin ships a generic system-font/near-black default for whichever
-       theme it's dropped into, and this card's font-family override above
-       otherwise carries straight through to this h2 by inheritance. */
-    .aidocs-scope .cd-fs-title{font-family:'Montserrat',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center;font-size:26px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);margin:0 0 6px;display:flex;align-items:center;gap:16px;}
-    .aidocs-scope .cd-fs-title::before,
-    .aidocs-scope .cd-fs-title::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,transparent,#c8d0dc);}
-    .aidocs-scope .cd-fs-title::after{background:linear-gradient(to left,transparent,#c8d0dc);}
-    .aidocs-scope .cd-fs-subtitle{text-align:center;font-size:13px;color:#6b7280;margin:0 0 24px;display:flex;align-items:center;justify-content:center;gap:6px;}
-    .aidocs-scope .cd-fs-subtitle-badge{display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);border:1px solid color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 30%,#fff);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--aidocs-accent-strong,#003a5d);}
-    /* Single-row controls */
-    .aidocs-scope .cd-fs-controls{display:flex;gap:10px;align-items:center;margin-bottom:0;}
-    .aidocs-scope .cd-fs-keyword-wrap{flex:2;min-width:0;position:relative;}
-    .aidocs-scope .cd-fs-keyword-wrap>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none;}
-    /* input[type="text"] in this theme's own global stylesheet carries an
-       attribute selector, which counts as a class for specificity — putting
-       it a notch above a single plain class like .cd-fs-keyword and letting
-       its own padding win, which left this input's text sitting under the
-       search icon rather than clear of it. The wrapper-qualified selector
-       below outweighs that regardless of style order. */
-    .aidocs-scope .cd-fs-keyword-wrap .cd-fs-keyword{width:100%;box-sizing:border-box;height:46px;padding:0 36px 0 38px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:14px;color:var(--aidocs-fg,#1d1f25);background:#fff;outline:none;transition:border-color .18s;}
-    .aidocs-scope .cd-fs-keyword:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
-    .aidocs-scope .cd-fs-kw-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;font-size:16px;display:none;border-radius:50%;transition:color .15s,background .15s;}
-    .aidocs-scope .cd-fs-kw-clear:hover{color:var(--aidocs-fg,#1d1f25);background:#f0f2f5;}
-    .aidocs-scope .cd-fs-kw-clear.visible{display:flex;align-items:center;justify-content:center;}
-    .aidocs-scope .cd-fs-select-wrap{flex:1;min-width:120px;}
-    .aidocs-scope .cd-fs-select-wrap select{width:100%;height:46px;padding:0 36px 0 12px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;color:var(--aidocs-fg,#1d1f25);background:#fff;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232c4a7c' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;box-sizing:border-box;transition:border-color .18s;}
-    .aidocs-scope .cd-fs-select-wrap select:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
-    /* Search button — !important on the sizing props because this theme's
-       global button styling (Astra's Customizer "Buttons" typography)
-       targets plain <button> elements with its own !important rules, which
-       would otherwise inflate this into an oversized pill. */
-    .aidocs-scope .cd-fs-search-btn{height:46px !important;padding:0 22px !important;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px) !important;font-size:14px !important;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .18s;flex-shrink:0;line-height:normal !important;}
-    .aidocs-scope .cd-fs-search-btn:hover{background:var(--aidocs-accent-strong,#003a5d);}
-    /* Document Type tabs — replaces the plain dropdown as the way to switch
-       between Policies / Guidelines / Good Practices / Position Statements
-       (and whichever other types are configured). The <select> with the
-       same values stays in the markup, just hidden, so every existing
-       .cd-fs-type read/write in the JS below keeps working untouched. */
-    .aidocs-scope .cd-fs-type-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;}
-    /* !important on the sizing props for the same reason as .cd-fs-search-btn
-       above — otherwise the theme's global <button> styling blows these
-       pills up well past the compact size they're designed at. */
-    .aidocs-scope .cd-fs-type-tab{background:#f3f5f8;border:1.5px solid #e5e9ef;border-radius:20px !important;padding:7px 16px !important;font-size:13px !important;font-weight:600;color:#6b7280;cursor:pointer;transition:background .15s,border-color .15s,color .15s;line-height:normal !important;height:auto !important;}
-    .aidocs-scope .cd-fs-type-tab:hover{border-color:#c8d0dc;color:var(--aidocs-fg,#1d1f25);}
-    .aidocs-scope .cd-fs-type-tab.is-active{background:var(--aidocs-accent,#4d758e);border-color:var(--aidocs-accent,#4d758e);color:#fff;}
-    .aidocs-scope .cd-fs-type-select-hidden{display:none;}
-    /* Results */
-    .aidocs-scope .cd-fs-results{margin-top:24px;}
-    .aidocs-scope .cd-fs-results-header{font-size:13px;color:#6b7280;margin-bottom:14px;}
-    .aidocs-scope .cd-fs-doc-card{display:flex;gap:16px;padding:18px 20px;border:1px solid #e5e9ef;border-radius:10px;margin-bottom:12px;background:#fff;transition:box-shadow .18s,border-color .18s;}
-    .aidocs-scope .cd-fs-doc-card:hover{box-shadow:0 3px 14px rgba(0,0,0,.08);border-color:#b8cce4;}
-    .aidocs-scope .cd-fs-doc-icon{flex-shrink:0;width:44px;height:54px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 12%,#fff);}
-    .aidocs-scope .cd-fs-doc-icon svg{color:var(--aidocs-accent-strong,#003a5d);}
-    .aidocs-scope .cd-fs-doc-body{flex:1;min-width:0;}
-    .aidocs-scope .cd-fs-doc-title{font-size:15px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:0 0 6px;}
-    .aidocs-scope .cd-fs-doc-title a{color:inherit;text-decoration:none;}.aidocs-scope .cd-fs-doc-title a:hover{color:var(--aidocs-accent-strong,#003a5d);text-decoration:underline;}
-    .aidocs-scope .cd-fs-doc-desc{font-size:13px;color:#6b7280;margin:0 0 10px;line-height:1.55;}
-    .aidocs-scope .cd-fs-doc-snippet{font-size:13px;color:#4b5563;margin:0 0 10px;line-height:1.55;background:#f9fafb;border-left:2.5px solid #bfdbfe;padding:6px 10px;border-radius:0 6px 6px 0;}
-    .aidocs-scope .cd-fs-doc-snippet mark{background:#fef08a;color:inherit;padding:0 1px;border-radius:2px;}
-    .aidocs-scope .cd-fs-doc-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-    .aidocs-scope .cd-fs-doc-tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;display:inline-flex;align-items:center;gap:4px;}
-    .aidocs-scope .cd-fs-doc-tag.type{background:color-mix(in srgb,var(--aidocs-accent-strong,#003a5d) 10%,#fff);color:var(--aidocs-accent-strong,#003a5d);}.aidocs-scope .cd-fs-doc-tag.date{background:#f5f5f5;color:#6b7280;}
-    .aidocs-scope .cd-fs-empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px;}
-    .aidocs-scope .cd-fs-pagination{display:flex;gap:6px;justify-content:center;margin-top:18px;}
-    .aidocs-scope .cd-fs-page-btn{height:34px !important;min-width:34px;padding:0 10px !important;border:1.5px solid #d8dde6;background:#fff;border-radius:var(--wp--custom--button-border-radius,6px) !important;font-size:13px !important;cursor:pointer;transition:background .15s,border-color .15s;line-height:normal !important;}
-    .aidocs-scope .cd-fs-page-btn:hover,
-    .aidocs-scope .cd-fs-page-btn.active{background:var(--aidocs-accent,#4d758e);color:#fff;border-color:var(--aidocs-accent,#4d758e);}
-    .aidocs-scope .cd-fs-loading{text-align:center;padding:32px;color:#9ca3af;font-size:14px;}
-    /* Autocomplete suggestions */
-    .aidocs-scope .cd-fs-suggestions{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1.5px solid #c8d0dc;border-radius:0 0 10px 10px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;display:none;}
-    .aidocs-scope .cd-fs-suggestion{padding:9px 14px 9px 38px;font-size:13px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f2f5;}
-    .aidocs-scope .cd-fs-suggestion:last-child{border-bottom:none;}
-    .aidocs-scope .cd-fs-suggestion:hover,
-    .aidocs-scope .cd-fs-suggestion.highlighted{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);}
-    .aidocs-scope .cd-fs-suggestion-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    /* AI explanation */
-    .aidocs-scope .cd-fs-ai-explain{margin-top:16px;}
-    .aidocs-scope .cd-fs-ai-suggest-box{background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;padding:16px 18px;margin-bottom:8px;}
-    .aidocs-scope .cd-fs-ai-suggest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--aidocs-accent-strong,#003a5d);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
-    .aidocs-scope .cd-fs-ai-suggest-msg{font-size:13px;color:#374151;line-height:1.65;margin:0 0 14px;}
-    .aidocs-scope .cd-fs-ai-suggest-doc{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #d0dce8;border-radius:9px;padding:11px 14px;margin-bottom:8px;}
-    .aidocs-scope .cd-fs-ai-suggest-doc:last-child{margin-bottom:0;}
-    .aidocs-scope .cd-fs-ai-suggest-doc-info{flex:1;min-width:0;}
-    .aidocs-scope .cd-fs-ai-suggest-doc-title{font-size:14px;font-weight:600;color:var(--aidocs-fg,#1d1f25);margin-bottom:8px;line-height:1.4;}
-    .aidocs-scope .cd-fs-ai-suggest-doc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .aidocs-scope .cd-fs-ai-suggest-view{height:32px;padding:0 14px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--wp--custom--button-border-radius,6px);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
-    .aidocs-scope .cd-fs-ai-suggest-view:hover{background:var(--aidocs-accent-strong,#003a5d);}
-    @keyframes cd-dot-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
-    .aidocs-scope .cd-fs-ai-thinking{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border:1.5px solid #b8d0f0;border-radius:12px;}
-    .aidocs-scope .cd-fs-ai-thinking-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-    .aidocs-scope .cd-fs-ai-thinking-icon svg{color:#fff;}
-    .aidocs-scope .cd-fs-ai-thinking-text{font-size:13px;color:var(--aidocs-accent-strong,#003a5d);font-weight:500;}
-    .aidocs-scope .cd-fs-ai-dots{display:inline-flex;align-items:center;gap:3px;margin-left:4px;vertical-align:middle;}
-    .aidocs-scope .cd-fs-ai-dots span{width:5px;height:5px;background:var(--aidocs-accent-strong,#003a5d);border-radius:50%;animation:cd-dot-bounce 1.2s infinite ease-in-out;}
-    .aidocs-scope .cd-fs-ai-dots span:nth-child(2){animation-delay:.2s;}
-    .aidocs-scope .cd-fs-ai-dots span:nth-child(3){animation-delay:.4s;}
-    /* Document modal */
-    .aidocs-scope.cd-doc-modal-overlay{position:fixed;inset:0;background:rgba(10,18,35,.6);z-index:99990;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .22s;}
-    .aidocs-scope.cd-doc-modal-overlay.open{opacity:1;pointer-events:auto;}
-    .aidocs-scope .cd-doc-modal{background:#fff;border-radius:18px;width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.28);transform:translateY(20px) scale(.97);transition:transform .24s cubic-bezier(.22,.68,0,1.2),opacity .22s;opacity:0;overflow:hidden;}
-    .aidocs-scope.cd-doc-modal-overlay.open .cd-doc-modal{transform:translateY(0) scale(1);opacity:1;}
-    .aidocs-scope .cd-doc-modal-header{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #f0f2f5;flex-shrink:0;}
-    .aidocs-scope .cd-doc-modal-title-wrap{flex:1;min-width:0;padding-top:2px;}
-    .aidocs-scope .cd-doc-modal-title{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:0 0 10px;line-height:1.4;}
-    .aidocs-scope .cd-doc-modal-tags{display:flex;flex-wrap:wrap;gap:5px;}
-    .aidocs-scope .cd-doc-modal-close{background:none;border:none;cursor:pointer;color:#b0b8c8;padding:4px;line-height:1;flex-shrink:0;font-size:22px;border-radius:6px;transition:color .15s,background .15s;}
-    .aidocs-scope .cd-doc-modal-close:hover{color:var(--aidocs-fg,#1d1f25);background:#f0f2f5;}
-    /* Modal tabs */
-    .aidocs-scope .cd-doc-modal-pane{display:none;flex-direction:column;flex:1;overflow:hidden;}
-    .aidocs-scope .cd-doc-modal-pane.active{display:flex;}
-    /* Details pane */
-    .aidocs-scope .cd-doc-modal-body{padding:22px 24px;overflow-y:auto;flex:1;}
-    .aidocs-scope .cd-doc-modal-desc{font-size:14px;color:#374151;line-height:1.7;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #f0f2f5;}
-    .aidocs-scope .cd-doc-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-    .aidocs-scope .cd-doc-modal-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin-bottom:5px;}
-    .aidocs-scope .cd-doc-modal-value{font-size:14px;color:var(--aidocs-fg,#1d1f25);font-weight:500;line-height:1.5;}
-    /* Chat pane */
-    /* Ask AI — persistent bar pinned below the panes */
-    .aidocs-scope .cd-doc-ask{flex-shrink:0;border-top:1px solid #e5e9ef;background:#fbfcfd;display:flex;flex-direction:column;}
-    .aidocs-scope .cd-doc-ask-answers{display:none;max-height:240px;overflow-y:auto;padding:14px 18px;flex-direction:column;gap:10px;border-bottom:1px solid #edf0f4;background:#fff;}
-    .aidocs-scope .cd-doc-ask-answers.open{display:flex;}
-    .aidocs-scope .cd-doc-ask-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;position:relative;}
-    .aidocs-scope .cd-doc-ask-icon{color:var(--aidocs-accent-strong,#003a5d);flex-shrink:0;}
-    .aidocs-scope .cd-doc-ask-input{flex:1;height:40px;padding:0 14px;border:1.5px solid #c8d0dc;border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--aidocs-fg,#1d1f25);}
-    .aidocs-scope .cd-doc-ask-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
-    .aidocs-scope .cd-doc-ask-send{height:40px;padding:0 18px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;flex-shrink:0;}
-    .aidocs-scope .cd-doc-ask-send:hover{background:var(--aidocs-accent-strong,#003a5d);}
-    .aidocs-scope .cd-doc-ask-send:disabled{opacity:.5;cursor:default;}
-    .aidocs-scope .cd-doc-ask-collapse{background:none;border:none;cursor:pointer;font-size:20px;color:#9ca3af;line-height:1;padding:0 4px;flex-shrink:0;}
-    .aidocs-scope .cd-doc-ask-collapse:hover{color:var(--aidocs-fg,#1d1f25);}
-    /* One answer in the modal's Ask-AI thread. The floating assistant has
-       the same shape but its own class names and its own stylesheet — see
-       aidocs_chat_styles() — so neither depends on the other being on the
-       page. */
-    .aidocs-scope .cd-doc-ask-turn{display:flex;flex-direction:column;gap:8px;max-width:92%;}
-    .aidocs-scope .cd-doc-ask-turn.user{align-self:flex-end;align-items:flex-end;}
-    .aidocs-scope .cd-doc-ask-turn.bot{align-self:flex-start;align-items:flex-start;}
-    .aidocs-scope .cd-doc-ask-msg{padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.55;}
-    .aidocs-scope .cd-doc-ask-turn.bot .cd-doc-ask-msg{background:#f0f6ff;color:var(--aidocs-fg,#1d1f25);border-bottom-left-radius:3px;}
-    .aidocs-scope .cd-doc-ask-turn.user .cd-doc-ask-msg{background:var(--aidocs-accent,#4d758e);color:#fff;border-bottom-right-radius:3px;}
-    .aidocs-scope .cd-doc-ask-thinking{font-size:12px;color:#9ca3af;padding:4px 2px;display:flex;align-items:center;gap:6px;align-self:flex-start;}
-    .aidocs-scope .cd-doc-modal-permalink{display:inline-flex;align-items:center;font-size:13px;color:var(--aidocs-accent,#4d758e);border:1.5px solid var(--aidocs-accent,#4d758e);border-radius:var(--wp--custom--button-border-radius,7px);text-decoration:none;font-weight:600;padding:7px 14px;margin-right:8px;transition:background .15s,color .15s;}
-    .aidocs-scope .cd-doc-modal-permalink:hover{background:var(--aidocs-accent,#4d758e);color:#fff;}
-    /* Structured document content */
-    .aidocs-scope .aidocs-content{margin-top:4px;}
-    .aidocs-scope .aidocs-content-h2{font-size:17px;font-weight:700;color:var(--aidocs-fg,#1d1f25);margin:26px 0 10px;line-height:1.35;}
-    .aidocs-scope .aidocs-content-h2:first-child{margin-top:0;}
-    .aidocs-scope .aidocs-content-h3{font-size:14px;font-weight:700;color:var(--aidocs-accent-strong,#003a5d);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.4px;}
-    .aidocs-scope .aidocs-content-h3:first-child{margin-top:0;}
-    .aidocs-scope .aidocs-content-p{font-size:14px;color:#374151;line-height:1.75;margin:0 0 12px;}
-    .aidocs-scope .aidocs-content-list{margin:0 0 14px;padding-left:22px;}
-    .aidocs-scope .aidocs-content-list li{font-size:14px;color:#374151;line-height:1.7;margin-bottom:7px;}
-    .aidocs-scope .aidocs-content-empty{font-size:13px;color:#9ca3af;font-style:italic;padding:6px 0;}
-    .aidocs-scope .aidocs-content-loading{font-size:13px;color:#9ca3af;padding:6px 0;}
-    <?php echo aidocs_content_block_css(); // phpcs:ignore WordPress.Security.EscapeOutput -- static CSS ?>
-    .aidocs-scope .aidocs-doc-history{margin-top:22px;padding:12px 14px;background:#f8f9fb;border-left:3px solid #d0dce8;border-radius:0 6px 6px 0;font-size:12px;color:#6b7280;line-height:1.65;}
-    .aidocs-scope .aidocs-doc-history-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#b0b8c8;margin-bottom:4px;}
-    .aidocs-scope .aidocs-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#b0b8c8;margin:24px 0 10px;padding-top:18px;border-top:1px solid #f0f2f5;}
-    .aidocs-scope .cd-doc-modal-footer{padding:14px 24px;background:#f8f9fb;border-top:1px solid #edf0f4;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
-    .aidocs-scope .cd-doc-modal-footer-left{font-size:12px;color:#9ca3af;}
-    .aidocs-scope .cd-doc-modal-footer-right{display:flex;gap:10px;align-items:center;}
-    .aidocs-scope .cd-doc-modal-cancel{height:42px;padding:0 18px;border:1.5px solid #d8dde6;background:#fff;border-radius:8px;font-size:14px;color:#374151;cursor:pointer;transition:border-color .15s,background .15s;}
-    .aidocs-scope .cd-doc-modal-cancel:hover{border-color:var(--aidocs-accent-strong,#003a5d);background:#f0f6ff;}
-    /* card clickable */
-    .aidocs-scope .cd-fs-doc-card{cursor:pointer;}
-    @media(max-width:600px){.aidocs-scope .cd-fs-controls{flex-wrap:wrap;}.aidocs-scope .cd-fs-keyword-wrap{flex:none;width:100%;}.aidocs-scope .cd-fs-select-wrap{flex:1;min-width:calc(50% - 5px);}.aidocs-scope .cd-fs-search-btn{width:100%;justify-content:center;}.aidocs-scope .cd-fs-card{padding:24px 18px;}}
-    </style>
 
     <div class="aidocs-scope cd-fs-wrap" id="<?php echo esc_attr( $uid ); ?>">
         <div class="cd-fs-card">
@@ -6176,9 +6490,15 @@ function aidocs_chat_styles() {
     aidocs_print_scope_css();
     ?>
     <style>
-    .aidocs-scope.cd-bot-toggle{position:fixed;bottom:28px;right:28px;z-index:9990;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
+    .aidocs-scope.cd-bot-toggle{position:fixed;bottom:var(--aidocs-bubble-bottom,80px);right:var(--aidocs-bubble-right,28px);z-index:9990;background:linear-gradient(135deg,var(--aidocs-accent,#4d758e),var(--aidocs-accent-strong,#003a5d));color:#fff;border:none;border-radius:50px;padding:13px 22px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(30,58,95,.4);display:flex;align-items:center;gap:8px;transition:transform .12s,box-shadow .18s;}
     .aidocs-scope.cd-bot-toggle:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(30,58,95,.5);}
-    .aidocs-scope.cd-bot-panel{position:fixed;bottom:90px;right:28px;z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:540px;}
+    
+    /* Raising the bubble raises the panel with it, so the panel has that
+       much less room before it runs off the top of the screen. 540px as
+       before wherever that still fits, and whatever is left when it does
+       not — which is what keeps the panel's header, and the close button in
+       it, on screen on a phone. */
+    .aidocs-scope.cd-bot-panel{position:fixed;bottom:calc(var(--aidocs-bubble-bottom,80px) + var(--aidocs-bubble-gap,62px));right:var(--aidocs-bubble-right,28px);z-index:9991;width:380px;max-width:calc(100vw - 40px);background:#fff;border:1.5px solid #d8dde6;border-radius:16px;box-shadow:0 12px 50px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:min(540px,calc(100vh - var(--aidocs-bubble-bottom,80px) - var(--aidocs-bubble-gap,62px) - 20px));}
     .aidocs-scope.cd-bot-panel.open{display:flex;}
     .aidocs-scope .cd-bot-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e9ef;flex-shrink:0;background:linear-gradient(135deg,#f0f6ff,#e8f3ff);border-radius:14px 14px 0 0;}
     .aidocs-scope .cd-bot-header-info{display:flex;flex-direction:column;gap:2px;}
@@ -6203,7 +6523,7 @@ function aidocs_chat_styles() {
     .aidocs-scope .cd-bot-input:focus{border-color:var(--aidocs-accent-strong,#003a5d);}
     .aidocs-scope .cd-bot-send{height:38px;padding:0 14px;background:var(--aidocs-accent,#4d758e);color:#fff;border:none;border-radius:var(--aidocs-radius,8px);font-size:13px;cursor:pointer;}
     .aidocs-scope .cd-bot-send:disabled{opacity:.5;cursor:default;}
-    @media(max-width:600px){.aidocs-scope.cd-bot-panel{width:calc(100vw - 40px);}}
+    @media(max-width:600px){.aidocs-scope.cd-bot-panel{width:calc(100vw - 40px);}.aidocs-scope.cd-bot-toggle,.aidocs-scope.cd-bot-panel{--aidocs-bubble-bottom:76px;--aidocs-bubble-right:16px;}}
     </style>
     <?php
 }
@@ -6495,7 +6815,10 @@ function aidocs_render_single_document( $pid, $standalone = true ) {
     <article class="aidocs-scope aidocs-single">
 
         <?php if ( $standalone ) : ?>
-        <a href="<?php echo esc_url( home_url( '/' . aidocs_get_archive_slug() . '/' ) ); ?>" class="aidocs-single-back">
+        <?php // Wherever the listing actually lives: the Policies Page when one
+              // has been chosen in Settings, the /policies/ archive when not.
+              // See aidocs_policies_listing_url() in includes/aidocs-listing-page.php. ?>
+        <a href="<?php echo esc_url( aidocs_policies_listing_url() ); ?>" class="aidocs-single-back">
             &larr; <?php esc_html_e( 'Back to all topics' ); ?>
         </a>
         <?php endif; ?>

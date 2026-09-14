@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 2,
+	"name": "ai-documents/policy",
+	"title": "Policy",
+	"category": "widgets",
+	"icon": "media-text",
+	"description": "One policy's own content, embedded anywhere — the same page /policies/{entry}/ and [aidocs_document] render.",
+	"keywords": [ "policy", "policies", "document", "embed" ],
+	"textdomain": "ai-documents",
+	"attributes": {
+		"documentId": { "type": "number", "default": 0 }
+	},
+	"supports": {
+		"html": false,
+		"color": {
+			"background": true,
+			"text": true,
+			"gradients": true
+		},
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	}
+}

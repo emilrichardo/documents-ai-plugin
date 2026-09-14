@@ -20,7 +20,7 @@
 <p>Three things, in this order.</p>
 <p><strong>1. It reads files.</strong> Upload a PDF or a Word (<code>.docx</code>) file and the plugin extracts its text and parses it into content blocks — three heading levels, paragraphs, notes, nested lists and tables. This runs with regular expressions, not AI: no API key, no request, no cost. Excel files are accepted for reference but are not parsed.</p>
 <p><strong>2. It splits compilations.</strong> A single upload often holds fifty standalone articles one after another. Tell the plugin the file is a compilation and each article inside becomes an entry of its own, with its own title, date, description and content.</p>
-<p><strong>3. It publishes and finds.</strong> Each entry gets its own page at <code>/policies/{entry}/</code>. A search shortcode puts a filterable catalogue on any page, and — when Gemini is configured — answers a question typed in any language with the one to three entries that address it, and a short explanation of why.</p>
+<p><strong>3. It publishes and finds.</strong> Each entry gets its own page at <code>/policies/{entry}/</code>. A block (or a shortcode) puts a filterable catalogue on any page you choose, and — when Gemini is configured — answers a question typed in any language with the one to three entries that address it, and a short explanation of why.</p>
 <div class="aidoc-table-wrap"><table>
 <thead><tr><th></th><th>Works without an API key</th><th>Needs a Gemini key</th></tr></thead>
 <tbody>
@@ -71,7 +71,16 @@
 </section>
 <section class="aidoc-section" id="settings">
 <h2>Settings</h2>
-<p><strong>Policies → Settings</strong> is a single screen in three parts. Entry URLs are <code>/policies/{entry}/</code>. <code>/documents/</code>, the base used before 1.5.0, 301-redirects to the new one, so nothing already linked or bookmarked breaks.</p>
+<p><strong>Policies → Settings</strong> is a single screen in four parts. Entry URLs are <code>/policies/{entry}/</code>. <code>/documents/</code>, the base used before 1.5.0, 301-redirects to the new one, so nothing already linked or bookmarked breaks.</p>
+<h3 id="policies-page">Policies Page</h3>
+<p>Where the listing lives.</p>
+<p>Left unset, the catalogue is served from <code>/policies/</code> — an archive WordPress generates from the post type itself. It works, but it is not a page: nothing in wp-admin lists it, it cannot be added to a menu without typing the URL by hand, and there is nowhere to put an introduction above it.</p>
+<p>Point this at a page instead and the listing becomes ordinary page content, with everything that follows from that — a heading, an intro paragraph, a hero image, a different layout, anything the block editor can do, arranged around it.</p>
+<ul>
+<li><strong>Pick a page you already have</strong> from the dropdown. If it carries neither the <strong>Policies</strong> block nor <code>[aidocs_search]</code>, the setting says so and offers to add the block for you, <em>below</em> whatever the page already contains — nothing already on it is replaced.</li>
+<li><strong>Create Policies Page</strong> builds a published page called <em>Policies</em> with the block already on it, selects it here, and opens it in the editor. Everything about that page is yours afterwards: rename it, move it, restyle it, trash it.</li>
+</ul>
+<p>Once a page is set, two things follow it automatically: every entry&#039;s <strong>Back to all topics</strong> link points at it, and <code>/policies/</code> redirects to it, so the catalogue is never served from two URLs at once. Clear the setting and both go back to the archive.</p>
 <h3 id="ai">AI</h3>
 <p>The Gemini API key and the model, covered above. The key is stored as a WordPress option; the field shows <em>Saved — leave blank to keep it</em> once set, so re-saving other settings never clears it.</p>
 <p><strong>Show the assistant on every page</strong> — on by default. This is the floating <strong>Ask AI</strong> bubble in the bottom-right corner. It is its own component: it does not render the search interface, it does not need the search shortcode to be on the page, and turning it off here changes nothing about search. With no Gemini key configured it is not shown anywhere, on the grounds that an assistant whose only possible answer is a configuration error is worse than no assistant.</p>
@@ -80,8 +89,8 @@
 <p><strong>Document Types</strong> — what kind of document it is, one per line. Ships with <code>Policies</code>, <code>Guidelines</code>, <code>Good Practices</code>, <code>Position Statements</code>. Saving creates any term that does not exist yet. Removing a line from the list takes the type out of the pickers and the admin menu, but does not delete the term or unassign it from entries that already carry it. Every place a Document Type can be set (the document editor, the multi-document import, an AI proposal) reads this same configured list, and the AI is validated against it — it never creates a type on its own.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-taxonomy.png" alt="The Taxonomy section, with the configured Document Types" loading="lazy"><figcaption>The Taxonomy section, with the configured Document Types</figcaption></figure>
 <p>Each Document Type also becomes its own shortcut in the admin sidebar — see <a href="#find-entries-in-the-admin">Find entries in the admin</a>.</p>
-<h3 id="shortcodes">Shortcodes</h3>
-<p>A copy-to-clipboard reference of every shortcode and parameter, generated against your own configured types. The full reference is in <a href="#shortcode-reference">Shortcode reference</a> below.</p>
+<h3 id="blocks-and-shortcodes">Blocks and shortcodes</h3>
+<p>The two blocks — <strong>Policies</strong> and <strong>Policy</strong> — named, and a copy-to-clipboard reference of every shortcode and parameter, generated against your own configured types. The full reference is in <a href="#shortcode-reference">Shortcode reference</a> below.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/settings-shortcodes.png" alt="The Shortcodes section of the settings screen, with copy buttons on each example" loading="lazy"><figcaption>The Shortcodes section of the settings screen, with copy buttons on each example</figcaption></figure>
 </section>
 <section class="aidoc-section" id="upload-one-document">
@@ -246,7 +255,7 @@
 <p>There is no download button and no file preview. The source file is not part of what a reader is offered.</p>
 <figure class="aidoc-shot"><img src="%%AIDOCS_DOCS_URL%%assets/screenshots/frontend-single.png" alt="A published entry, with its tags, metadata grid, table of contents and collapsible content" loading="lazy"><figcaption>A published entry, with its tags, metadata grid, table of contents and collapsible content</figcaption></figure>
 <h3 id="the-search-page">The search page</h3>
-<p>The catalogue lives wherever you place the <code>[aidocs_search]</code> shortcode.</p>
+<p>The catalogue lives on the page set as <strong>Policies Page</strong> in Settings — or, with none set, on <code>/policies/</code>. It can also be placed anywhere else, as many times as you like, with the <strong>Policies</strong> block or the <code>[aidocs_search]</code> shortcode.</p>
 <ul>
 <li><strong>Keyword field</strong> — type in any language. After roughly 600 ms of no typing, and only with a Gemini key configured, the AI answers in that same language and surfaces the one to three entries that address the question, each with a <strong>View details</strong> button. Without a key, the field still runs a plain WordPress keyword search.</li>
 <li>A <strong>Document Type</strong> tab bar narrows the results.</li>
@@ -263,10 +272,10 @@
 </section>
 <section class="aidoc-section" id="shortcode-reference">
 <h2>Shortcode reference</h2>
-<p>Two shortcodes. <code>[aidocs_search]</code> places the catalogue; <code>[aidocs_document]</code> embeds one entry&#039;s content.</p>
+<p>Three shortcodes. <code>[aidocs_search]</code> places the catalogue; <code>[aidocs_policy_search]</code> places the search form on its own, on a page that has no catalogue; <code>[aidocs_document]</code> embeds one entry&#039;s content.</p>
 <h3 id="aidocs-search-the-catalogue"><code>[aidocs_search]</code> — the catalogue</h3>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_search]</code></pre></div>
-<p>Renders the keyword field, both filter dropdowns, the result list and its pagination. <code>/{archive}/</code> already shows this same search, so the shortcode is what to use for putting it somewhere else as well — a second page with different pre-selected filters, for instance.</p>
+<p>Renders the keyword field, both filter dropdowns, the result list and its pagination — the same thing the <strong>Policies</strong> block renders, and the same thing the page set as <strong>Policies Page</strong> already shows. Use it for putting the catalogue somewhere else as well: a second page with different pre-selected filters, for instance.</p>
 <div class="aidoc-table-wrap"><table>
 <thead><tr><th>Parameter</th><th>Default</th><th>Accepts</th><th>What it does</th></tr></thead>
 <tbody>
@@ -275,10 +284,25 @@
 <tr><td><code>show_ai</code></td><td><code>true</code></td><td><code>true</code> / <code>false</code></td><td><code>false</code> turns off the inline AI recommendation in the keyword field. Keyword search and filters still work.</td></tr>
 <tr><td><code>show_chat</code></td><td><code>false</code></td><td><code>true</code> / <code>false</code></td><td><code>true</code> brings back the floating AI chat bubble. Off by default: every result card already links to its entry, so the bubble duplicates that with a second way to get there.</td></tr>
 </tbody></table></div>
-<h4 id="reading-filters-from-the-url">Reading filters from the URL</h4>
-<p><code>type</code> is also read from the query string, and the URL wins over the attribute. So a single page carrying a plain <code>[aidocs_search]</code> can be linked as a pre-filtered view:</p>
-<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>/policies/?type=Guidelines</code></pre></div>
-<p>That is what makes one search page enough for every &quot;show me only X&quot; link in a menu or a sidebar.</p>
+<h4 id="reading-a-search-from-the-url">Reading a search from the URL</h4>
+<p><code>q</code> and <code>type</code> are both read from the query string, and the URL wins over the attribute. The keyword field arrives filled in, the matching type tab arrives selected, and the search runs once on load from those two values — so a catalogue page can be linked as a finished search, not just as a page:</p>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>/policies/?type=Guidelines
+/policies/?q=transfer%20credit&amp;type=Policies</code></pre></div>
+<p>That is what makes one catalogue page enough for every &quot;show me only X&quot; link in a menu or a sidebar — and it is what carries a search across a redirect from <code>[aidocs_policy_search]</code> below, which needs nothing more than to point at this page.</p>
+<h3 id="aidocs-policy-search-the-search-form-on-its-own"><code>[aidocs_policy_search]</code> — the search form, on its own</h3>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_policy_search results_url=&quot;/policies/&quot;]</code></pre></div>
+<p>The same card, type tabs, keyword field and Search button <code>[aidocs_search]</code> renders — and nothing under them. Submitting it goes to the catalogue:</p>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>policy search form  →  /policies/?q=…&amp;type=…  →  the results</code></pre></div>
+<p>Use it on a page that introduces the policies rather than listing them — a &quot;Principles, Standards &amp; Policies&quot; landing page, say — where the whole library printed under the box is not what anyone came for. The catalogue stays where it is; this only sends visitors to it.</p>
+<div class="aidoc-table-wrap"><table>
+<thead><tr><th>Parameter</th><th>Default</th><th>Accepts</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>results_url</code></td><td><em>(empty)</em></td><td>A path, a page id, or a URL on this site</td><td>Where Search goes. Left out, <strong>Settings → Policies Page</strong> — the right answer for a site with one catalogue. An off-site URL is ignored rather than honoured.</td></tr>
+<tr><td><code>type</code></td><td><em>(empty)</em></td><td>A Document Type name</td><td>Pre-selects that type&#039;s tab, for a form that is only ever about one kind of policy.</td></tr>
+<tr><td><code>show_heading</code></td><td><code>yes</code></td><td><code>yes</code> / <code>no</code></td><td><code>no</code> drops the card&#039;s own title and subtitle, for a section that already has a heading above the form.</td></tr>
+</tbody></table></div>
+<p>This is a plain GET form. It runs no JavaScript, makes no AJAX call and needs no nonce — submitting it is an ordinary navigation, so the result is a shareable URL, the back button works, and it is safe behind a page cache. Clicking a type tab submits too, carrying whatever is already typed.</p>
+<p>The same thing can be written as <code>[aidocs_search mode=&quot;form&quot;]</code>; the two are one shortcode with one renderer behind them, so they cannot drift apart. Prefer <code>[aidocs_policy_search]</code> — the tag says what it does.</p>
 <h4 id="recipes">Recipes</h4>
 <p>A no-AI page, ten at a time:</p>
 <div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code>[aidocs_search show_ai=&quot;false&quot; per_page=&quot;10&quot;]</code></pre></div>
@@ -316,13 +340,15 @@
 </tbody></table></div>
 <p><code>[sacscoc_ai_chat]</code> is the same shortcode under a second name.</p>
 <p>Nothing is rendered at all when no Gemini API key is configured.</p>
-<h3 id="using-them-in-the-block-editor">Using them in the block editor</h3>
-<ol class="aidoc-steps">
-<li>Add a <strong>Shortcode</strong> block where the catalogue or the entry should appear.</li>
-<li>Paste the shortcode, including its square brackets.</li>
-<li>Update the page, then view it — shortcodes render on the front end, not in the editor canvas.</li>
-</ol>
-<p>The copy buttons in <strong>Policies → Settings → Shortcodes</strong> produce these same snippets, already filled in with your own configured types and a real entry ID from your site.</p>
+<h3 id="the-same-two-things-as-blocks">The same two things, as blocks</h3>
+<p>Nothing has to be typed. The block inserter carries both:</p>
+<ul>
+<li><strong>Policies</strong> — the catalogue. Document type, results per page and the AI suggestions toggle are set from the block sidebar instead of as attributes.</li>
+<li><strong>Policy</strong> — one entry, chosen from a list of your published policies by title rather than by ID.</li>
+</ul>
+<p>Each is the same PHP as its shortcode, so the two can never show anything different for the same settings. Both also pick up the editor&#039;s own background colour, text colour, padding and font-size controls, which no shortcode attribute offers.</p>
+<p>The preview in the editor is the real markup, but the catalogue&#039;s search runs on the published page only — the preview says so where the results would be.</p>
+<p>For a page with no block editor, or if you would rather type it, add a <strong>Shortcode</strong> block (or paste into a classic editor) with the shortcode and its square brackets. The copy buttons in <strong>Policies → Settings → Blocks and shortcodes</strong> produce those snippets, already filled in with your own configured types and a real entry ID from your site.</p>
 </section>
 <section class="aidoc-section" id="how-to-write-a-source-document">
 <h2>How to write a source document</h2>

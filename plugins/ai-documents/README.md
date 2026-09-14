@@ -97,10 +97,15 @@ tells them apart from the id alone.
 
 ## Settings
 
-**Policies → Settings** is one page with three sections. Entries live under
+**Policies → Settings** is one page with four sections. Entries live under
 `/policies/` — `/policies/{entry}/` for each one. `/documents/`, the base used
 before 1.5.0, 301-redirects there, so links published against the old base keep
 working.
+
+### Policies Page
+- **Listing Page** — the page the catalogue lives on. Pick one you already have, or press **Create Policies Page** to get a published page with the **Policies** block already on it. A chosen page carrying neither the block nor `[aidocs_search]` is flagged, with a button that appends the block below whatever is already there.
+- Left unset, the catalogue stays on `/policies/`, the archive the post type generates — a URL nothing in wp-admin lists and nobody can add an introduction to.
+- With a page set, every entry's **Back to all topics** link points at it and `/policies/` redirects to it, so the catalogue is never served from two URLs at once.
 
 ### AI
 - **Gemini API Key** and **Gemini Model** — see the previous section.
@@ -108,8 +113,8 @@ working.
 ### Taxonomy
 - **Document Types** — one per line. Defaults to `Policies`, `Guidelines`, `Good Practices`, `Position Statements`. Add a line to make a new type available everywhere Document Type is used — the AI is validated against this same list and never creates a type on its own.
 
-### Shortcodes
-A reference of every shortcode parameter with copy-to-clipboard examples.
+### Blocks and shortcodes
+The two blocks — **Policies** (the catalogue) and **Policy** (one entry) — named, plus a reference of every shortcode parameter with copy-to-clipboard examples. Each block renders through the same PHP as its shortcode (`includes/aidocs-blocks.php` → `aidocs_search_shortcode()` / `aidocs_document_shortcode()`), so the two cannot drift.
 
 ---
 
@@ -346,7 +351,7 @@ Add the document search to any page or post with:
 [aidocs_search]
 ```
 
-By default, `/{slug}/` (see Settings → Display) already shows this same search — the shortcode is what to use for embedding it somewhere else too, like a second page with different pre-selected filters.
+…or add the **Policies** block, which renders the same thing with its attributes set from the block sidebar. The page set as **Policies Page** in Settings already carries one of the two; use either again for embedding the catalogue somewhere else, like a second page with different pre-selected filters.
 
 ### What the search does
 
@@ -406,6 +411,9 @@ All of these use the Gemini model configured in **Settings → AI**, and answer 
 | `type` | *(empty)* | Pre-selects a document type. Also reads `?type=` from the URL. |
 | `per_page` | `20` | Results per page (max 50). |
 | `show_ai` | `true` | Set `"false"` to disable the inline AI recommendation in the search field. |
+| `mode` | `results` | `form` renders the search form alone, with no results under it, submitting to `results_url`. `[aidocs_policy_search]` is this with the mode already chosen. |
+| `results_url` | *(empty)* | `mode="form"` only: where Search goes. Left out, **Settings → Policies Page**. Accepts a path, a page id or a URL on this site; an off-site URL is ignored. |
+| `show_heading` | `yes` | `mode="form"` only: `no` drops the card's title and subtitle. |
 
 ### Examples
 
@@ -418,3 +426,22 @@ All of these use the Gemini model configured in **Settings → AI**, and answer 
 
 [aidocs_search show_ai="false"]
 ```
+
+### `[aidocs_policy_search]` — the form without the results
+
+For a page that offers the search and sends the visitor to the catalogue to
+read the answer, rather than printing the whole library under the box:
+
+```
+[aidocs_policy_search results_url="/policies/"]
+```
+
+```
+policy search form  →  /policies/?q=…&type=…  →  the results
+```
+
+A plain GET form — no JavaScript, no AJAX, no nonce — so the result is a
+shareable URL and it is safe behind a page cache. The catalogue reads `q` and
+`type` back, fills its own field and tab in, and runs the search on load, so
+nothing had to change there to make the redirect carry a search. Same
+attributes as `mode="form"` above.

@@ -27,8 +27,8 @@ article inside becomes an entry of its own, with its own title, date, descriptio
 and content.
 
 **3. It publishes and finds.** Each entry gets its own page at
-`/policies/{entry}/`. A search shortcode puts a filterable catalogue on any
-page, and — when Gemini is configured — answers a question typed in any language
+`/policies/{entry}/`. A block (or a shortcode) puts a filterable catalogue on
+any page you choose, and — when Gemini is configured — answers a question typed in any language
 with the one to three entries that address it, and a short explanation of why.
 
 | | Works without an API key | Needs a Gemini key |
@@ -127,9 +127,35 @@ structure, is small in any case.
 
 ## Settings
 
-**Policies → Settings** is a single screen in three parts. Entry URLs are
+**Policies → Settings** is a single screen in four parts. Entry URLs are
 `/policies/{entry}/`. `/documents/`, the base used before 1.5.0, 301-redirects
 to the new one, so nothing already linked or bookmarked breaks.
+
+### Policies Page
+
+Where the listing lives.
+
+Left unset, the catalogue is served from `/policies/` — an archive WordPress
+generates from the post type itself. It works, but it is not a page: nothing in
+wp-admin lists it, it cannot be added to a menu without typing the URL by hand,
+and there is nowhere to put an introduction above it.
+
+Point this at a page instead and the listing becomes ordinary page content, with
+everything that follows from that — a heading, an intro paragraph, a hero image,
+a different layout, anything the block editor can do, arranged around it.
+
+- **Pick a page you already have** from the dropdown. If it carries neither the
+  **Policies** block nor `[aidocs_search]`, the setting says so and offers to add
+  the block for you, *below* whatever the page already contains — nothing already
+  on it is replaced.
+- **Create Policies Page** builds a published page called *Policies* with the
+  block already on it, selects it here, and opens it in the editor. Everything
+  about that page is yours afterwards: rename it, move it, restyle it, trash it.
+
+Once a page is set, two things follow it automatically: every entry's **Back to
+all topics** link points at it, and `/policies/` redirects to it, so the
+catalogue is never served from two URLs at once. Clear the setting and both go
+back to the archive.
 
 ### AI
 
@@ -164,10 +190,11 @@ against it — it never creates a type on its own.
 Each Document Type also becomes its own shortcut in the admin sidebar — see
 [Find entries in the admin](#find-entries-in-the-admin).
 
-### Shortcodes
+### Blocks and shortcodes
 
-A copy-to-clipboard reference of every shortcode and parameter, generated
-against your own configured types. The full reference is in
+The two blocks — **Policies** and **Policy** — named, and a copy-to-clipboard
+reference of every shortcode and parameter, generated against your own
+configured types. The full reference is in
 [Shortcode reference](#shortcode-reference) below.
 
 ![The Shortcodes section of the settings screen, with copy buttons on each example](assets/screenshots/settings-shortcodes.png)
@@ -507,7 +534,9 @@ what a reader is offered.
 
 ### The search page
 
-The catalogue lives wherever you place the `[aidocs_search]` shortcode.
+The catalogue lives on the page set as **Policies Page** in Settings — or, with
+none set, on `/policies/`. It can also be placed anywhere else, as many times as
+you like, with the **Policies** block or the `[aidocs_search]` shortcode.
 
 - **Keyword field** — type in any language. After roughly 600 ms of no typing, and only with a Gemini key configured, the AI answers in that same language and surfaces the one to three entries that address the question, each with a **View details** button. Without a key, the field still runs a plain WordPress keyword search.
 - A **Document Type** tab bar narrows the results.
@@ -532,8 +561,9 @@ results, in the language the question was asked in.
 
 ## Shortcode reference
 
-Two shortcodes. `[aidocs_search]` places the catalogue; `[aidocs_document]`
-embeds one entry's content.
+Three shortcodes. `[aidocs_search]` places the catalogue;
+`[aidocs_policy_search]` places the search form on its own, on a page that has
+no catalogue; `[aidocs_document]` embeds one entry's content.
 
 ### `[aidocs_search]` — the catalogue
 
@@ -542,9 +572,10 @@ embeds one entry's content.
 ```
 
 Renders the keyword field, both filter dropdowns, the result list and its
-pagination. `/{archive}/` already shows this same search, so the shortcode is
-what to use for putting it somewhere else as well — a second page with different
-pre-selected filters, for instance.
+pagination — the same thing the **Policies** block renders, and the same thing
+the page set as **Policies Page** already shows. Use it for putting the
+catalogue somewhere else as well: a second page with different pre-selected
+filters, for instance.
 
 | Parameter | Default | Accepts | What it does |
 |---|---|---|---|
@@ -553,18 +584,55 @@ pre-selected filters, for instance.
 | `show_ai` | `true` | `true` / `false` | `false` turns off the inline AI recommendation in the keyword field. Keyword search and filters still work. |
 | `show_chat` | `false` | `true` / `false` | `true` brings back the floating AI chat bubble. Off by default: every result card already links to its entry, so the bubble duplicates that with a second way to get there. |
 
-#### Reading filters from the URL
+#### Reading a search from the URL
 
-`type` is also read from the query string, and the URL wins over the
-attribute. So a single page carrying a plain `[aidocs_search]` can be linked
-as a pre-filtered view:
+`q` and `type` are both read from the query string, and the URL wins over the
+attribute. The keyword field arrives filled in, the matching type tab arrives
+selected, and the search runs once on load from those two values — so a
+catalogue page can be linked as a finished search, not just as a page:
 
 ```
 /policies/?type=Guidelines
+/policies/?q=transfer%20credit&type=Policies
 ```
 
-That is what makes one search page enough for every "show me only X" link in a
-menu or a sidebar.
+That is what makes one catalogue page enough for every "show me only X" link
+in a menu or a sidebar — and it is what carries a search across a redirect
+from `[aidocs_policy_search]` below, which needs nothing more than to point at
+this page.
+
+### `[aidocs_policy_search]` — the search form, on its own
+
+```
+[aidocs_policy_search results_url="/policies/"]
+```
+
+The same card, type tabs, keyword field and Search button `[aidocs_search]`
+renders — and nothing under them. Submitting it goes to the catalogue:
+
+```
+policy search form  →  /policies/?q=…&type=…  →  the results
+```
+
+Use it on a page that introduces the policies rather than listing them — a
+"Principles, Standards & Policies" landing page, say — where the whole library
+printed under the box is not what anyone came for. The catalogue stays where
+it is; this only sends visitors to it.
+
+| Parameter | Default | Accepts | What it does |
+|---|---|---|---|
+| `results_url` | *(empty)* | A path, a page id, or a URL on this site | Where Search goes. Left out, **Settings → Policies Page** — the right answer for a site with one catalogue. An off-site URL is ignored rather than honoured. |
+| `type` | *(empty)* | A Document Type name | Pre-selects that type's tab, for a form that is only ever about one kind of policy. |
+| `show_heading` | `yes` | `yes` / `no` | `no` drops the card's own title and subtitle, for a section that already has a heading above the form. |
+
+This is a plain GET form. It runs no JavaScript, makes no AJAX call and needs
+no nonce — submitting it is an ordinary navigation, so the result is a
+shareable URL, the back button works, and it is safe behind a page cache.
+Clicking a type tab submits too, carrying whatever is already typed.
+
+The same thing can be written as `[aidocs_search mode="form"]`; the two are one
+shortcode with one renderer behind them, so they cannot drift apart. Prefer
+`[aidocs_policy_search]` — the tag says what it does.
 
 #### Recipes
 
@@ -644,15 +712,28 @@ one particular place.
 
 Nothing is rendered at all when no Gemini API key is configured.
 
-### Using them in the block editor
+### The same two things, as blocks
 
-1. Add a **Shortcode** block where the catalogue or the entry should appear.
-2. Paste the shortcode, including its square brackets.
-3. Update the page, then view it — shortcodes render on the front end, not in the editor canvas.
+Nothing has to be typed. The block inserter carries both:
 
-The copy buttons in **Policies → Settings → Shortcodes** produce these same
-snippets, already filled in with your own configured types and a real entry ID
-from your site.
+- **Policies** — the catalogue. Document type, results per page and the AI
+  suggestions toggle are set from the block sidebar instead of as attributes.
+- **Policy** — one entry, chosen from a list of your published policies by
+  title rather than by ID.
+
+Each is the same PHP as its shortcode, so the two can never show anything
+different for the same settings. Both also pick up the editor's own background
+colour, text colour, padding and font-size controls, which no shortcode
+attribute offers.
+
+The preview in the editor is the real markup, but the catalogue's search runs on
+the published page only — the preview says so where the results would be.
+
+For a page with no block editor, or if you would rather type it, add a
+**Shortcode** block (or paste into a classic editor) with the shortcode and its
+square brackets. The copy buttons in **Policies → Settings → Blocks and
+shortcodes** produce those snippets, already filled in with your own configured
+types and a real entry ID from your site.
 
 ## How to write a source document
 
