@@ -1,15 +1,25 @@
 <?php
 /**
- * Same idea as harness.php, run with AI Policies and Institutions both
- * deactivated, to prove Global Search alone still works and never fatals.
- * Run only while those two plugins are deactivated; tests/harness.php
- * covers the "all three active" case.
+ * Same idea as harness.php, with AI Policies and Institutions excluded from
+ * this CLI process to prove Global Search alone still works and never fatals.
+ * The site's real active_plugins setting is never changed.
+ * Run: php tests/harness-standalone.php
  */
 
 define( 'WP_USE_THEMES', false );
 $_SERVER['HTTP_HOST']    = 'cirlot.local';
 $_SERVER['REQUEST_URI']  = '/';
 $_SERVER['REQUEST_METHOD'] = 'GET';
+// WordPress converts preinitialized filters to WP_Hook instances during
+// bootstrap, before reading active_plugins. This affects only this process.
+$GLOBALS['wp_filter']['option_active_plugins'][10][] = [
+	'function' => static function ( $plugins ) {
+		return array_values( array_filter( $plugins, static function ( $plugin ) {
+			return ! in_array( basename( $plugin ), [ 'ai-documents.php', 'sacscoc-institutions.php' ], true );
+		} ) );
+	},
+	'accepted_args' => 1,
+];
 require '/Users/elim/Local Sites/cirlot/app/public/wp-load.php';
 
 $pass = 0; $fail = 0;
@@ -37,4 +47,7 @@ gsearch_assert( 'no documents/institutions results leak in when those plugins ar
 $html = do_shortcode( '[global_search]' );
 gsearch_assert( 'shortcode still renders standalone', strpos( $html, 'global-search' ) !== false );
 
+require __DIR__ . '/harness-admin.php';
+
 echo "\n----\n$pass passed, $fail failed\n";
+exit( $fail > 0 ? 1 : 0 );

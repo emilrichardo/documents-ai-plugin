@@ -142,7 +142,7 @@ Nothing here has been changed — `*GLOBAL_Header (All Pages)` is untouched.
    The placeholder and button label are deliberately the ones the header
    already uses: the results behind the box change, the control visitors know
    does not.
-4. Settings → Global Search → **Results page** must name the page carrying
+4. Global Search → Settings → **Results page** must name the page carrying
    `[global_search]`. Without it the box falls back to WordPress's own `?s=`
    search — plainer, never broken, but not the point of the exercise.
 5. Check the container the widget sits in does not clip the dropdown:
@@ -329,7 +329,21 @@ built — there is no real signal for one yet.
 
 ## Admin settings
 
-**Settings → Global Search**:
+Global Search has its own top-level admin menu, with the native search
+Dashicon, in the content area next to Institutions:
+
+```
+Global Search
+├── Overview
+└── Settings
+```
+
+**Overview** shows the plugin version, each registered source's current
+status (active, disabled, or unavailable), the configured results page and
+URL, the public REST endpoint link, and ready-to-use full and compact
+shortcodes. It reads the existing configuration without changing it.
+
+**Global Search → Settings** reuses the existing settings form:
 
 | Setting | What it does |
 | --- | --- |
@@ -340,9 +354,35 @@ built — there is no real signal for one yet.
 | **Rows in the compact dropdown** | How many matches a header box shows before "View all results". 6 by default |
 | Live search | On/off, minimum characters (3), debounce ms (300) |
 
+The **Search Sources** section lists Site, Policies and Institutions with
+their enable switches and editable labels. Unavailable sources stay visible
+and retain their saved preferences, so their plugins can be activated later.
+Additional sources registered through the provider filter appear here too.
+
+Both admin screens and saving require `manage_options`; the REST endpoints
+and frontend remain public. The plugin list has a Settings shortcut. Old
+`options-general.php?page=global-search` links redirect to the new Settings
+screen, including support for saving an already-open legacy form.
+
+All configuration remains in `gsearch_settings`, with the same keys and
+defaults. No migration, reset, new dependency, or frontend asset is needed.
+
 Changing any of these takes effect immediately: the five-minute result cache is
 keyed on the settings as well as the query, so turning a provider off does not
 leave it answering from cache.
+
+## Regression checks
+
+Run `php tests/harness.php` against the configured local WordPress site for
+the integrated search and admin checks. Run `php tests/harness-standalone.php`
+for the optional-plugins-unavailable scenario; it excludes those plugins
+only inside the test process, without changing the site's active plugins.
+Both harnesses share `tests/harness-admin.php` and return a nonzero exit
+status on failure. Settings fixtures and save interception stay in memory.
+
+Admin coverage includes menus, capabilities, current source status, option
+preservation, both shortcode examples, REST/provider contracts, invalid
+nonces, and legacy Settings links and form submissions.
 
 ## Independence
 
@@ -354,8 +394,8 @@ constant, so Global Search runs correctly with any subset of
 
 - New source: implement `Global_Search_Provider`, append it via
   `global_search_providers`.
-- New WordPress post type in the default provider: `Settings → Global
-  Search`, or `add_filter( 'global_search_wordpress_post_types', ... )`.
+- New WordPress post type in the default provider: the existing `post_types`
+  setting, or `add_filter( 'global_search_wordpress_post_types', ... )`.
 - AI Chat (not built here on purpose — see brief section 19): call
   `gsearch_service()->search( $query, $args )` directly; it returns the same
   normalized array the REST endpoint serializes, ready to hand to an LLM as

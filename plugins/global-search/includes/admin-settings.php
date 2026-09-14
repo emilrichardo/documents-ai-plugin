@@ -1,11 +1,11 @@
 <?php
 /**
- * Settings → Global Search. Deliberately small: which providers are on,
+ * Global Search → Overview / Settings. Deliberately small: which providers are on,
  * their labels, how many results each contributes, whether Posts/Pages are
  * searched, and the live-search behaviour — not a general-purpose options
  * framework. Plain manual form + nonce (same pattern as
  * sacscoc-institutions/includes/admin.php's own screens), not the Settings
- * API — there is exactly one screen and one option row here, which the
+ * API — there is exactly one settings form and one option row here, which the
  * Settings API would not meaningfully simplify.
  */
 
@@ -13,13 +13,111 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 add_action( 'admin_menu', 'gsearch_register_settings_page' );
 function gsearch_register_settings_page(): void {
-	add_options_page(
+	add_menu_page(
 		__( 'Global Search', 'global-search' ),
 		__( 'Global Search', 'global-search' ),
 		'manage_options',
 		'global-search',
+		'gsearch_render_overview_page',
+		'dashicons-search',
+		27 // Custom content area, next to Institutions, before native Appearance/Plugins.
+	);
+	add_submenu_page(
+		'global-search',
+		__( 'Global Search', 'global-search' ),
+		__( 'Overview', 'global-search' ),
+		'manage_options',
+		'global-search',
+		'gsearch_render_overview_page'
+	);
+	add_submenu_page(
+		'global-search',
+		__( 'Global Search Settings', 'global-search' ),
+		__( 'Settings', 'global-search' ),
+		'manage_options',
+		'global-search-settings',
 		'gsearch_render_settings_page'
 	);
+}
+
+// Keep existing bookmarks (and an already-open settings form) working.
+add_action( 'admin_init', 'gsearch_redirect_legacy_settings_page' );
+function gsearch_redirect_legacy_settings_page(): void {
+	global $pagenow;
+	if ( $pagenow !== 'options-general.php' || ( $_GET['page'] ?? '' ) !== 'global-search' || ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	$url = admin_url( 'admin.php?page=global-search-settings' );
+	if ( isset( $_POST['gsearch_save'] ) ) {
+		check_admin_referer( 'gsearch_save_settings' );
+		gsearch_handle_settings_save();
+		$url = add_query_arg( 'settings-updated', 'true', $url );
+	}
+	wp_safe_redirect( $url );
+	exit;
+}
+
+add_filter( 'plugin_action_links_' . plugin_basename( GSEARCH_FILE ), 'gsearch_settings_action_link' );
+function gsearch_settings_action_link( array $links ): array {
+	if ( current_user_can( 'manage_options' ) ) {
+		array_unshift( $links, '<a href="' . esc_url( admin_url( 'admin.php?page=global-search-settings' ) ) . '">' . esc_html__( 'Settings', 'global-search' ) . '</a>' );
+	}
+	return $links;
+}
+
+function gsearch_render_overview_page(): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	$settings = gsearch_get_settings();
+	$page_id  = (int) $settings['results_page'];
+	$resolved = gsearch_results_url();
+	?>
+	<div class="wrap">
+		<h1><?php esc_html_e( 'Global Search', 'global-search' ); ?></h1>
+		<p><?php esc_html_e( 'Search your site, policies and institutions from one search box. Optional sources are included when their plugins are available and enabled.', 'global-search' ); ?></p>
+		<p><?php esc_html_e( 'Version:', 'global-search' ); ?> <code><?php echo esc_html( GSEARCH_VERSION ); ?></code></p>
+		<p><a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=global-search-settings' ) ); ?>"><?php esc_html_e( 'Settings', 'global-search' ); ?></a></p>
+
+		<h2><?php esc_html_e( 'Search Sources', 'global-search' ); ?></h2>
+		<ul>
+			<?php foreach ( gsearch_service()->get_providers() as $provider ) : ?>
+				<li>
+					<strong><?php echo esc_html( gsearch_provider_label( $provider ) ); ?></strong>
+					— <?php
+					if ( ! $provider->is_available() ) {
+						esc_html_e( 'unavailable', 'global-search' );
+					} elseif ( gsearch_provider_enabled( $provider->get_id() ) ) {
+						esc_html_e( 'Active', 'global-search' );
+					} else {
+						esc_html_e( 'Disabled in Settings', 'global-search' );
+					}
+					?>
+				</li>
+			<?php endforeach; ?>
+		</ul>
+
+		<h2><?php esc_html_e( 'Results Page', 'global-search' ); ?></h2>
+		<?php if ( $page_id > 0 ) : ?>
+			<p><?php echo esc_html( get_the_title( $page_id ) ?: __( 'Page unavailable', 'global-search' ) ); ?> <code>#<?php echo esc_html( (string) $page_id ); ?></code></p>
+		<?php endif; ?>
+		<?php if ( $resolved !== '' ) : ?>
+			<p><a href="<?php echo esc_url( $resolved ); ?>"><?php echo esc_html( $resolved ); ?></a></p>
+		<?php else : ?>
+			<p><?php esc_html_e( 'No published results page is configured. Searches use WordPress search results.', 'global-search' ); ?></p>
+		<?php endif; ?>
+		<p><?php esc_html_e( 'Place the full shortcode or a Global Search block on the results page, then select that page in Settings.', 'global-search' ); ?></p>
+
+		<h2><?php esc_html_e( 'Shortcode', 'global-search' ); ?></h2>
+		<p><code><?php echo esc_html( '[global_search]' ); ?></code></p>
+		<h2><?php esc_html_e( 'Header Shortcode', 'global-search' ); ?></h2>
+		<p><code><?php echo esc_html( '[global_search variant="compact" shape="rounded" button_label="GO" placeholder="Search Site ..." show_filters="no"]' ); ?></code></p>
+
+		<h2><?php esc_html_e( 'REST Endpoint', 'global-search' ); ?></h2>
+		<p><?php esc_html_e( 'Public search endpoint:', 'global-search' ); ?> <a href="<?php echo esc_url( rest_url( 'global-search/v1/search' ) ); ?>"><code><?php echo esc_html( rest_url( 'global-search/v1/search' ) ); ?></code></a></p>
+	</div>
+	<?php
 }
 
 function gsearch_render_settings_page(): void {
@@ -31,13 +129,15 @@ function gsearch_render_settings_page(): void {
 		check_admin_referer( 'gsearch_save_settings' );
 		gsearch_handle_settings_save();
 		echo '<div class="notice notice-success"><p>' . esc_html__( 'Settings saved.', 'global-search' ) . '</p></div>';
+	} elseif ( ( $_GET['settings-updated'] ?? '' ) === 'true' ) {
+		echo '<div class="notice notice-success"><p>' . esc_html__( 'Settings saved.', 'global-search' ) . '</p></div>';
 	}
 
 	$settings  = gsearch_get_settings();
-	$providers = gsearch_service()->get_providers(); // includes unavailable ones, so their toggle still shows (greyed) for when they become active
+	$providers = gsearch_service()->get_providers(); // Keep unavailable sources configurable for when their plugins return.
 	?>
 	<div class="wrap">
-		<h1><?php esc_html_e( 'Global Search', 'global-search' ); ?></h1>
+		<h1><?php esc_html_e( 'Global Search Settings', 'global-search' ); ?></h1>
 		<form method="post">
 			<?php wp_nonce_field( 'gsearch_save_settings' ); ?>
 
@@ -70,7 +170,7 @@ function gsearch_render_settings_page(): void {
 				</tr>
 			</table>
 
-			<h2><?php esc_html_e( 'Sources', 'global-search' ); ?></h2>
+			<h2><?php esc_html_e( 'Search Sources', 'global-search' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<?php foreach ( $providers as $provider ) :
 					$id       = $provider->get_id();
@@ -86,7 +186,7 @@ function gsearch_render_settings_page(): void {
 								<?php esc_html_e( 'Enabled', 'global-search' ); ?>
 							</label>
 							<?php if ( ! $available ) : ?>
-								<span class="description"> — <?php esc_html_e( 'plugin not active; this source is skipped until it is.', 'global-search' ); ?></span>
+								<span class="description"> — <?php esc_html_e( 'unavailable; this source is skipped until its plugin is active and ready.', 'global-search' ); ?></span>
 							<?php endif; ?>
 							<br />
 							<label>

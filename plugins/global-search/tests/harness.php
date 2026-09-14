@@ -209,11 +209,15 @@ echo "\n== A disabled provider contributes nothing ==\n";
 $saved = gsearch_get_settings();
 $off = $saved;
 $off['providers']['institutions']['enabled'] = false;
-gsearch_update_settings( $off );
-$without = gsearch_service( true )->search( 'university' );
-gsearch_assert( 'no institutions results once the provider is disabled', ( $without['counts']['institutions'] ?? 0 ) === 0 );
-gsearch_assert( 'the other providers keep working', ( $without['counts']['wordpress'] ?? 0 ) > 0 );
-gsearch_update_settings( $saved );
+$disabled_fixture = static function () use ( $off ) { return $off; };
+add_filter( 'pre_option_' . GSEARCH_OPTION, $disabled_fixture );
+try {
+	$without = gsearch_service( true )->search( 'university' );
+	gsearch_assert( 'no institutions results once the provider is disabled', ( $without['counts']['institutions'] ?? 0 ) === 0 );
+	gsearch_assert( 'the other providers keep working', ( $without['counts']['wordpress'] ?? 0 ) > 0 );
+} finally {
+	remove_filter( 'pre_option_' . GSEARCH_OPTION, $disabled_fixture );
+}
 $service = gsearch_service( true );
 gsearch_assert( 'and it comes back when re-enabled', ( $service->search( 'university' )['counts']['institutions'] ?? 0 ) > 0 );
 
@@ -227,4 +231,7 @@ gsearch_assert( 'a whitespace-only query is empty too', $blank['total'] === 0 );
 echo "\n== Plugin activation independence ==\n";
 gsearch_assert( 'Global Search main file has no require_once on other plugins', strpos( file_get_contents( GSEARCH_DIR . 'global-search.php' ), 'ai-documents' ) === false && strpos( file_get_contents( GSEARCH_DIR . 'global-search.php' ), 'sacscoc' ) === false );
 
+require __DIR__ . '/harness-admin.php';
+
 echo "\n----\n$pass passed, $fail failed\n";
+exit( $fail > 0 ? 1 : 0 );

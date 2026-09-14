@@ -6,7 +6,7 @@
  * provider interface so any future content source (products, events, a
  * knowledge base, custom post types) can register itself without touching
  * this plugin's core.
- * Version: 0.2.0
+ * Version: 0.2.1
  * Author: Cirlot
  * Text Domain: global-search
  *
@@ -20,7 +20,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'GSEARCH_VERSION', '0.2.0' );
+define( 'GSEARCH_VERSION', '0.2.1' );
 define( 'GSEARCH_FILE', __FILE__ );
 define( 'GSEARCH_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSEARCH_URL', plugin_dir_url( __FILE__ ) );
