@@ -157,6 +157,21 @@ all topics** link points at it, and `/policies/` redirects to it, so the
 catalogue is never served from two URLs at once. Clear the setting and both go
 back to the archive.
 
+> **If you want the catalogue to stay at `/policies/`, leave this unset.**
+>
+> That reads backwards, so it is worth stating plainly: there is no page to
+> pick that lives at `/policies/`, and there cannot be one — that URL belongs
+> to the post type's archive, and a page with the same slug would collide with
+> it. **None** *is* the `/policies/` setting. Choosing a page does not put the
+> catalogue at `/policies/`; it moves the catalogue somewhere else and turns
+> `/policies/` into a redirect.
+>
+> Either answer is fine, and the form shortcodes work with both, because they
+> ask this setting where the catalogue is rather than assuming. What is not
+> fine is setting a page here while `results_url="/policies/"` is written on a
+> form elsewhere: the form would then send visitors to a redirect, and the
+> catalogue would be reached by one extra hop for no reason.
+
 ### AI
 
 The Gemini API key and the model, covered above. The key is stored as a
@@ -630,6 +645,14 @@ no nonce — submitting it is an ordinary navigation, so the result is a
 shareable URL, the back button works, and it is safe behind a page cache.
 Clicking a type tab submits too, carrying whatever is already typed.
 
+The tabs are real submit buttons rather than a script toggling a hidden field,
+which is what lets them work with scripts off. One consequence is worth knowing
+if you ever read the URLs: every control that can submit this form carries the
+type, and a browser sends a button's value only when that button is the one
+that submitted — so the query string always carries exactly one `type`,
+whichever control was used, and never the duplicate you would get from a hidden
+field sitting alongside the buttons.
+
 The same thing can be written as `[aidocs_search mode="form"]`; the two are one
 shortcode with one renderer behind them, so they cannot drift apart. Prefer
 `[aidocs_policy_search]` — the tag says what it does.
@@ -711,6 +734,28 @@ one particular place.
 `[sacscoc_ai_chat]` is the same shortcode under a second name.
 
 Nothing is rendered at all when no Gemini API key is configured.
+
+#### Where it sits, and how to move it
+
+Bottom right, **80px** up from the bottom of the window on a desktop and
+**76px** on a phone — deliberately not the 28px a floating button usually
+gets. The theme pins its own gold **Back to top** arrow at 30px, and that arrow
+is about 32px tall, so a bubble any lower covers it exactly when a reader has
+scrolled far enough to want it. At 80px there is roughly 19px of clear space
+between the two.
+
+The whole position is one number:
+
+```css
+.aidocs-scope { --aidocs-bubble-bottom: 80px; }
+```
+
+Set that in the theme's Additional CSS and the bubble moves. The open panel is
+derived from the same token — it sits a fixed distance above the bubble — so
+the two can never drift apart, and the panel's height is capped against the
+window, so raising the bubble shortens the panel rather than pushing its header
+off the top of a phone screen. `--aidocs-bubble-right` moves it horizontally
+the same way.
 
 ### The same two things, as blocks
 

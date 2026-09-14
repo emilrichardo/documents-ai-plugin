@@ -357,8 +357,17 @@ function sacscoc_inst_docs_frontend(): void {
                     <?php if ( $page_id > 0 ) : ?>
                         <a href="<?php echo esc_url( (string) get_permalink( $page_id ) ); ?>" target="_blank" rel="noopener noreferrer">
                             <?php echo esc_html( (string) get_the_title( $page_id ) ); ?></a>
+                        <?php
+                        // The URL, not just the title. A site can easily carry
+                        // two pages both called "Institutions" — an older copy
+                        // and the real one — and the title alone looks right
+                        // either way, while every search form that leaves
+                        // results_url out quietly submits to whichever this is.
+                        ?>
+                        <code><?php echo esc_html( (string) get_permalink( $page_id ) ); ?></code>
                     <?php else : ?>
                         <em><?php esc_html_e( 'Not set', 'sacscoc-institutions' ); ?></em>
+                        <span class="description"><?php esc_html_e( '— a standalone search form with no results_url of its own has nowhere to submit to until this is set.', 'sacscoc-institutions' ); ?></span>
                     <?php endif; ?>
                     <br />
                     <?php if ( $page_id > 0 && sacscoc_inst_directory_page_needs_directory( $page_id ) ) : ?>

@@ -225,6 +225,21 @@ and a click outside close it. The input is a `role="combobox"` with
 `aria-expanded`/`aria-controls` over a `role="listbox"`, and a polite live
 region carries the same states to a screen reader.
 
+Widths, by breakpoint:
+
+| | Panel |
+| --- | --- |
+| Desktop | `max(box, 340px)`, growing **leftward** from the box's right edge — a 320px header box is too narrow to read results in |
+| ≤ 782px | capped at `min(360px, 100vw − 32px)` |
+| ≤ 600px | back to the box's own left and right edges, which on a phone header is most of the width and is inside the screen by construction |
+
+The panel is `position: absolute` at every width, deliberately. `fixed` would
+escape a header with `overflow: hidden` — the one thing that can clip it — but
+inside any transformed or filtered ancestor (a sticky header, an animation)
+`fixed` is positioned against *that ancestor* rather than the viewport and
+lands somewhere arbitrary. Absolute is predictable everywhere, and the header
+needing `overflow: visible` is documented rather than guessed at.
+
 Renders only the search box; results are never on the page by default.
 Nothing is queried until a real search runs (empty query ⇒ zero results from
 every provider, no provider even called), and there is no visible "No
@@ -314,9 +329,20 @@ built — there is no real signal for one yet.
 
 ## Admin settings
 
-**Settings → Global Search**: search Posts / search Pages toggles, results
-per source, per-provider enable + label override, and live-search
-(on/off, minimum characters, debounce ms).
+**Settings → Global Search**:
+
+| Setting | What it does |
+| --- | --- |
+| Search Posts / Search Pages | Which core post types the WordPress provider covers |
+| Results per source | The per-provider cap, not a total — see Ranking |
+| Per-provider enable + label | Turn a source off, or rename it in the filters |
+| **Results page** | The page carrying `[global_search]`, where every compact box sends a search and where "View all results" points. None → WordPress's own `?s=` search |
+| **Rows in the compact dropdown** | How many matches a header box shows before "View all results". 6 by default |
+| Live search | On/off, minimum characters (3), debounce ms (300) |
+
+Changing any of these takes effect immediately: the five-minute result cache is
+keyed on the settings as well as the query, so turning a provider off does not
+leave it answering from cache.
 
 ## Independence
 

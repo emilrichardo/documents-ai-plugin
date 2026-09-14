@@ -452,6 +452,49 @@ directory's own inline bar uses, so a standalone bar and an inline one look
 identical; see [The Gutenberg blocks](#the-gutenberg-blocks) for the same choice
 as an Inspector Control on the Institutions Search block.
 
+#### The form on one page, the results on another
+
+Everything above describes a form and a directory sharing a page. They do not
+have to. The arrangement this site actually uses is a *promotional* page that
+offers the search and nothing else, sending visitors to the directory to read
+the answer:
+
+```
+/students-families/find-an-instituition/     the form, and no results
+        ↓  Search
+/institutions/?si_q=…&si_state=…&si_degree=…&si_year=…
+        ↓
+the directory, fields refilled, results already on the page
+```
+
+The promotional page carries exactly this and nothing else:
+
+```
+[sacscoc_institution_search results_url="/institutions/" show_heading="no"]
+```
+
+Nothing has to be configured for the receiving end. `[sacscoc_institutions]`
+already reads every `si_*` parameter from the query string, refills the fields
+from them and renders the matching results server-side — that is the same
+mechanism that makes any filtered view a shareable URL, used here for a
+redirect instead of a bookmark.
+
+The pairing script stays out of the way by itself: `directory.js` only takes
+over a form when it can find a results region to drive, and a page holding just
+the form has none. So the form stays a plain GET form, submitting is an
+ordinary navigation, and the flow works with JavaScript off.
+
+> **Check Settings → Directory Page actually points at the results page.**
+>
+> This is the one way to get a quietly wrong result. A site with two copies of
+> the directory — say `/institutions/` and an older `/institutions-2/` — can
+> have the setting aimed at the wrong one, and nothing complains: forms that
+> leave `results_url` out submit to it, land on a real directory, and show real
+> results, just not at the URL anyone links to or expects. Writing
+> `results_url="/institutions/"` on the form is a good habit and does override
+> it, but it only fixes the forms you remember to write it on; the setting is
+> what every other link in the plugin follows.
+
 ### Live filtering
 
 Filters apply as you type — 300 ms after the last keystroke — and immediately on

@@ -104,6 +104,8 @@ working.
 
 ### Policies Page
 - **Listing Page** — the page the catalogue lives on. Pick one you already have, or press **Create Policies Page** to get a published page with the **Policies** block already on it. A chosen page carrying neither the block nor `[aidocs_search]` is flagged, with a button that appends the block below whatever is already there.
+
+  **Leave it as None to keep the catalogue at `/policies/`.** There is no page to pick that lives there and there cannot be one — the slug belongs to the post type's archive. None *is* the `/policies/` setting; choosing a page moves the catalogue elsewhere and turns `/policies/` into a redirect to it. Both are fine, and the form shortcodes ask this setting rather than assuming — but do not set a page here while a form elsewhere still says `results_url="/policies/"`, or that form sends visitors through a redirect for no reason.
 - Left unset, the catalogue stays on `/policies/`, the archive the post type generates — a URL nothing in wp-admin lists and nobody can add an introduction to.
 - With a page set, every entry's **Back to all topics** link points at it and `/policies/` redirects to it, so the catalogue is never served from two URLs at once.
 
@@ -393,6 +395,25 @@ Pass either `id` (the entry's post ID) or `slug` (its URL slug). If neither reso
 | Ask AI (single document) | Document page | Answers questions about that one document |
 
 All of these use the Gemini model configured in **Settings → AI**, and answer in whichever language the question was asked in.
+
+### Where the floating assistant sits
+
+Bottom right, **80px** up on a desktop and **76px** on a phone — not the 28px a
+floating button usually gets. The theme pins its own gold **Back to top** arrow
+at 30px and that arrow is about 32px tall, so a bubble any lower covers it
+exactly when a reader has scrolled far enough to want it; 80px leaves roughly
+19px of clear space between the two.
+
+It is one token, so moving it is one line of theme CSS:
+
+```css
+.aidocs-scope { --aidocs-bubble-bottom: 80px; --aidocs-bubble-right: 28px; }
+```
+
+The open panel is derived from the same token — a fixed distance above the
+bubble — so the two cannot drift apart, and the panel's height is capped
+against the window, so raising the bubble shortens the panel instead of pushing
+its header off the top of a phone screen.
 
 ---
 

@@ -139,6 +139,10 @@
 <li><strong>Create Policies Page</strong> builds a published page called <em>Policies</em> with the block already on it, selects it here, and opens it in the editor. Everything about that page is yours afterwards: rename it, move it, restyle it, trash it.</li>
 </ul>
 <p>Once a page is set, two things follow it automatically: every entry&#039;s <strong>Back to all topics</strong> link points at it, and <code>/policies/</code> redirects to it, so the catalogue is never served from two URLs at once. Clear the setting and both go back to the archive.</p>
+<blockquote class="aidoc-note"><p><strong>If you want the catalogue to stay at <code>/policies/</code>, leave this unset.</strong></p>
+<p>That reads backwards, so it is worth stating plainly: there is no page to pick that lives at <code>/policies/</code>, and there cannot be one — that URL belongs to the post type&#039;s archive, and a page with the same slug would collide with it. <strong>None</strong> <em>is</em> the <code>/policies/</code> setting. Choosing a page does not put the catalogue at <code>/policies/</code>; it moves the catalogue somewhere else and turns <code>/policies/</code> into a redirect.</p>
+<p>Either answer is fine, and the form shortcodes work with both, because they ask this setting where the catalogue is rather than assuming. What is not fine is setting a page here while <code>results_url=&quot;/policies/&quot;</code> is written on a form elsewhere: the form would then send visitors to a redirect, and the catalogue would be reached by one extra hop for no reason.</p>
+</blockquote>
 <h3 id="ai">AI</h3>
 <p>The Gemini API key and the model, covered above. The key is stored as a WordPress option; the field shows <em>Saved — leave blank to keep it</em> once set, so re-saving other settings never clears it.</p>
 <p><strong>Show the assistant on every page</strong> — on by default. This is the floating <strong>Ask AI</strong> bubble in the bottom-right corner. It is its own component: it does not render the search interface, it does not need the search shortcode to be on the page, and turning it off here changes nothing about search. With no Gemini key configured it is not shown anywhere, on the grounds that an assistant whose only possible answer is a configuration error is worse than no assistant.</p>
@@ -360,6 +364,7 @@
 <tr><td><code>show_heading</code></td><td><code>yes</code></td><td><code>yes</code> / <code>no</code></td><td><code>no</code> drops the card&#039;s own title and subtitle, for a section that already has a heading above the form.</td></tr>
 </tbody></table></div>
 <p>This is a plain GET form. It runs no JavaScript, makes no AJAX call and needs no nonce — submitting it is an ordinary navigation, so the result is a shareable URL, the back button works, and it is safe behind a page cache. Clicking a type tab submits too, carrying whatever is already typed.</p>
+<p>The tabs are real submit buttons rather than a script toggling a hidden field, which is what lets them work with scripts off. One consequence is worth knowing if you ever read the URLs: every control that can submit this form carries the type, and a browser sends a button&#039;s value only when that button is the one that submitted — so the query string always carries exactly one <code>type</code>, whichever control was used, and never the duplicate you would get from a hidden field sitting alongside the buttons.</p>
 <p>The same thing can be written as <code>[aidocs_search mode=&quot;form&quot;]</code>; the two are one shortcode with one renderer behind them, so they cannot drift apart. Prefer <code>[aidocs_policy_search]</code> — the tag says what it does.</p>
 <h4 id="recipes">Recipes</h4>
 <p>A no-AI page, ten at a time:</p>
@@ -398,6 +403,11 @@
 </tbody></table></div>
 <p><code>[sacscoc_ai_chat]</code> is the same shortcode under a second name.</p>
 <p>Nothing is rendered at all when no Gemini API key is configured.</p>
+<h4 id="where-it-sits-and-how-to-move-it">Where it sits, and how to move it</h4>
+<p>Bottom right, <strong>80px</strong> up from the bottom of the window on a desktop and <strong>76px</strong> on a phone — deliberately not the 28px a floating button usually gets. The theme pins its own gold <strong>Back to top</strong> arrow at 30px, and that arrow is about 32px tall, so a bubble any lower covers it exactly when a reader has scrolled far enough to want it. At 80px there is roughly 19px of clear space between the two.</p>
+<p>The whole position is one number:</p>
+<div class="aidoc-code"><button class="aidoc-copy" type="button" aria-label="Copy">Copy</button><pre><code class="lang-css">.aidocs-scope { --aidocs-bubble-bottom: 80px; }</code></pre></div>
+<p>Set that in the theme&#039;s Additional CSS and the bubble moves. The open panel is derived from the same token — it sits a fixed distance above the bubble — so the two can never drift apart, and the panel&#039;s height is capped against the window, so raising the bubble shortens the panel rather than pushing its header off the top of a phone screen. <code>--aidocs-bubble-right</code> moves it horizontally the same way.</p>
 <h3 id="the-same-two-things-as-blocks">The same two things, as blocks</h3>
 <p>Nothing has to be typed. The block inserter carries both:</p>
 <ul>

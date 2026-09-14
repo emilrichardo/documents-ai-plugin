@@ -41,6 +41,45 @@ bump of the other; each plugin's version lives only in its own plugin header
 Each plugin keeps its own `README.md` in its directory — that is the place to
 look for what the plugin does and how it is configured.
 
+## One pattern the three share: the form here, the results there
+
+All three plugins now answer the same question the same way, on purpose. A
+search box does not have to sit on top of the results it produces — a
+promotional page can offer the search and send the visitor to whichever page
+actually lists things:
+
+```
+a form, on a page with no results       →  a URL  →  the page that lists them
+
+[sacscoc_institution_search results_url="/institutions/"]  →  /institutions/?si_q=…
+[aidocs_policy_search results_url="/policies/"]            →  /policies/?q=…&type=…
+[global_search variant="compact"]                          →  /site-search/?q=…
+```
+
+Each plugin resolves that destination through its own function
+(`sacscoc_inst_results_url()`, `aidocs_search_results_url()`,
+`gsearch_results_url()`), and all three accept the same four things and treat
+them identically:
+
+| Given | Resolves to |
+| --- | --- |
+| nothing | that plugin's own "where the listing lives" setting |
+| `"123"` | that page, if it is published |
+| `"/institutions/"` | a site-relative path |
+| `https://thissite/...` | an absolute URL, **but only on this site** |
+
+An off-site URL is ignored rather than honoured, in all three: this is a
+visitor's search, and a typo in a shortcode attribute must not be able to send
+it to a third party.
+
+The code is deliberately *not* shared — the plugins stay standalone, which is
+the whole premise of this repo — so these are three parallel implementations of
+one contract. The point of writing them alike is that an editor configuring
+this site learns it once, not three times.
+
+Each receiving page reads its parameters back, refills its own fields and runs
+the search on arrival, so a redirect never costs the visitor their query.
+
 ## Deployment
 
 `.github/workflows/deploy-<slug>.yml` deploys one plugin, over SFTP, to
