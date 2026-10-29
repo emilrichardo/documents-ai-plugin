@@ -500,10 +500,18 @@ function aidocs_enqueue_scripts( $hook ) {
         true
     );
     wp_enqueue_script( 'mammoth', AIDOCS_URL . 'assets/js/vendor/mammoth.browser.min.js', [], '1.12.1', true );
+    // Word's numbering formats, which mammoth reads and does not expose.
+    wp_enqueue_script(
+        'aidocs-docx-numbering',
+        AIDOCS_URL . 'assets/js/aidocs-docx-numbering.js',
+        [],
+        AIDOCS_VERSION,
+        true
+    );
     wp_enqueue_script(
         'aidocs-docx-structure',
         AIDOCS_URL . 'assets/js/aidocs-docx-structure.js',
-        [ 'mammoth' ],
+        [ 'mammoth', 'aidocs-docx-numbering' ],
         AIDOCS_VERSION,
         true
     );
@@ -515,6 +523,17 @@ function aidocs_enqueue_scripts( $hook ) {
     // the same plain markup EasyMDE edits in place).
     wp_enqueue_style( 'aidocs-easymde', AIDOCS_URL . 'assets/js/vendor/easymde.min.css', [], '2.18.0' );
     wp_enqueue_script( 'aidocs-easymde', AIDOCS_URL . 'assets/js/vendor/easymde.min.js', [], '2.18.0', true );
+
+    // EasyMDE's stock link button writes generic markdown, which this
+    // grammar cannot always read back — see assets/js/aidocs-link-markup.js.
+    // The toolbar button defined with the editor uses this module instead.
+    wp_enqueue_script(
+        'aidocs-link-markup',
+        AIDOCS_URL . 'assets/js/aidocs-link-markup.js',
+        [ 'aidocs-easymde' ],
+        AIDOCS_VERSION,
+        true
+    );
 
     // Core's own periodic autosave (wp_autosave(), wp-admin/includes/post.php)
     // turns a fresh entry's auto-draft into a real draft in the background —
@@ -2002,6 +2021,48 @@ function aidocs_meta_box_html( $post ) {
         // to $('#cd-raw-text-edit').val() — Apply, the live Preview tab, the
         // multi-policy split — is kept working by mirroring every keystroke
         // back onto the original textarea's value.
+        /**
+         * The toolbar's link button.
+         *
+         * EasyMDE's own is generic markdown: it escapes nothing in the label
+         * and passes the URL through untouched. Both halves can produce
+         * markup the canonical grammar reads as prose instead of as a link.
+         * The way in was selecting a label that already read "[PDF]" — a
+         * spelling these documents use constantly — and getting
+         * "[[PDF]](url)" published as literal text.
+         *
+         * Asking for the URL up front, rather than leaving EasyMDE's "#url#"
+         * placeholder for the editor to type over, is what makes it possible
+         * to encode the URL before it is written. assets/js/aidocs-link-markup.js
+         * holds both rules and is the same code the tests exercise.
+         */
+        function cdLinkButton() {
+            return {
+                name: 'link',
+                className: 'fa fa-link',
+                title: 'Insert link',
+                action: function(editor) {
+                    var markup = window.AidocsLinkMarkup;
+                    // The helper failing to load must not take the button
+                    // with it; EasyMDE's own behaviour is the fallback.
+                    if (! markup) { EasyMDE.prototype.drawLink.call(editor); return; }
+
+                    var cm    = editor.codemirror;
+                    var label = cm.getSelection();
+                    var url   = window.prompt('Link destination (URL):', 'https://');
+                    if (url === null) return;
+                    url = markup.normalizeUrl(url);
+                    if (url === '') return;
+                    if (! markup.isExpressible(url)) {
+                        window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
+                        return;
+                    }
+                    cm.replaceSelection(markup.linkMarkup(label === '' ? url : label, url));
+                    cm.focus();
+                }
+            };
+        }
+
         var cdMde = null;
         // This whole meta box is one big IIFE that runs the instant its
         // <script> tag is parsed — well before wp_enqueue_script's own
@@ -2016,7 +2077,7 @@ function aidocs_meta_box_html( $post ) {
                 minHeight: '380px',
                 toolbar: [
                     'bold', 'italic', 'heading-2', 'heading-3', '|',
-                    'unordered-list', 'ordered-list', 'table', 'link', '|',
+                    'unordered-list', 'ordered-list', 'table', cdLinkButton(), '|',
                     'undo', 'redo'
                 ]
             });

@@ -60,13 +60,14 @@ Body:
 #### Sub-section                level-4 heading (bold, indented)
 A whole paragraph on one line.
 1. ordered item                 two spaces of indent per level
-  a. nested item
-    i. deeper item
+  a. nested item                Word's own numbering format, not always digits
+    iii. deeper item            roman markers may run to several characters
 - bulleted item
   a further paragraph of the item above (indented, no marker)
 | cell | cell |                 table row
 **bold** and *italic* inline
 [visible text](https://…)      hyperlink (.docx only — a PDF's text layer has none)
+[\[PDF\]](https://…)           a bracket in the label is escaped
 Last Updated: June 2026 (Board of Trustees)
 Document History: Adopted … · Revised …
 ```
@@ -124,6 +125,66 @@ Blocks (JSON in `_document_content`):
   `upper-roman`, `bullet`. `start` keeps the numbering going when a paragraph
   interrupts a list (procedures often number 1…12 straight through).
 
+### Numbering
+
+Word records a list's format in `word/numbering.xml`: a level carries a
+`numFmt` (`decimal`, `lowerLetter`, `lowerRoman`, …) and a `start`. mammoth
+reads that file to decide what is a list at all and then throws the format
+away, emitting `<ol>` for every ordered list whatever it prints. Everything
+came out as `1. 2. 3.` — 395 of the corpus's 1,623 numbered paragraphs were
+labelled differently in Word.
+
+`assets/js/aidocs-docx-numbering.js` opens the .docx a second time and reads
+that part itself, with `DecompressionStream('deflate-raw')` rather than a
+vendored zip library. It walks the body in document order, counts each level
+the way Word does — a paragraph at level *n* restarts every level below it —
+and returns an index from a paragraph's text to the marker Word would print.
+
+Matching on **text** rather than on position is deliberate: mammoth merges and
+nests lists on its own rules, and a marker attached to the wrong item is worse
+than no marker. Text that appears twice in one document is merged where the
+occurrences agree and dropped where they disagree about the format. Measured
+over the four source compilations, that recovers 369 markers; the visible text
+is unchanged character for character, and a document whose numbering cannot be
+read falls back to the digits the extractor always wrote.
+
+Word's level also wins over the depth mammoth nested at, because Word
+routinely writes an outline as separate level-0 lists with the parent's letter
+typed into an ordinary paragraph.
+
+### Outlines
+
+That last habit is why `aidocs_list_from_flat()` watches the marker style and
+not only the indent. Given
+
+```
+A. Antitrust laws of the United States: …
+1. Fixing fees …
+2. Rigging bids …
+B. The Commission representative(s): …
+```
+
+— all four at the same depth, which is how Word wrote them — a marker whose
+style ranks deeper in the outline (`I.` → `A.` → `1.` → `a.` → `i.`) and
+starts at one opens a sub-list of the item above. Any other change of style
+ends the current list and opens the next. Taking the style from the first
+marker and letting the rest join published the digits as `B. C. D.` and the
+definition `B.` as an item of the digits.
+
+### Page furniture
+
+A PDF's running header, running footer and page number are not in a band this
+extractor can clip: 3.5% of a US Letter page is 27.7pt and Word's default
+header and footer distance is 36pt, so they sit inside the content area.
+Widening the band would take `Last Updated:` and `Document History:` with
+them, which these documents write at the foot of the last page.
+
+`stripPageFurniture()` goes by recurrence instead. A line is furniture when it
+sits in the block of lines set off by whitespace at a page edge, and the same
+text — digits normalised away, so `Page 3 of 71` matches `Page 4 of 71` —
+appears at the same baseline on at least three pages and on most of them. A
+one- or two-page document is left alone, and so is anything that appears once.
+
 ### Hyperlinks
 
 A .docx carries real hyperlinks and `aidocs-docx-structure.js` writes every one
@@ -135,21 +196,36 @@ second set of rules anywhere that could disagree with it:
 | Class | Example | Kept |
 | --- | --- | --- |
 | `external_valid` | `https://www.ed.gov/`, `https://example.com/p?id=1&s=x`, `mailto:…`, `tel:…` | yes |
+| `internal_valid` | `https://commissioncu.org/wp-content/uploads/a.pdf`, `/document/credit-hours/`, `/about/staff` | yes |
 | `anchor` | `#appeals-procedure` | yes |
-| `internal_obsolete` | `https://oldsite.com/wp-content/uploads/2020/policy.pdf`, `/wp-content/uploads/old.pdf`, `old-policy.docx` | no |
+| `internal_obsolete` | `https://oldsite.com/wp-content/uploads/2020/policy.pdf` | no |
 | `invalid` | `javascript:…`, `data:…`, `vbscript:…`, `file:…`, a URL with no host | no |
-| `unknown` | `/about/staff` — a relative path authored against the old site | no |
 
-The rules the classification turns on are `AIDOCS_LEGACY_LINK_PATHS` (the
-previous site's upload roots), `AIDOCS_LEGACY_LINK_EXTENSIONS` (only ever
-consulted for a URL with **no host of its own** — the same extension on a
-third-party host is a perfectly good external link) and
-`AIDOCS_SAFE_LINK_SCHEMES`. A site can override any single decision with the
-`aidocs_keep_link` filter.
+`internal_valid` is a link into **this** site: a host
+`aidocs_is_own_site_host()` claims, or any relative path, since a relative
+path resolves against whatever site renders it. The hosts come from
+`home_url()` and `site_url()`, never from a literal written into the code —
+this project has already moved domain once — plus whatever the
+`aidocs_link_allowed_hosts` option or filter adds. Matching crosses one label
+boundary in both directions, so production and a staging subdomain of it each
+recognise the other's links.
+
+`AIDOCS_LEGACY_LINK_PATHS` names the **previous** site's upload roots, and is
+consulted only for a host that is not ours. It has to be: one of its entries,
+`/wp-content/uploads/`, is this site's upload root as well, so asking it about
+our own links read a file on the current site as a dead link to the old one
+and dropped it. `/app/uploads/` — where the previous site, a Bedrock install,
+actually keeps its uploads — is deliberately *not* in the list: 194 of the
+corpus's 238 hyperlinks point there, sacscoc.org is still online, and those
+links resolve. Whether to stop citing them is a content decision, and the
+`aidocs_keep_link` filter is where it belongs.
+
+`AIDOCS_SAFE_LINK_SCHEMES` is the other rule. A site can override any single
+decision with the `aidocs_keep_link` filter.
 
 **Dropping an href never drops the text it was attached to.** `See the
-[Appeals Procedures](/wp-content/uploads/old.pdf) document.` is stored as the
-paragraph `See the Appeals Procedures document.` — the whole sentence, with no
+[Appeals Procedures](https://oldsite.com/wp-content/uploads/old.pdf) document.`
+is stored as the paragraph `See the Appeals Procedures document.` — the whole sentence, with no
 link.
 
 The decision is applied twice on purpose: once at parse time, so an obsolete

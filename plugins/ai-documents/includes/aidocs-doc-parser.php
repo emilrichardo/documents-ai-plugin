@@ -610,9 +610,18 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
     // depends on holding a reference into a nested array while parsing.
     $flush_list = function () use ( &$blocks, &$items ) {
         if ( ! $items ) return;
-        $index    = 0;
-        $blocks[] = aidocs_list_from_flat( $items, $index );
-        $items    = [];
+        $index = 0;
+        $count = count( $items );
+        // More than one list can come out of a single run of items: a marker
+        // style that changes without nesting ends one list and opens the
+        // next. Before this loop the remainder was simply dropped on the
+        // floor, so the items after such a change vanished from the page.
+        while ( $index < $count ) {
+            $before   = $index;
+            $blocks[] = aidocs_list_from_flat( $items, $index );
+            if ( $index === $before ) break;
+        }
+        $items = [];
     };
 
     $flush_para = function () use ( &$blocks, &$para, &$flush_list ) {
@@ -665,7 +674,13 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
         }
 
         // ── List item ──
-        if ( preg_match( '/^([\x{2022}\x{00B7}\x{25CF}\x{25AA}\x{25E6}\x{2043}\x{2023}\x{2023}\x{2013}\-\*]|\d{1,2}[.)]|[a-zA-Z][.)])\s+(\S.*)$/u', $bare, $m ) ) {
+        // The roman alternative asks for two characters or more on purpose:
+        // "i.", "v." and "x." are already single letters the next branch
+        // takes, and letting this one match a single character would make
+        // every "I." a roman numeral. Letters stay capped at one character
+        // for the same reason in reverse — "Mr. Smith", "Dr. Jones" and
+        // "St. Louis" all open a line the way a two-letter marker would.
+        if ( preg_match( '/^([\x{2022}\x{00B7}\x{25CF}\x{25AA}\x{25E6}\x{2043}\x{2023}\x{2023}\x{2013}\-\*]|\d{1,3}[.)]|[ivxlcIVXLC]{2,7}[.)]|[a-zA-Z][.)])\s+(\S.*)$/u', $bare, $m ) ) {
             $flush_para();
             $level = $annotated ? intdiv( $indent, 2 ) + 1 : 1;
 
@@ -1007,6 +1022,38 @@ function aidocs_roman_index( $roman ) {
 }
 
 /**
+ * Where a numbering sits in an outline.
+ *
+ * The convention these documents follow — Word's own default, and every
+ * legal drafting guide — runs I. then A. then 1. then a. then i. A marker
+ * style that ranks deeper than the list it appears in, and starts at one, is
+ * a sub-list of the item above it rather than a continuation.
+ *
+ * Zero means "not part of the ordered outline": a bullet, which nests by
+ * indentation or not at all.
+ *
+ * @param string $style
+ * @return int
+ */
+function aidocs_outline_rank( $style ) {
+    switch ( $style ) {
+        case 'upper-roman': return 1;
+        case 'upper-alpha': return 2;
+        case 'decimal':     return 3;
+        case 'lower-alpha': return 4;
+        case 'lower-roman': return 5;
+    }
+    return 0;
+}
+
+/** Whether $inner is a level below $outer in that outline. */
+function aidocs_outline_is_deeper( $outer, $inner ) {
+    $a = aidocs_outline_rank( $outer );
+    $b = aidocs_outline_rank( $inner );
+    return $a > 0 && $b > 0 && $b > $a;
+}
+
+/**
  * Build one list block, with its sub-lists, from the flat items collected while
  * scanning. Items deeper than the current level become a nested list inside the
  * item above them.
@@ -1015,9 +1062,9 @@ function aidocs_roman_index( $roman ) {
  * @param int   $index Cursor into $items, advanced as items are consumed.
  * @return array A list block.
  */
-function aidocs_list_from_flat( array $items, &$index ) {
-    $level = $items[ $index ]['level'];
-    $style = aidocs_marker_style( $items[ $index ]['marker'] );
+function aidocs_list_from_flat( array $items, &$index, $level = null, $style = null ) {
+    if ( $level === null ) $level = $items[ $index ]['level'];
+    if ( $style === null ) $style = aidocs_marker_style( $items[ $index ]['marker'] );
     $list  = [
         'type'    => 'list',
         'ordered' => $style !== 'bullet',
@@ -1043,6 +1090,31 @@ function aidocs_list_from_flat( array $items, &$index ) {
             $last = count( $list['items'] ) - 1;
             $list['items'][ $last ]['blocks'][] = $nested;
             continue;
+        }
+
+        // A marker style that changes without the indentation changing.
+        //
+        // Word writes an outline like "A. … 1. … 2. … B. …" with the letters
+        // as literal text in ordinary paragraphs and only the digits as a
+        // real numbered list, so mammoth hands all four over as siblings at
+        // the same depth and nothing in the text says otherwise. Taking the
+        // style from the first marker alone and letting everything after it
+        // join that same list is what turned "1. 2. 3." under A into "B. C.
+        // D." — and then made the definition "B." item 3 of the digits.
+        $item_style = aidocs_marker_style( $item['marker'] );
+        if ( $item_style !== $style ) {
+            // Deeper in the outline, and starting at one: a sub-list of the
+            // item above. Anything else — a return to a shallower level, or
+            // a style arriving mid-count — ends this list and opens the next.
+            if ( aidocs_outline_is_deeper( $style, $item_style )
+                 && aidocs_marker_ordinal( $item['marker'], $item_style ) === 1 ) {
+                $nested = aidocs_list_from_flat( $items, $index, $level, $item_style );
+                if ( ! $list['items'] ) $list['items'][] = [ 'text' => '', 'runs' => [], 'blocks' => [] ];
+                $last = count( $list['items'] ) - 1;
+                $list['items'][ $last ]['blocks'][] = $nested;
+                continue;
+            }
+            break;
         }
 
         $list['items'][] = [
@@ -1352,14 +1424,22 @@ const AIDOCS_LEGACY_LINK_PATHS = [
 ];
 
 /**
- * Downloadable-document extensions.
+ * What this list is NOT.
  *
- * Only ever consulted for a URL with no host of its own — a bare
- * "/2020/policy.pdf" or "appeals.docx" is a relative path into the old site's
- * file tree. The same extension on a third-party host ("https://www.ed.gov/…
- * /handbook.pdf") is a perfectly good external link and is left alone.
+ * It was written against a standard WordPress layout, and the previous site,
+ * sacscoc.org, is Bedrock: its uploads live at '/app/uploads/'. So the list
+ * never matched a single link in the imported corpus — while
+ * '/wp-content/uploads/', the *current* site's own upload root, matched
+ * links that are perfectly good. That is the whole of the defect Stuart
+ * reported, and the fix is the host test below, not a longer list.
+ *
+ * '/app/uploads/' is deliberately absent. 194 of the corpus's 238 hyperlinks
+ * point there, sacscoc.org is still online, and those links resolve today.
+ * Adding the path would drop all 194 at the next extraction — the same
+ * damage in the other direction. Whether policies on the new site should go
+ * on citing files on the old one is the client's call, not the parser's;
+ * when they make it, the 'aidocs_keep_link' filter is where it belongs.
  */
-const AIDOCS_LEGACY_LINK_EXTENSIONS = [ 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'zip' ];
 
 /** The only schemes a stored href may use. Everything else is refused outright. */
 const AIDOCS_SAFE_LINK_SCHEMES = [ 'http', 'https', 'mailto', 'tel' ];
@@ -1367,18 +1447,130 @@ const AIDOCS_SAFE_LINK_SCHEMES = [ 'http', 'https', 'mailto', 'tel' ];
 /**
  * The canonical grammar's inline link.
  *
- * Deliberately narrow. The URL may hold no whitespace and no parenthesis,
- * which is what keeps ordinary prose that happens to contain "[a](b)" —
- * or, far more likely, a bracketed run-in title on a line of its own — from
- * being read as a link. Group 1 is the visible text, group 2 the URL.
+ * Deliberately narrow on the URL side: it may hold no whitespace and no
+ * parenthesis, which is what keeps ordinary prose that happens to contain
+ * "[a](b)" — or, far more likely, a bracketed run-in title on a line of its
+ * own — from being read as a link. Group 1 is the visible text, group 2 the
+ * URL.
+ *
+ * The label accepts a backslash-escaped character, any character that is
+ * neither a bracket nor a backslash, or one *balanced* bracketed group.
+ * aidocs_link_markup() escapes the brackets it writes, so the plugin's own
+ * output never needs that last alternative — but an editor writing markdown
+ * by hand does. Selecting a label that already reads "[PDF]" and pressing the
+ * editor's link button yields "[[PDF]](url)", and refusing that spelling
+ * published the raw markup as prose. One level of nesting is all the real
+ * documents use; a deeper nest still degrades to plain text rather than to a
+ * wrong link.
  */
-const AIDOCS_LINK_PATTERN = '/\[((?:\\\\.|[^\]\\\\])+)\]\(\s*([^()\s]+)\s*\)/';
+const AIDOCS_LINK_PATTERN = '/\[((?:\\\\.|[^\[\]\\\\]|\[(?:\\\\.|[^\[\]\\\\])*\])+)\]\(\s*([^()\s]+)\s*\)/';
+
+/**
+ * The same thing, anchored to the current offset.
+ *
+ * aidocs_inline_runs() walks the string character by character and asks
+ * "does a link start *here*?". preg_match() answers "is there a link
+ * anywhere in what is left?", and the two only agree by accident: a "[" that
+ * opens no link, followed later by one that does, made the unanchored test
+ * report a match whose length was then added to the wrong offset. Anchoring
+ * asks the question the caller meant.
+ */
+const AIDOCS_LINK_PATTERN_ANCHORED = AIDOCS_LINK_PATTERN . 'A';
+
+/**
+ * The hosts that count as this site.
+ *
+ * Read from the installation rather than hardcoded, deliberately: this
+ * project has already moved once (4094.cirlot.com → commissioncu.org) and a
+ * literal domain in here would have to be found and changed every time.
+ * Extra hosts can be added without touching code, through the
+ * 'aidocs_link_allowed_hosts' option (one host per line, or comma
+ * separated) or the filter of the same name — which is how a staging site
+ * keeps links written against production, and the other way round.
+ *
+ * @return string[] Lower-cased hosts, 'www.' stripped.
+ */
+function aidocs_current_site_hosts() {
+    static $cache = [];
+
+    $configured = function_exists( 'get_option' ) ? get_option( 'aidocs_link_allowed_hosts', '' ) : '';
+    // The site's own URL is part of the key, not just the configured extras:
+    // on a multisite, switch_to_blog() changes home_url() mid-request and a
+    // cache keyed on the option alone would answer for the wrong site.
+    $key = ( function_exists( 'home_url' ) ? home_url( '/' ) : '' ) . '|'
+         . ( is_array( $configured ) ? implode( ',', $configured ) : (string) $configured );
+    if ( isset( $cache[ $key ] ) ) return $cache[ $key ];
+
+    $hosts = [];
+    foreach ( [ 'home_url', 'site_url' ] as $fn ) {
+        if ( ! function_exists( $fn ) ) continue;
+        $host = wp_parse_url( $fn( '/' ), PHP_URL_HOST );
+        if ( $host ) $hosts[] = $host;
+    }
+
+    $extra = is_array( $configured ) ? $configured : preg_split( '/[\s,]+/', (string) $configured );
+    foreach ( (array) $extra as $entry ) {
+        $entry = trim( (string) $entry );
+        if ( $entry === '' ) continue;
+        // Tolerate a whole URL where a host was asked for.
+        $host = ( strpos( $entry, '//' ) !== false )
+            ? wp_parse_url( $entry, PHP_URL_HOST )
+            : $entry;
+        if ( $host ) $hosts[] = $host;
+    }
+
+    $hosts = array_map( function ( $host ) {
+        $host = strtolower( trim( (string) $host ) );
+        return preg_replace( '/^www\./', '', $host );
+    }, $hosts );
+    $hosts = array_values( array_unique( array_filter( $hosts ) ) );
+
+    if ( function_exists( 'apply_filters' ) ) {
+        /**
+         * Filter the hosts treated as this site's own.
+         *
+         * @param string[] $hosts Lower-cased, 'www.' stripped.
+         */
+        $hosts = array_values( array_filter( array_map( 'strval', (array) apply_filters( 'aidocs_link_allowed_hosts', $hosts ) ) ) );
+    }
+
+    $cache[ $key ] = $hosts;
+    return $hosts;
+}
+
+/**
+ * Whether a host is this site's.
+ *
+ * Matches in both directions across a label boundary, so production and a
+ * subdomain of it each recognise the other: with commissioncu.org
+ * configured, stage.commissioncu.org is ours; running *on* staging, a link
+ * to commissioncu.org is ours too. Links between the two environments are
+ * exactly what the editors write while a change is being reviewed, and
+ * dropping them on the way to production would be the same defect over
+ * again.
+ *
+ * @param string $host
+ * @return bool
+ */
+function aidocs_is_own_site_host( $host ) {
+    $host = preg_replace( '/^www\./', '', strtolower( trim( (string) $host ) ) );
+    if ( $host === '' ) return false;
+    foreach ( aidocs_current_site_hosts() as $own ) {
+        if ( $host === $own ) return true;
+        if ( substr( $host, - ( strlen( $own ) + 1 ) ) === '.' . $own ) return true;
+        if ( substr( $own, - ( strlen( $host ) + 1 ) ) === '.' . $host ) return true;
+    }
+    return false;
+}
 
 /**
  * What kind of link a URL is.
  *
  * One of:
  *   external_valid    — a third-party site, a mailto: or a tel:. Kept.
+ *   internal_valid    — this site: a host aidocs_is_own_site_host() claims,
+ *                       or any relative path, which resolves against
+ *                       whatever site renders it and so is this one. Kept.
  *   anchor            — "#section-name", a jump inside the page. Kept: the
  *                       plugin's own table of contents and accordion ids are
  *                       written exactly like this, and a bookmark link the
@@ -1386,9 +1578,12 @@ const AIDOCS_LINK_PATTERN = '/\[((?:\\\\.|[^\]\\\\])+)\]\(\s*([^()\s]+)\s*\)/';
  *   internal_obsolete — a file on the previous site. Dropped.
  *   invalid           — empty, or a scheme that must never reach an href
  *                       (javascript:, data:, vbscript:, file:, …). Dropped.
- *   unknown           — a relative path that is not obviously either. Dropped,
- *                       because a relative path authored against the old site
- *                       resolves against this one and almost never lands.
+ *
+ * 'unknown' was a sixth class, for a relative path, and it was dropped on
+ * the reasoning that such a path had been authored against the old site.
+ * That reasoning cost the client every relative link they wrote on the new
+ * one; relative paths are 'internal_valid' now. The name is gone rather
+ * than kept as a synonym, so nothing can still be testing for it.
  *
  * @param string $url
  * @return string
@@ -1421,10 +1616,12 @@ function aidocs_classify_link( $url ) {
 
     // "//host/path" is http(s) with the scheme left to the page.
     $has_host = ( $scheme === 'http' || $scheme === 'https' || strpos( $url, '//' ) === 0 );
+    $host     = '';
     $path     = $url;
     if ( $has_host ) {
         $parts = wp_parse_url( strpos( $url, '//' ) === 0 ? 'https:' . $url : $url );
         if ( empty( $parts['host'] ) ) return 'invalid';
+        $host = $parts['host'];
         $path = ( $parts['path'] ?? '' ) . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' );
     } elseif ( $scheme !== '' ) {
         // A scheme this function allows but did not handle above cannot happen;
@@ -1432,17 +1629,27 @@ function aidocs_classify_link( $url ) {
         return 'invalid';
     }
 
-    if ( aidocs_is_legacy_link_path( $path ) ) return 'internal_obsolete';
-    if ( $has_host ) return 'external_valid';
-
-    // No host: a path relative to whatever site renders it. A document file at
-    // the end of one is a leftover download link from the old site.
-    if ( preg_match( '/\.([a-z0-9]{2,5})(?:[?#]|$)/i', $path, $m )
-         && in_array( strtolower( $m[1] ), AIDOCS_LEGACY_LINK_EXTENSIONS, true ) ) {
-        return 'internal_obsolete';
+    // The legacy file-path list names paths on the *previous* site, so it is
+    // only ever a question about a host that is not ours. One of its entries,
+    // /wp-content/uploads/, is this site's upload root as well, which is why
+    // asking it about our own links — absolute or relative — read a file on
+    // the current site as a dead link to the old one and dropped it.
+    if ( $has_host ) {
+        if ( aidocs_is_own_site_host( $host ) )   return 'internal_valid';
+        if ( aidocs_is_legacy_link_path( $path ) ) return 'internal_obsolete';
+        return 'external_valid';
     }
 
-    return 'unknown';
+    // No host: a path relative to whatever site renders it — which is this
+    // one. "/document/credit-hours/" written in a new policy means a page on
+    // the current site, and so does "/wp-content/uploads/2026/10/form.pdf".
+    // These were dropped as 'unknown' on the reasoning that a relative path
+    // authored against the old site rarely lands here; measured against the
+    // imported corpus, exactly one host-less URL exists in 238, and it is a
+    // "file:///C:\users\…" that is refused a line earlier anyway. The
+    // reasoning cost the client every relative link they write and bought
+    // nothing.
+    return 'internal_valid';
 }
 
 /** Whether a path sits under one of the previous site's upload roots. */
@@ -1465,7 +1672,7 @@ function aidocs_is_legacy_link_path( $path ) {
  */
 function aidocs_keep_link( $url, &$class = null ) {
     $class = aidocs_classify_link( $url );
-    $keep  = ( $class === 'external_valid' || $class === 'anchor' );
+    $keep  = ( $class === 'external_valid' || $class === 'internal_valid' || $class === 'anchor' );
 
     /**
      * Filter whether a hyperlink found in a document is kept.
@@ -1708,7 +1915,7 @@ function aidocs_inline_runs( $text ) {
         // so the renderer can wrap them in one <a> again. An href the link
         // policy refuses (aidocs_link_href()) leaves the visible text exactly
         // where it was and takes nothing but the destination with it.
-        if ( $char === '[' && preg_match( AIDOCS_LINK_PATTERN, substr( $text, $i ), $m ) ) {
+        if ( $char === '[' && preg_match( AIDOCS_LINK_PATTERN_ANCHORED, $text, $m, 0, $i ) ) {
             $push();
             $href = aidocs_link_href( $m[2] );
             foreach ( aidocs_label_runs( $m[1] ) as $run ) {

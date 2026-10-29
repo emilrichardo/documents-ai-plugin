@@ -135,8 +135,50 @@
         return out;
     }
 
-    /** Bullets are all written as "-"; ordered markers get real numbering. */
-    function listMarker( ordered, index ) {
+    /** "3." / "c." / "iii." — an ordinal in one of Word's numbering formats. */
+    function formatOrdinal( style, ordinal ) {
+        if ( ordinal < 1 ) ordinal = 1;
+        if ( style === 'lower-alpha' || style === 'upper-alpha' ) {
+            // The canonical grammar's marker is one letter, deliberately:
+            // widening it to two would read "Mr.", "Dr." and "St." at the
+            // start of a line as list markers. Past 26 items the format is
+            // dropped rather than spelled "aa.".
+            if ( ordinal > 26 ) return ordinal + '.';
+            var letter = String.fromCharCode( 96 + ordinal );
+            return ( style === 'upper-alpha' ? letter.toUpperCase() : letter ) + '.';
+        }
+        if ( style === 'lower-roman' || style === 'upper-roman' ) {
+            var roman = toRoman( ordinal );
+            return ( style === 'upper-roman' ? roman.toUpperCase() : roman ) + '.';
+        }
+        return ordinal + '.';
+    }
+
+    function toRoman( n ) {
+        var table = [ [ 10, 'x' ], [ 9, 'ix' ], [ 5, 'v' ], [ 4, 'iv' ], [ 1, 'i' ] ];
+        var out = '';
+        table.forEach( function ( pair ) {
+            while ( n >= pair[ 0 ] ) { out += pair[ 1 ]; n -= pair[ 0 ]; }
+        } );
+        return out;
+    }
+
+    /**
+     * The marker to write in front of one item.
+     *
+     * `entry` is what word/numbering.xml says about this very paragraph, via
+     * aidocs-docx-numbering.js — the format Word prints and the count it is
+     * at. mammoth knows neither: it emits <ol> for every ordered list
+     * whatever its format, so "a. b. c." and "i. ii. iii." were published as
+     * "1. 2. 3.". With no entry — no numbering part, an unreadable archive,
+     * or text that appears twice in the document under two different formats
+     * — the positional fallback is what this always did.
+     */
+    function listMarker( ordered, index, entry ) {
+        if ( entry && entry.style === 'bullet' ) return '-';
+        if ( entry && entry.style ) {
+            return formatOrdinal( entry.style, entry.ordinal === null ? index + 1 : entry.ordinal );
+        }
         return ordered ? ( index + 1 ) + '.' : '-';
     }
 
@@ -144,13 +186,11 @@
      * Walk a <ul>/<ol>, emitting its items at the given nesting depth (1-based,
      * matching the PDF path's two-space-per-level indent).
      */
-    function renderList( listEl, depth, out ) {
+    function renderList( listEl, depth, out, numbering ) {
         var ordered = listEl.tagName.toLowerCase() === 'ol';
         var index   = 0;
         Array.prototype.forEach.call( listEl.children, function ( li ) {
             if ( li.tagName.toLowerCase() !== 'li' ) return;
-            var marker = listMarker( ordered, index++ );
-            var indent = repeat( '  ', depth - 1 );
 
             // A list item's own text is whatever is not itself a nested list —
             // mammoth nests a sub-list as a child <ul>/<ol> inside the <li>,
@@ -166,10 +206,18 @@
             } );
 
             var text = tidy( inline( textNode ) );
+            // Word's own level wins over the depth this walk arrived at.
+            // mammoth nests a sub-list only where Word nested it, and Word
+            // routinely writes an outline as separate lists at level 0 with
+            // the parent's letter typed into an ordinary paragraph.
+            var entry    = numbering ? numbering.lookup( plainText( textNode ) ) : null;
+            var ownDepth = ( entry && typeof entry.level === 'number' ) ? entry.level + 1 : depth;
+            var marker   = listMarker( ordered, index++, entry );
+            var indent   = repeat( '  ', ownDepth - 1 );
             if ( text !== '' ) {
                 out.push( indent + marker + ' ' + text );
             }
-            nested.forEach( function ( sub ) { renderList( sub, depth + 1, out ); } );
+            nested.forEach( function ( sub ) { renderList( sub, ownDepth + 1, out, numbering ); } );
         } );
     }
 
@@ -191,7 +239,7 @@
      * @param {string} html
      * @return {string}
      */
-    function htmlToCanonical( html ) {
+    function htmlToCanonical( html, numbering ) {
         var container = document.createElement( 'div' );
         container.innerHTML = html;
 
@@ -238,7 +286,7 @@
             }
 
             if ( tag === 'ul' || tag === 'ol' ) {
-                renderList( el, 1, out );
+                renderList( el, 1, out, numbering );
                 return;
             }
 
@@ -269,14 +317,25 @@
         if ( typeof mammoth === 'undefined' ) {
             return Promise.reject( new Error( 'mammoth.js not loaded' ) );
         }
-        return mammoth.convertToHtml( { arrayBuffer: arrayBuffer } ).then( function ( result ) {
-            var text = htmlToCanonical( result.value );
+        // Word's numbering formats are read from the archive directly —
+        // mammoth does not expose them. The reader never rejects; with no
+        // index the extractor writes the numbering it always wrote.
+        var numbering = ( typeof AidocsDocxNumbering !== 'undefined' )
+            ? AidocsDocxNumbering.read( arrayBuffer )
+            : Promise.resolve( null );
+
+        return Promise.all( [
+            mammoth.convertToHtml( { arrayBuffer: arrayBuffer } ),
+            numbering
+        ] ).then( function ( both ) {
+            var text = htmlToCanonical( both[ 0 ].value, both[ 1 ] );
             return { text: text, pages: [ text ] };
         } );
     }
 
     return {
         extract:         extract,
-        htmlToCanonical: htmlToCanonical
+        htmlToCanonical: htmlToCanonical,
+        formatOrdinal:   formatOrdinal
     };
 } ) );

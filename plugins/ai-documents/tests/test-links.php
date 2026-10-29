@@ -7,6 +7,11 @@
  * restructure and rendering; a link into the previous site's uploads loses its
  * destination and keeps every word of its text.
  *
+ * Cases D, D2–D4 were rewritten after the client reported that links to files
+ * on the *current* site were being dropped. What they assert now is the
+ * opposite of what they asserted before, deliberately — see
+ * aidocs_classify_link().
+ *
  * Everything here runs against the real parser and renderer — the only thing
  * stubbed is WordPress itself (tests/bootstrap.php).
  */
@@ -32,10 +37,42 @@ test( 'Case C — an absolute link into the old site uploads is internal_obsolet
     assert_equal( aidocs_classify_link( 'http://oldsite.com/sites/default/files/handbook.doc' ), 'internal_obsolete' );
 } );
 
-test( 'Case D — a relative link into the old site uploads is internal_obsolete', function () {
-    assert_equal( aidocs_classify_link( '/wp-content/uploads/2020/policy.pdf' ), 'internal_obsolete' );
-    assert_equal( aidocs_classify_link( '/2020/appeals-procedures.pdf' ), 'internal_obsolete' );
-    assert_equal( aidocs_classify_link( 'old-policy.docx' ), 'internal_obsolete' );
+test( 'Case D — a relative link is this site, not the old one', function () {
+    // This case used to assert the opposite, and asserting it is what the
+    // client reported as a defect: a relative path resolves against whatever
+    // site renders it, which is this one. "/wp-content/uploads/…" names the
+    // current upload root, not the previous site's — that one is Bedrock and
+    // keeps uploads at /app/uploads/.
+    assert_equal( aidocs_classify_link( '/wp-content/uploads/2026/10/form.pdf' ), 'internal_valid' );
+    assert_equal( aidocs_classify_link( '/2026/appeals-procedures.pdf' ), 'internal_valid' );
+    assert_equal( aidocs_classify_link( 'current-policy.docx' ), 'internal_valid' );
+    assert_true( aidocs_keep_link( '/document/credit-hours/' ), 'a relative link is kept' );
+} );
+
+test( 'Case D2 — an absolute link to this site survives the legacy path list', function () {
+    // home_url() is http://example.test in tests/bootstrap.php.
+    assert_equal( aidocs_classify_link( 'http://example.test/wp-content/uploads/2026/10/form.pdf' ), 'internal_valid' );
+    assert_equal( aidocs_classify_link( 'https://example.test/document/credit-hours/' ), 'internal_valid' );
+    assert_equal( aidocs_classify_link( 'https://www.example.test/about/' ), 'internal_valid' );
+    assert_true( aidocs_keep_link( 'http://example.test/wp-content/uploads/2026/10/form.pdf' ) );
+} );
+
+test( 'Case D3 — a configured host, and a subdomain of it, are this site too', function () {
+    update_option( 'aidocs_link_allowed_hosts', "commissioncu.org" );
+    assert_equal( aidocs_classify_link( 'https://commissioncu.org/wp-content/uploads/a.pdf' ), 'internal_valid' );
+    // Staging links written while a change is reviewed must survive the trip
+    // to production, and production links must survive on staging.
+    assert_equal( aidocs_classify_link( 'https://stage.commissioncu.org/document/credit-hours/' ), 'internal_valid' );
+    update_option( 'aidocs_link_allowed_hosts', "stage.commissioncu.org" );
+    assert_equal( aidocs_classify_link( 'https://commissioncu.org/document/credit-hours/' ), 'internal_valid' );
+} );
+
+test( 'Case D4 — a foreign host is still judged by the legacy path list', function () {
+    update_option( 'aidocs_link_allowed_hosts', "commissioncu.org" );
+    assert_equal( aidocs_classify_link( 'https://oldsite.com/wp-content/uploads/2020/policy.pdf' ), 'internal_obsolete' );
+    // sacscoc.org is still online and 194 of the corpus's 238 links point at
+    // its /app/uploads/. Dropping them would be the same defect reversed.
+    assert_equal( aidocs_classify_link( 'https://sacscoc.org/app/uploads/2020/policy.pdf' ), 'external_valid' );
 } );
 
 test( 'Case E — an anchor is an anchor, never an obsolete upload', function () {
@@ -57,9 +94,10 @@ test( 'Unsafe schemes are refused, whitespace obfuscation included', function ()
     assert_equal( aidocs_link_href( 'javascript:alert(1)' ), '' );
 } );
 
-test( 'A bare relative path with no document extension is unknown, and is not kept', function () {
-    assert_equal( aidocs_classify_link( '/about/staff' ), 'unknown' );
-    assert_equal( aidocs_link_href( '/about/staff' ), '' );
+test( 'A bare relative path is this site, and is kept', function () {
+    // The 'unknown' class is gone; see aidocs_classify_link()'s doc block.
+    assert_equal( aidocs_classify_link( '/about/staff' ), 'internal_valid' );
+    assert_equal( aidocs_link_href( '/about/staff' ), '/about/staff' );
 } );
 
 // ── Extraction → blocks ─────────────────────────────────────────────────
@@ -86,7 +124,7 @@ test( 'Case C — an old upload loses its href and keeps every word', function (
 } );
 
 test( 'Case D — a relative old upload loses its href and keeps every word', function () {
-    $blocks = aidocs_parse_structured_content( 'See the [Appeals Procedures](/wp-content/uploads/old-file.pdf) document.' );
+    $blocks = aidocs_parse_structured_content( 'See the [Appeals Procedures](https://oldsite.com/wp-content/uploads/old-file.pdf) document.' );
     assert_equal( $blocks[0]['text'], 'See the Appeals Procedures document.' );
     assert_true( strpos( aidocs_render_content_blocks( $blocks ), '<a ' ) === false, 'no anchor is rendered' );
 } );
@@ -164,7 +202,7 @@ test( 'A link with a bold word round-trips as one link, not two', function () {
 } );
 
 test( 'An obsolete link is gone for good after one round trip', function () {
-    $blocks = aidocs_parse_structured_content( 'See the [Appeals Procedures](/wp-content/uploads/old.pdf) document.' );
+    $blocks = aidocs_parse_structured_content( 'See the [Appeals Procedures](https://oldsite.com/wp-content/uploads/old.pdf) document.' );
     $text   = aidocs_blocks_to_canonical_text( $blocks );
     assert_equal( $text, 'See the Appeals Procedures document.' );
 } );
@@ -175,7 +213,7 @@ test( 'Links leave for the AI as markers, with no URL in the payload', function 
     $links = [];
     $sent  = aidocs_link_markers(
         "More information is on the [U.S. Department of Education website](https://www.ed.gov/).\n"
-        . "See the [Appeals Procedures](/wp-content/uploads/old.pdf) document.",
+        . "See the [Appeals Procedures](https://oldsite.com/wp-content/uploads/old.pdf) document.",
         $links
     );
 
@@ -290,7 +328,7 @@ test( 'An external link renders with target and rel; an anchor renders with neit
 } );
 
 test( 'A stored href the policy refuses is not rendered, and its text still is', function () {
-    foreach ( [ 'javascript:alert(1)', '/wp-content/uploads/old.pdf', 'data:text/html,x' ] as $href ) {
+    foreach ( [ 'javascript:alert(1)', 'https://oldsite.com/wp-content/uploads/old.pdf', 'data:text/html,x' ] as $href ) {
         $html = aidocs_render_runs( [ 'text' => 'See this', 'runs' => [ [ 'text' => 'See this', 'h' => $href ] ] ] );
         assert_equal( $html, 'See this', $href );
     }
@@ -342,4 +380,61 @@ test( 'Headings, anchors and the document labels still parse with links present'
     assert_equal( $parsed['blocks'][0]['text'], 'Procedure' );
     assert_equal( $parsed['blocks'][0]['id'], 'sec-procedure' );
     assert_equal( $parsed['blocks'][1]['text'], 'See the register.' );
+} );
+
+// ── Brackets in the visible text ────────────────────────────────────────
+
+test( 'The reported case — "[[PDF]](url)" is a link, not literal text', function () {
+    // An editor selected the label "[PDF]", pressed EasyMDE's link button,
+    // and the page published the raw markup. The label grammar accepted a
+    // backslash-escaped bracket, which is what aidocs_link_markup() writes,
+    // but not a balanced pair, which is what a generic markdown editor does.
+    $runs = aidocs_inline_runs( 'Credit Hours [[PDF]](https://example.test/document/credit-hours/)' );
+    assert_equal( array_column( $runs, 'text' ), [ 'Credit Hours ', '[PDF]' ] );
+    assert_equal( $runs[1]['h'], 'https://example.test/document/credit-hours/' );
+} );
+
+test( 'The escaped spelling the plugin writes itself still reads the same', function () {
+    $runs = aidocs_inline_runs( 'Credit Hours [\[PDF\]](https://example.test/a)' );
+    assert_equal( array_column( $runs, 'text' ), [ 'Credit Hours ', '[PDF]' ] );
+    assert_equal( aidocs_link_markup( '[PDF]', 'https://example.test/a' ), '[\[PDF\]](https://example.test/a)' );
+} );
+
+test( 'Emphasis inside a bracketed label survives', function () {
+    $runs = aidocs_inline_runs( 'See [**[PDF]**](https://example.test/a)' );
+    assert_equal( $runs[1]['text'], '[PDF]' );
+    assert_equal( $runs[1]['h'], 'https://example.test/a' );
+    assert_equal( $runs[1]['b'], 1 );
+} );
+
+test( 'Loose brackets in prose are still prose', function () {
+    assert_equal( aidocs_inline_runs( 'Section [4] of annex [B], with no link.' ), [] );
+    assert_equal( aidocs_inline_runs( 'An unbalanced [ bracket and a ] bracket.' ), [] );
+} );
+
+test( 'A bracket that opens no link does not swallow the link after it', function () {
+    // aidocs_inline_runs() walks character by character and asked "is there
+    // a link anywhere in what is left?" rather than "does one start here".
+    // The two disagreed exactly here, and the offset it then advanced by
+    // belonged to a match that started somewhere else entirely.
+    $runs = aidocs_inline_runs( 'See [note] and then [the policy](https://example.test/p).' );
+    assert_equal( array_column( $runs, 'text' ), [ 'See [note] and then ', 'the policy', '.' ] );
+    assert_equal( $runs[1]['h'], 'https://example.test/p' );
+} );
+
+test( 'A label nested two deep degrades to plain text rather than to a wrong link', function () {
+    assert_equal( aidocs_inline_runs( 'x [[[a]]](https://example.test/a) y' ), [] );
+} );
+
+test( 'A bracketed label survives the whole round trip', function () {
+    // Written as a sentence: a short line on its own reads as a heading, and
+    // a heading keeps only its plain text — a separate, older limitation.
+    $line   = 'The rules on credit hours are set out in Credit Hours [[PDF]](https://example.test/document/credit-hours/), which institutions should consult.';
+    $blocks = aidocs_parse_structured_content( $line );
+    assert_equal(
+        aidocs_blocks_to_canonical_text( $blocks ),
+        str_replace( '[[PDF]]', '[\[PDF\]]', $line )
+    );
+    assert_true( strpos( aidocs_render_blocks( $blocks ), 'href="https://example.test/document/credit-hours/"' ) !== false );
+    assert_true( strpos( aidocs_render_blocks( $blocks ), '[PDF]' ) !== false, 'the brackets are still visible text' );
 } );

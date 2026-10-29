@@ -44,8 +44,24 @@
     // Running headers and footers sit inside these bands. Kept deliberately
     // narrow: the authored documents put "Last Updated:" and "Document
     // History:" at the very bottom of the last page, and a wider clip eats them.
+    //
+    // Narrow is also why they do not work. 3.5% of a US Letter page is 27.7pt,
+    // and Word's default header and footer distance is half an inch — 36pt —
+    // so the page furniture sits *inside* the content area and survives the
+    // clip. Widening the bands to reach it would take "Last Updated:" with
+    // them, which is why stripPageFurniture() below does the job by
+    // recurrence instead: a line is furniture because it appears on page
+    // after page at the same height, not because of where it sits on one.
     var HEADER_BAND = 0.965;
     var FOOTER_BAND = 0.035;
+
+    // Page furniture: how many lines at each edge of a page are candidates,
+    // how many pages a line must appear on, and how far its baseline may
+    // drift between pages and still count as the same line.
+    var FURNITURE_EDGE_LINES = 2;
+    var FURNITURE_MIN_PAGES  = 3;
+    var FURNITURE_SHARE      = 0.6;
+    var FURNITURE_Y_SLOP     = 4;
 
     // Two items on the same line are the same word when they touch, a space
     // apart when they are a fraction of the font size apart, and separate table
@@ -682,6 +698,125 @@
      * @param {Function} onProgress  Optional (pageNumber, pageCount) callback.
      * @return {Promise<{text:string, pages:string[], metrics:Object}>}
      */
+    /**
+     * The key two running footers are the same under.
+     *
+     * Digits collapse to "#" so "Page 3 of 71" matches "Page 4 of 71", and a
+     * bare page number matches any other. Everything else is compared as
+     * written: a repeated *phrase* is not furniture, a repeated phrase at a
+     * fixed height on most of the pages is.
+     */
+    function furnitureKey( line ) {
+        return String( ( line && line.text ) || '' )
+            .replace( /\s+/g, ' ' )
+            .trim()
+            .toLowerCase()
+            .replace( /\d+/g, '#' );
+    }
+
+    /** The median distance between one line's baseline and the next. */
+    function linePitch( lines ) {
+        var gaps = [];
+        for ( var i = 0; i + 1 < lines.length; i++ ) {
+            var gap = lines[ i ].y - lines[ i + 1 ].y;
+            if ( gap > 0 ) gaps.push( gap );
+        }
+        if ( ! gaps.length ) return 12;
+        gaps.sort( function ( a, b ) { return a - b; } );
+        return gaps[ Math.floor( gaps.length / 2 ) ] || 12;
+    }
+
+    /**
+     * The lines at the top and bottom of a page that could be furniture.
+     *
+     * Position alone is not enough: with a one-line header, "the first two
+     * lines" reaches the opening line of the body, and a document whose
+     * pages happen to open alike would lose it. What actually marks
+     * furniture off is the whitespace around it — a header sits a gap above
+     * the text block, a footer a gap below — so the candidates are the lines
+     * from each edge up to the first gap wider than the page's own line
+     * pitch. A footer and the page number under it come back together,
+     * because the gap between those two is an ordinary line.
+     */
+    function edgeLines( lines ) {
+        if ( lines.length < 3 ) return lines.slice();
+        var pitch = linePitch( lines ) * 1.5;
+        var out   = [];
+
+        for ( var top = 0; top < FURNITURE_EDGE_LINES && top + 1 < lines.length; top++ ) {
+            out.push( lines[ top ] );
+            if ( lines[ top ].y - lines[ top + 1 ].y > pitch ) break;
+        }
+        for ( var bottom = lines.length - 1; bottom > lines.length - 1 - FURNITURE_EDGE_LINES && bottom > 0; bottom-- ) {
+            out.push( lines[ bottom ] );
+            if ( lines[ bottom - 1 ].y - lines[ bottom ].y > pitch ) break;
+        }
+        return out;
+    }
+
+    /**
+     * Drop running headers, running footers and page numbers.
+     *
+     * The band clip above cannot reach them — see its comment — so they were
+     * arriving in the extracted text as headings and stray paragraphs, and
+     * the page number landed in the middle of whatever sentence spanned the
+     * break.
+     *
+     * Recurrence is the test, and it is a conservative one: a line counts as
+     * furniture only when it sits within two lines of a page edge, matches
+     * the same normalised text at the same baseline on at least three pages,
+     * and does so on most of them. A one-page document is left alone
+     * entirely, and so is anything that appears once — which is what keeps
+     * "Last Updated:" and "Document History:", written at the foot of the
+     * last page only, out of reach of this pass.
+     *
+     * @param {Array<Array>} pages Lines per page, as pageLines() returns them.
+     * @return {Array<Array>} The same pages with furniture removed.
+     */
+    function stripPageFurniture( pages ) {
+        if ( ! pages || pages.length < FURNITURE_MIN_PAGES ) return pages || [];
+
+        // key → [{ y, pages: {pageIndex: true} }]
+        var tally = {};
+        pages.forEach( function ( lines, index ) {
+            edgeLines( lines || [] ).forEach( function ( line ) {
+                var key = furnitureKey( line );
+                if ( key === '' ) return;
+                var slots = tally[ key ] || ( tally[ key ] = [] );
+                var slot  = null;
+                slots.forEach( function ( candidate ) {
+                    if ( slot === null && Math.abs( candidate.y - line.y ) <= FURNITURE_Y_SLOP ) slot = candidate;
+                } );
+                if ( slot === null ) {
+                    slot = { y: line.y, pages: {} };
+                    slots.push( slot );
+                }
+                slot.pages[ index ] = true;
+            } );
+        } );
+
+        var needed = Math.max( FURNITURE_MIN_PAGES, Math.ceil( pages.length * FURNITURE_SHARE ) );
+
+        function isFurniture( line ) {
+            var slots = tally[ furnitureKey( line ) ];
+            if ( ! slots ) return false;
+            var found = false;
+            slots.forEach( function ( slot ) {
+                if ( found ) return;
+                if ( Math.abs( slot.y - line.y ) > FURNITURE_Y_SLOP ) return;
+                if ( Object.keys( slot.pages ).length >= needed ) found = true;
+            } );
+            return found;
+        }
+
+        return pages.map( function ( lines ) {
+            var edges = edgeLines( lines || [] );
+            return ( lines || [] ).filter( function ( line ) {
+                return edges.indexOf( line ) === -1 || ! isFurniture( line );
+            } );
+        } );
+    }
+
     function extract( pdf, onProgress ) {
         var pages = [];
 
@@ -703,6 +838,7 @@
         }
 
         return next( 1 ).then( function () {
+            pages = stripPageFurniture( pages );
             var metrics = documentMetrics( pages );
             var result  = canonical( pages, metrics );
             result.metrics = metrics;
@@ -715,6 +851,8 @@
         pageLines:        pageLines,
         documentMetrics:  documentMetrics,
         canonical:        canonical,
-        fontFlags:        fontFlags
+        fontFlags:        fontFlags,
+        stripPageFurniture: stripPageFurniture,
+        furnitureKey:       furnitureKey
     };
 } ) );
