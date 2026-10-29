@@ -168,19 +168,33 @@ their links point at files on it that no longer exist.
 - **A link to another website is kept** and stays clickable on the published
   page: `https://www.ed.gov/`, a URL with a query string, an anchor, an email
   address, a phone number.
-- **A link to a file on the old site is dropped** — anything under
-  `/wp-content/uploads/`, or a relative path ending in `.pdf`, `.docx`, `.xls`
-  and the like.
+- **A link to this site is kept too** — whether it is written in full
+  (`https://commissioncu.org/document/credit-hours/`) or as a path
+  (`/document/credit-hours/`, `/wp-content/uploads/2026/10/form.pdf`). "This
+  site" is read from the installation itself, so it follows the site if it
+  ever moves; a staging subdomain and the production domain each count as the
+  other's.
+- **A link to a file on the *previous* site is dropped** — a URL on another
+  host, under a path such as `/wp-content/uploads/` or `/sites/default/files/`,
+  pointing at a file that did not come across.
 - **The words are never dropped with it.** "See the Appeals Procedures
   document", linked to an old PDF, publishes as *"See the Appeals Procedures
   document"* — the whole sentence, just not a link any more.
 
 The decision lives in one function (`aidocs_classify_link()`), and a site can
-override any single case with the `aidocs_keep_link` filter. Links show up in
-**"Edit content"** as markdown — `[the text](https://example.org)` — with a
-link button in the editor's toolbar, and they survive **"Restructure content
-with AI"** untouched: the model is never shown a URL, so it cannot rewrite one.
-Details in [EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md#hyperlinks).
+override any single case with the `aidocs_keep_link` filter. Extra hosts that
+should count as this site go in the `aidocs_link_allowed_hosts` option or
+filter.
+
+Links show up in **"Edit content"** as markdown — `[the text](https://example.org)`
+— with a link button in the editor's toolbar. That button asks for the
+address, then writes both halves in the spelling the parser reads: brackets
+inside the visible text are escaped, so a label that is itself written
+`[PDF]` works, and spaces and parentheses in the address are percent-encoded,
+so a SharePoint or OneDrive URL survives. Links also come through
+**"Restructure content with AI"** untouched: the model is never shown a URL,
+so it cannot rewrite one. Details in
+[EXTRACTION_FORMAT.md](EXTRACTION_FORMAT.md#hyperlinks).
 
 #### Labelled schema
 
