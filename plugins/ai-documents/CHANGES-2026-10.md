@@ -100,8 +100,8 @@ abrieran una lista.
 
 ## 3. Saltos y números de página en los PDF
 
-**No reproducido todavía con el archivo del cliente.** Lo que sigue corrige el
-mecanismo identificado; hasta pasarlo por ese PDF no se puede dar por cerrado.
+**Reproducido con PDF reales de este sitio** (29/10). No es el archivo exacto
+que usó el cliente, pero sí del mismo corpus y con el mismo mecanismo.
 
 El recorte por bandas no puede alcanzarlos: recorta 3,5 % de la página —27,7 pt
 en carta— y el pie por defecto de Word está a media pulgada, 36 pt. El
@@ -120,6 +120,20 @@ cualquier cosa que aparezca una sola vez: eso es lo que protege
 Una primera versión usaba «las dos líneas de cada borde», y una prueba
 detectó que con un encabezado de una línea eso alcanzaba la primera línea del
 cuerpo. Los candidatos se eligen ahora por la separación vertical.
+
+**Medido sobre los PDF de la biblioteca del sitio:**
+
+| | resultado |
+| --- | --- |
+| `Reduced-Credit-Undergraduate-Degree-Guideline.pdf` (4 pág.) | quita los 4 números de página (`1 2 3 4`), línea base a **52,6 pt** del borde — bien fuera de la banda de 27,7 pt, que es por lo que llegaban a la página. Nada más. `Document History:` y `Revised:` **conservados**. |
+| `R1-Summit-Fall-2025-Summary-Report.pdf` (19 pág.) | quita los 19 pies `SACSCOC R1 Summit Report – Page N`. Nada más. |
+| `24-Credit-Hours.pdf` (5 pág.) | **no toca nada** — no tiene mobiliario de página. `Last Updated:`, `Document History:`, `Edited:` y `Revised:` intactos. |
+
+El tercero es el que importa tanto como los dos primeros: es la comprobación
+de que el detector no inventa mobiliario donde no lo hay.
+
+La geometría de línea de dos de ellos quedó congelada en
+`tests/fixtures/pdf-pages.json` como prueba de regresión.
 
 ## 4. Compatibilidad de enlaces al sitio actual
 
@@ -160,11 +174,12 @@ sitio viejo, el filtro `aidocs_keep_link` es el lugar.
 | `tests/mini-dom.js` | **nuevo** — DOM mínimo, extraído para compartirlo |
 | `tests/test-link-markup.js` | **nuevo** — 9 casos |
 | `tests/test-docx-numbering.js` | **nuevo** — 14 casos |
-| `tests/test-pdf-furniture.js` | **nuevo** — 9 casos |
+| `tests/test-pdf-furniture.js` | **nuevo** — 11 casos, 2 contra PDF reales |
+| `tests/fixtures/pdf-pages.json` | **nuevo** — geometría real de dos PDF del sitio |
 | `tests/test-lists.php` | **nuevo** — 12 casos |
 | `tests/test-links.php` | 7 casos nuevos de corchetes; casos D, D2–D4 reescritos |
 
-`php tests/run.php` — **148 pruebas, todas verdes** (94 antes de empezar).
+`php tests/run.php` — **150 pruebas, todas verdes** (94 antes de empezar).
 
 ### Pruebas existentes que cambiaron de expectativa
 

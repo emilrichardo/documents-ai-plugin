@@ -12,8 +12,11 @@
  * stripPageFurniture() goes by recurrence instead. These cases pin down both
  * halves of that: what it removes, and what it must not.
  *
- * NOT YET REPRODUCED against the PDF the client used — see CHANGES-2026-10.md.
- * The cases below are built from the geometry, not from that file.
+ * The last two run against tests/fixtures/pdf-pages.json, which is the real
+ * line geometry of two policy PDFs off this site — one that carries page
+ * numbers where the band cannot reach them, and one that carries no page
+ * furniture at all and must come through untouched. Everything above them is
+ * synthetic, built to pin one rule each.
  *
  * Run with: node tests/test-pdf-furniture.js
  */
@@ -141,6 +144,50 @@ test( 'An empty page list, and a page of nothing, do not throw', function () {
     equal( pdf.stripPageFurniture( [] ), [] );
     equal( pdf.stripPageFurniture( null ), [] );
     equal( pdf.stripPageFurniture( [ [], [], [] ] ), [ [], [], [] ] );
+} );
+
+// ── Real documents ──────────────────────────────────────────────────────
+
+var real = require( './fixtures/pdf-pages.json' );
+
+function lines( pages ) {
+    return pages.reduce( function ( total, page ) { return total + page.length; }, 0 );
+}
+
+function removed( name ) {
+    var before = real[ name ];
+    var after  = pdf.stripPageFurniture( before.map( function ( p ) { return p.slice(); } ) );
+    var gone   = [];
+    before.forEach( function ( page, i ) {
+        page.forEach( function ( line ) {
+            if ( after[ i ].indexOf( line ) === -1 ) gone.push( line );
+        } );
+    } );
+    return { gone: gone, kept: lines( after ), total: lines( before ) };
+}
+
+test( 'A real policy PDF loses its page numbers and nothing else', function () {
+    // Reduced-Credit-Undergraduate-Degree-Guideline.pdf, 4 pages. Its footer
+    // is a bare numeral on a baseline 52.6pt up from the bottom edge — well
+    // clear of the 27.7pt band, which is why it was reaching the page.
+    var r = removed( 'Reduced-Credit-Undergraduate-Degree-Guideline.pdf' );
+    equal( r.gone.length, 4, 'one page number per page' );
+    equal( r.gone.map( function ( l ) { return l.text; } ), [ '1', '2', '3', '4' ] );
+    equal( r.kept, r.total - 4 );
+
+    // The labels the narrow band existed to protect are still there.
+    var text = JSON.stringify( real[ 'Reduced-Credit-Undergraduate-Degree-Guideline.pdf' ] );
+    equal( text.indexOf( 'Document History' ) >= 0, true, 'the fixture has one to protect' );
+    equal( r.gone.some( function ( l ) { return l.text.indexOf( 'Document History' ) >= 0; } ), false );
+    equal( r.gone.some( function ( l ) { return l.text.indexOf( 'Revised' ) >= 0; } ), false );
+} );
+
+test( 'A real policy PDF with no page furniture is not touched', function () {
+    // 24-Credit-Hours.pdf, 5 pages, no running header or footer at all. The
+    // pass has to come back empty-handed rather than find something.
+    var r = removed( '24-Credit-Hours.pdf' );
+    equal( r.gone.length, 0 );
+    equal( r.kept, r.total );
 } );
 
 results.forEach( function ( r ) {
