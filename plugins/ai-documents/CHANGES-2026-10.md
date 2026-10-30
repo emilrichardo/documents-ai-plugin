@@ -160,6 +160,50 @@ sitio viejo, el filtro `aidocs_keep_link` es el lugar.
 
 ---
 
+## Verificado en el navegador (29/10)
+
+Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva
+la copia de producción del 10/09: 65 políticas, el plugin activo, los mismos
+plugins de producción. El plugin está symlinkeado al repo, así que lo que
+corrió fue el código de la rama, no un paquete.
+
+**1 — Enlaces con corchetes.** En el editor real de *Antitrust Compliance*
+(post 13315), con el texto `Credit Hours [PDF]` y la selección puesta sobre
+`[PDF]`, un clic real en el botón «Insert link» produjo
+
+    Credit Hours [\[PDF\]](https://stage.commissioncu.org/document/credit-hours/)
+
+en el editor y en el textarea espejo. La pestaña **Preview** —que reparsea en
+el servidor— lo renderiza como `<a href="https://stage.commissioncu.org/document/credit-hours/">[PDF]</a>`.
+Los corchetes siguen siendo texto visible.
+
+**2 — Numeración DOCX.** `DecompressionStream` existe en este navegador y
+`AidocsDocxNumbering.read()` lee `numbering.xml` de la compilación de 317 KB
+en **66 ms**, con 1.215 entradas en el índice. Los resultados son idénticos a
+los de Node: alfabéticos 13 → 337, romanos 0 → 45, decimales 1.048 → 679,
+mismo número de líneas, **texto visible idéntico**.
+
+**3 — Mobiliario de página.** Con pdf.js real sobre
+`Reduced-Credit-Undergraduate-Degree-Guideline.pdf`:
+
+| | |
+| --- | --- |
+| banda inferior | 27,7 pt |
+| línea base de los números de página | **52,6 pt** |
+| sin el arreglo | los cuatro llegan al contenido (`pageLines` los devuelve) |
+| con el arreglo | se quitan exactamente esos cuatro |
+| `**Document History**` al pie de la última página | **conservado** |
+
+Esa es la cadena completa: la banda nunca los alcanzó, que es exactamente lo
+que se había diagnosticado, y ahora medido en el navegador en vez de deducido.
+
+Nada se guardó: la política 13315 conserva su `post_modified` del 28/08 y su
+contenido original. Los dos ajustes temporales que hizo falta hacer en el
+sitio local —dos `define()` en `wp-config.php` para el puerto, y un mu-plugin
+de acceso— se revirtieron.
+
+---
+
 ## Archivos
 
 | Archivo | Qué cambia |
