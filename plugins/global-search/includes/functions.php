@@ -26,21 +26,20 @@ function gsearch_default_settings(): array {
 			'wordpress'    => [ 'enabled' => true, 'label' => 'Site' ],
 			'documents'    => [ 'enabled' => true, 'label' => 'Policies' ],
 			'institutions' => [ 'enabled' => true, 'label' => 'Institutions' ],
+			'staff' => [ 'enabled' => true, 'label' => 'Staff' ],
+			'document_library' => [ 'enabled' => true, 'label' => 'Document Library' ],
 		],
-		// On by default: a dropdown-panel search box reads as a typeahead,
-		// so requiring a separate click/Enter before anything happens is a
-		// worse default UX for this presentation than the debounce below.
+		// Full/default search only. Compact always uses its native GET form.
 		'live_search'       => true,
 		'min_characters'    => 3,
 		'debounce_ms'       => 300,
 		// The page carrying the full results — where the compact header box
-		// sends a visitor who presses GO or Enter, and where its dropdown's
-		// "View all results" goes. 0 means none is configured yet; see
+		// sends a visitor who presses GO or Enter, and where a full/default
+		// dropdown's "View all results" goes. 0 means none is configured; see
 		// gsearch_results_url() for what happens then.
 		'results_page'      => 0,
-		// How many rows the compact dropdown shows before it stops. Small on
-		// purpose: a header typeahead that drops thirty rows over the page is
-		// not a quicker way to find something than the results page is.
+		// Legacy stored key retained for compatibility; compact no longer
+		// renders any rows. It is not exposed as an active admin setting.
 		'compact_max_results' => 6,
 	];
 }

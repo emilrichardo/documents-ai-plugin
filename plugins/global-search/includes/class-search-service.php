@@ -12,7 +12,9 @@
  * (option A), in provider-registration order (WordPress, Documents,
  * Institutions, then anything a filter appends), and only sorted by score
  * *within* a single provider's own results. Simple and predictable beats a
- * cross-source ranking model this version has no real signal for.
+ * cross-source ranking model this version has no real signal for. Since
+ * 0.3.0, an exact Staff name has one documented exception: its source group
+ * precedes Site mentions, without comparing scores of unrelated providers.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
@@ -27,6 +29,8 @@ class Global_Search_Service {
 			new Global_Search_WordPress_Provider(),
 			new Global_Search_Documents_Provider(),
 			new Global_Search_Institutions_Provider(),
+			new Global_Search_Staff_Provider(),
+			new Global_Search_Document_Library_Provider(),
 		];
 
 		/**
@@ -113,12 +117,17 @@ class Global_Search_Service {
 		// being served from cache for another five minutes — which reads as
 		// the setting not working.
 		$cache_key = 'gsearch_' . md5( implode( '|', [
+			GSEARCH_VERSION,
 			$query,
 			(string) $per_provider,
 			implode( ',', $requested_sources ?? [ '*' ] ),
 			(string) wp_json_encode( gsearch_get_settings() ),
+			(string) wp_json_encode( array_map( static fn( $p ) => [ $p->get_id(), get_class( $p ) ], $providers ) ),
 		] ) );
-		$cached    = get_transient( $cache_key );
+		// Barn2 permissions depend on the current user, unlock cookies and
+		// inherited category/global rules. Do not share an authorized response.
+		$cacheable = ! in_array( 'document_library', array_map( static fn( $p ) => $p->get_id(), $providers ), true );
+		$cached    = $cacheable ? get_transient( $cache_key ) : false;
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
@@ -143,6 +152,15 @@ class Global_Search_Service {
 			}
 		}
 
+		// A narrowly scoped name-search exception to source grouping: a Staff
+		// exact name (ignoring honorifics/middle initials) precedes Site mentions.
+		$exact_staff = array_filter( $results, static fn( $r ) => $r['source'] === 'staff' && $r['score'] === 1.0 );
+		if ( $exact_staff ) {
+			$results = array_merge(
+				array_values( array_filter( $results, static fn( $r ) => $r['source'] === 'staff' ) ),
+				array_values( array_filter( $results, static fn( $r ) => $r['source'] !== 'staff' ) )
+			);
+		}
 		$response = [
 			'query'   => $query,
 			'total'   => count( $results ),
@@ -154,7 +172,7 @@ class Global_Search_Service {
 		// hit the transient instead of re-running every provider's query —
 		// see brief section 23. Five minutes: long enough to matter under
 		// real traffic, short enough that new/edited content shows up fast.
-		set_transient( $cache_key, $response, 5 * MINUTE_IN_SECONDS );
+		if ( $cacheable ) set_transient( $cache_key, $response, 5 * MINUTE_IN_SECONDS );
 
 		return $response;
 	}

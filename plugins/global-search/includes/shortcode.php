@@ -39,14 +39,17 @@ function gsearch_register_assets(): void {
  * Enqueues + localizes on first use per request rather than unconditionally
  * on every page — most pages will not carry the search box at all.
  */
-function gsearch_enqueue_assets(): void {
+function gsearch_enqueue_assets( bool $dynamic = true ): void {
+	wp_enqueue_style( 'global-search' );
+	// Compact-only pages need no Global Search JavaScript. A later full
+	// instance in the same request can still enqueue and localize it.
+	if ( ! $dynamic ) return;
 	static $done = false;
 	if ( $done ) {
 		return;
 	}
 	$done = true;
 
-	wp_enqueue_style( 'global-search' );
 	wp_enqueue_script( 'global-search' );
 
 	$settings = gsearch_get_settings();
@@ -65,6 +68,7 @@ function gsearch_enqueue_assets(): void {
 			'error'         => __( 'Something went wrong. Please try again.', 'global-search' ),
 			'all'           => __( 'All', 'global-search' ),
 			'viewPrefix'    => __( 'View', 'global-search' ),
+			'viewProfile'   => __( 'View Profile', 'global-search' ),
 			'viewAll'       => __( 'View all results', 'global-search' ),
 			'noResultsLine' => __( 'No results found', 'global-search' ),
 			'errorLine'     => __( 'Search is temporarily unavailable.', 'global-search' ),
@@ -111,14 +115,13 @@ function gsearch_shortcode( $atts ): string {
  *             [global_search] on /search/?q=accreditation be a results page
  *             while the same bare shortcode anywhere else stays a search box.
  *
- * Compact is always a dropdown: it exists to live in a header, which is not
- * somewhere a list of results can open into.
+ * Compact is always form-only: no results, filters or live-search enhancement.
  */
 function gsearch_results_mode( string $requested, string $variant ): string {
 	$requested = strtolower( trim( $requested ) );
 
 	if ( $variant === 'compact' ) {
-		return 'dropdown';
+		return 'form';
 	}
 	if ( in_array( $requested, [ 'dropdown', 'inline' ], true ) ) {
 		return $requested;
@@ -165,12 +168,15 @@ function gsearch_request_query(): string {
  * than being re-derived in JavaScript.
  */
 function gsearch_render( array $atts ): string {
-	gsearch_enqueue_assets();
+	gsearch_enqueue_assets( ( $atts['variant'] ?? '' ) !== 'compact' );
 
 	$show_filters = ! in_array( strtolower( (string) $atts['show_filters'] ), [ 'no', 'false', '0', '' ], true );
 	$variant      = in_array( $atts['variant'], [ 'default', 'compact' ], true ) ? $atts['variant'] : 'default';
 	$shape        = in_array( $atts['shape'] ?? '', [ 'rectangular', 'rounded' ], true ) ? $atts['shape'] : 'rectangular';
 	$mode         = gsearch_results_mode( (string) ( $atts['results'] ?? 'auto' ), $variant );
+	if ( $variant === 'compact' ) {
+		$show_filters = false;
+	}
 
 	$sources = array_filter( array_map( 'sanitize_key', array_map( 'trim', explode( ',', (string) $atts['sources'] ) ) ) );
 
@@ -253,11 +259,13 @@ function gsearch_render( array $atts ): string {
 				class="global-search__input"
 				value="<?php echo esc_attr( $query ); ?>"
 				placeholder="<?php echo esc_attr( $placeholder ); ?>"
+				<?php if ( $variant !== 'compact' ) : ?>
 				role="combobox"
 				aria-expanded="false"
 				aria-haspopup="listbox"
 				aria-autocomplete="list"
 				aria-controls="<?php echo esc_attr( $results_id ); ?>"
+				<?php endif; ?>
 				autocomplete="off"
 			/>
 			<button type="submit" class="global-search__submit" aria-label="<?php esc_attr_e( 'Search', 'global-search' ); ?>">
@@ -266,6 +274,7 @@ function gsearch_render( array $atts ): string {
 			</button>
 		</form>
 
+		<?php if ( $variant !== 'compact' ) : ?>
 		<div class="global-search__panel" id="<?php echo esc_attr( $panel_id ); ?>" <?php echo $mode === 'inline' ? '' : 'hidden'; ?>>
 			<?php if ( $show_filters ) : ?>
 				<div class="global-search__filters" role="tablist" aria-label="<?php esc_attr_e( 'Filter results by source', 'global-search' ); ?>" hidden></div>
@@ -293,6 +302,7 @@ function gsearch_render( array $atts ): string {
 				</a>
 			<?php endif; ?>
 		</div>
+		<?php endif; ?>
 	</div>
 	<?php
 	return (string) ob_get_clean();

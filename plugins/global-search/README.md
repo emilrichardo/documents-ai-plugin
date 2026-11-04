@@ -3,8 +3,9 @@
 A standalone, generic search plugin. It knows nothing about SACSCOC,
 policies, or any other concrete project — it defines a small provider
 contract, ships a WordPress-native provider that always works, and adapts to
-the Policies (`ai-documents`) and Institutions (`sacscoc-institutions`)
-plugins only when it detects them active. Neither is required.
+the Policies (`ai-documents`), Institutions (`sacscoc-institutions`), Pods
+Staff and Barn2 Document Library plugins only when they are available.
+None of the external sources is required.
 
 ## Architecture
 
@@ -13,7 +14,9 @@ Global Search Service
   └─ get_providers()  ← apply_filters( 'global_search_providers', [...] )
        ├─ Global_Search_WordPress_Provider     always available
        ├─ Global_Search_Documents_Provider     available iff AIDOCS_VERSION is defined
-       └─ Global_Search_Institutions_Provider  available iff SACSCOC_INST_VERSION is defined + tables ready
+       ├─ Global_Search_Institutions_Provider  available iff SACSCOC_INST_VERSION is defined + tables ready
+       ├─ Global_Search_Staff_Provider         Pods + public/queryable staff CPT
+       └─ Global_Search_Document_Library_Provider  Barn2 Advanced APIs + public/queryable dlp_document CPT
 ```
 
 Every provider implements `Global_Search_Provider`
@@ -81,6 +84,11 @@ inactive plugin is skipped, never a fatal error.
 
 ## Replacing the site's header search
 
+The Elementor inventory below describes the original header. A 2026-09-16
+staging inspection confirmed an actual compact Global Search root in the
+header. Version 0.3.0 makes that root form-only; no Elementor edit is needed.
+See `docs/integration-report.md` for the current evidence and QA boundaries.
+
 The header search on this site is **not** Astra's. Astra's header builder has
 no search element enabled (`header-desktop-items.primary.primary_right` is
 `["menu-1", "social-icons-1"]`). It is an **Elementor Search widget** inside
@@ -145,17 +153,15 @@ Nothing here has been changed — `*GLOBAL_Header (All Pages)` is untouched.
 4. Global Search → Settings → **Results page** must name the page carrying
    `[global_search]`. Without it the box falls back to WordPress's own `?s=`
    search — plainer, never broken, but not the point of the exercise.
-5. Check the container the widget sits in does not clip the dropdown:
-   Advanced → Layout → **Overflow: Default** (not Hidden). The panel is
-   positioned `absolute`, deliberately (see the stylesheet's own note), so a
-   `hidden` overflow on an ancestor is the one thing that can cut it off.
+5. No dropdown, filters or results are rendered by compact search. GO and
+   Enter submit the same GET form; JavaScript is not required for navigation.
 
 ### What changes for a visitor
 
 | | Today | After |
 | --- | --- | --- |
-| Searches | Pages, posts, policies | Pages, posts, policies **and institutions** |
-| Feedback | None until the results page | A grouped dropdown after 3 characters |
+| Searches | Pages, posts, policies | All available and enabled providers |
+| Feedback | None until the results page | None until the results page |
 | GO / Enter | `/?s=…` → theme's results template | `/site-search/?q=…` → full results with source filters |
 | Without JavaScript | Works | Works — it is a plain GET form either way |
 
@@ -173,8 +179,8 @@ Nothing here has been changed — `*GLOBAL_Header (All Pages)` is untouched.
 | `sources`            | *(all)*        | Comma list of provider ids to restrict to       |
 | `results_per_page`   | 10             | Per-source cap, not a total — see Ranking below |
 | `results_url`        | *(settings)*   | Where the form submits. A path, a page id, or a URL on this site; an off-site value is ignored. Empty → Settings → Results page, and failing that WordPress's own `?s=` search |
-| `results`            | `auto`         | `dropdown` (a typeahead), `inline` (a results page), or `auto`: inline when the URL carries `?q=`, dropdown otherwise. `compact` is always a dropdown |
-| `max_results`        | *(per variant)*| Rows the dropdown shows before "View all results". 6 for `compact`, `results_per_page` otherwise |
+| `results`            | `auto`         | Full/default: `dropdown`, `inline`, or `auto` (inline for `?q=`). Ignored for compact, which is always form-only |
+| `max_results`        | *(per variant)*| Full/default dropdown cap; ignored for compact |
 | `view_all`           | *(auto)*       | `no` drops the "View all results" link. On by default in a dropdown once there is a results page to link to |
 | `variant`            | `default`      | `compact` — narrower, for a header or a navbar  |
 | `placeholder`        | *(per variant)*| Overrides the input's placeholder text          |
@@ -185,7 +191,7 @@ Nothing here has been changed — `*GLOBAL_Header (All Pages)` is untouched.
 
 ```
 [global_search]                    a search box; results in a dropdown
-[global_search variant="compact"]  the same, sized and capped for a header
+[global_search variant="compact"]  form-only header, GET navigation
 [global_search]  on /…/?q=term     a results page: filters, all results, open
 ```
 
@@ -205,7 +211,7 @@ with no results page configured anywhere, which has nowhere to navigate to and
 searches in place instead; `data-submit` on the wrapper says which case a given
 box is.
 
-### The dropdown
+### The dropdown (full/default only)
 
 Opens after `min_characters` (3) and a `debounce_ms` (300) pause, capped at
 `max_results` rows dealt **round-robin across sources** rather than sliced off
@@ -216,8 +222,8 @@ pointing at `<results page>?q=…`.
 
 States are shown where the rows would be — `Searching…`, `No results found`,
 `Search is temporarily unavailable.` — and never before a search has been
-asked for. A failed request never takes the header down with it: the panel
-says so and the form underneath still submits.
+asked for. A failed request displays an error in the full/default panel;
+compact never performs live requests in the first place.
 
 Keyboard: `↓`/`↑` move a row (`aria-selected`, `aria-activedescendant`), Enter
 follows the selected row or, with none selected, submits the form; `Escape`
@@ -318,6 +324,13 @@ guessed at.
 
 ## Ranking
 
+The original ranking design described below is retained, with one 0.3.0
+exception: an exact Staff name, ignoring
+honorifics and middle initials, moves the Staff group before Site mentions.
+Other sources keep their original grouping. New adapters score exact titles
+1.0, all title words 0.85, other fields 0.4, sorting before the per-source cap.
+For example, `Stephen Pruitt` matches `Dr. Stephen L. Pruitt`.
+
 Scores are **not comparable across providers** — a WordPress title-match
 0.7 and an Institutions name-match 0.7 carry no shared meaning. V1 does not
 attempt to interleave them. Results are grouped by source (in
@@ -351,10 +364,9 @@ shortcodes. It reads the existing configuration without changing it.
 | Results per source | The per-provider cap, not a total — see Ranking |
 | Per-provider enable + label | Turn a source off, or rename it in the filters |
 | **Results page** | The page carrying `[global_search]`, where every compact box sends a search and where "View all results" points. None → WordPress's own `?s=` search |
-| **Rows in the compact dropdown** | How many matches a header box shows before "View all results". 6 by default |
-| Live search | On/off, minimum characters (3), debounce ms (300) |
+| Live search | Full/default only: on/off, minimum characters (3), debounce ms (300). Compact ignores these settings |
 
-The **Search Sources** section lists Site, Policies and Institutions with
+The **Search Sources** section lists Site, Policies, Institutions, Staff and Document Library with
 their enable switches and editable labels. Unavailable sources stay visible
 and retain their saved preferences, so their plugins can be activated later.
 Additional sources registered through the provider filter appear here too.
@@ -364,12 +376,38 @@ and frontend remain public. The plugin list has a Settings shortcut. Old
 `options-general.php?page=global-search` links redirect to the new Settings
 screen, including support for saving an already-open legacy form.
 
-All configuration remains in `gsearch_settings`, with the same keys and
-defaults. No migration, reset, new dependency, or frontend asset is needed.
+All configuration remains in `gsearch_settings`; existing keys and preferences
+are retained, with defaults added for the two new providers. No reset or
+required external dependency is introduced. Compact-only pages enqueue CSS
+but no Global Search JavaScript; a full instance on the same page still works.
 
-Changing any of these takes effect immediately: the five-minute result cache is
-keyed on the settings as well as the query, so turning a provider off does not
-leave it answering from cache.
+The cache key includes settings, plugin version and the available/enabled
+provider IDs and implementations. Removing a provider cannot reuse an old
+response. When Document Library is active, shared result caching is bypassed
+because Barn2 authorization depends on users, roles, cookies and inherited
+visibility rules. No new parser, OCR, index or synchronization job is created.
+
+## New source adapters
+
+- Staff: Pods `staff` CPT, public/queryable, postmeta storage. Searches title,
+  core content/excerpt, `last_name`, `position`, `bio_description`; displays
+  the role and `View Profile`. No department field was found. Phone/email are
+  not searched or exposed by Global Search.
+- Document Library: Barn2 Document Library Pro – Advanced 4.1.0,
+  `document-library-pro/document-library-pro.php`, `dlp_document` CPT.
+  Searches title, body, excerpt/description, linked filename, categories,
+  tags/authors/file types, configured Easy Post Types document fields if
+  available, and existing successful file-content cache rows for the current
+  attachment. Calls Barn2 visibility/expiry checks before returning results.
+  Links to the document permalink, not a protection-bypassing download URL.
+- Site excludes `staff`/`dlp_document` even if explicitly opted in, preventing
+  duplication and leaks back through Site when their dedicated source is off.
+
+`php tests/harness-new-sources.php` uses actual local Staff and staging-based
+document fixtures in a rolled-back transaction; Barn2 model/access/table
+boundaries are doubles because the plugin is not installed locally.
+`node tests/test-compact.js` checks the shipped script performs no fetch,
+event setup or debounce for compact regardless of the global live setting.
 
 ## Regression checks
 

@@ -53,6 +53,11 @@
 	}
 
 	function initInstance( root ) {
+		// Header search is an ordinary GET form, never a live-search instance.
+		// Return before fetching metadata, binding events or creating debounce state.
+		if ( root.dataset.variant === 'compact' ) {
+			return;
+		}
 		var form      = root.querySelector( '.global-search__form' );
 		var input     = root.querySelector( '.global-search__input' );
 		var panel     = root.querySelector( '.global-search__panel' );
@@ -345,7 +350,8 @@
 
 			var badge = document.createElement( 'span' );
 			badge.className = 'global-search__badge';
-			badge.textContent = item.type.replace( /_/g, ' ' ).toUpperCase();
+			badge.textContent = item.source === 'document_library' || item.source === 'staff'
+				? labelFor( item.source ) : item.type.replace( /_/g, ' ' ).toUpperCase();
 			li.appendChild( badge );
 
 			var title = document.createElement( 'a' );
@@ -353,6 +359,12 @@
 			title.href = item.url || '#';
 			title.textContent = item.title;
 			li.appendChild( title );
+			if ( item.source === 'staff' && item.meta && item.meta.title ) {
+				var role = document.createElement( 'p' );
+				role.className = 'global-search__excerpt';
+				role.textContent = item.meta.title;
+				li.appendChild( role );
+			}
 
 			if ( item.excerpt ) {
 				var excerpt = document.createElement( 'p' );
@@ -367,7 +379,8 @@
 				var view = document.createElement( 'a' );
 				view.className = 'global-search__view';
 				view.href = item.url;
-				view.textContent = ( i18n.viewPrefix || 'View' ) + ' ' + humanize( item.type ) + ' →';
+				view.textContent = item.source === 'staff' ? ( i18n.viewProfile || 'View Profile' ) + ' →'
+					: ( i18n.viewPrefix || 'View' ) + ' ' + humanize( item.type ) + ' →';
 				li.appendChild( view );
 			}
 

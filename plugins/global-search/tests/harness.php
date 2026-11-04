@@ -149,8 +149,8 @@ gsearch_assert( 'compact renders', strpos( $compact, 'global-search--compact' ) 
 gsearch_assert( 'button_label="GO" is the visible label', strpos( $compact, '>GO</span>' ) !== false );
 gsearch_assert( 'the button keeps an accessible name of its own', strpos( $compact, 'aria-label="Search"' ) !== false );
 gsearch_assert( 'placeholder matches the header the site already has', strpos( $compact, 'placeholder="Search Site ..."' ) !== false );
-gsearch_assert( 'compact is always a dropdown, never inline', strpos( $compact, 'data-mode="dropdown"' ) !== false );
-gsearch_assert( 'compact caps its rows', (int) preg_replace( '/\D/', '', (string) ( preg_match( '/data-max-results="(\d+)"/', $compact, $m ) ? $m[1] : 0 ) ) <= 8 );
+gsearch_assert( 'compact is always form-only', strpos( $compact, 'data-mode="form"' ) !== false );
+gsearch_assert( 'compact renders no results panel', strpos( $compact, 'global-search__panel' ) === false );
 gsearch_assert( 'no source filters rendered when show_filters="no"', strpos( $compact, 'global-search__filters' ) === false );
 
 echo "\n== The form works without JavaScript ==\n";
@@ -162,12 +162,12 @@ gsearch_assert( 'the field is named q, which the results page reads', strpos( $c
 echo "\n== View all results ==\n";
 $_GET['q'] = 'accreditation';
 $compact_q = do_shortcode( '[global_search variant="compact"]' );
-gsearch_assert( 'the dropdown offers View all results', strpos( $compact_q, 'data-global-search-view-all' ) !== false );
+gsearch_assert( 'compact never offers View all results', strpos( $compact_q, 'data-global-search-view-all' ) === false );
 gsearch_assert(
-	'its href is the results page carrying the query',
-	strpos( $compact_q, 'href="' . esc_url( add_query_arg( 'q', 'accreditation', gsearch_results_url() ) ) . '"' ) !== false
+	'query-prefilled compact remains a GET form',
+	strpos( $compact_q, 'value="accreditation"' ) !== false && strpos( $compact_q, 'method="get"' ) !== false
 );
-gsearch_assert( 'it starts hidden, so it never shows over an empty panel', preg_match( '/class="global-search__view-all"\s+hidden/', $compact_q ) === 1 );
+gsearch_assert( 'compact ignores show_filters=yes', strpos( $compact_q, 'global-search__filters' ) === false );
 $_GET = [];
 
 echo "\n== Query from the URL ==\n";
@@ -187,16 +187,16 @@ gsearch_assert( 'an off-site URL is ignored, not honoured', gsearch_results_url(
 gsearch_assert( 'an unpublished page id falls back', gsearch_results_url( '999999' ) === gsearch_results_url() );
 
 echo "\n== Accessibility of the compact box ==\n";
-gsearch_assert( 'the input is a combobox', strpos( $compact, 'role="combobox"' ) !== false );
-gsearch_assert( 'it announces its collapsed state', strpos( $compact, 'aria-expanded="false"' ) !== false );
-gsearch_assert( 'it points at the list it controls', preg_match( '/aria-controls="([^"]+)"/', $compact, $m ) === 1 && strpos( $compact, 'id="' . $m[1] . '"' ) !== false );
-gsearch_assert( 'it declares list autocomplete', strpos( $compact, 'aria-autocomplete="list"' ) !== false );
-gsearch_assert( 'the results are a listbox', strpos( $compact, 'role="listbox"' ) !== false );
+gsearch_assert( 'compact input is a plain search field', strpos( $compact, 'role="combobox"' ) === false && strpos( $compact, 'type="search"' ) !== false );
+gsearch_assert( 'compact does not announce a nonexistent popup', strpos( $compact, 'aria-expanded' ) === false );
+gsearch_assert( 'compact has no dangling aria-controls', strpos( $compact, 'aria-controls' ) === false );
+gsearch_assert( 'compact does not declare list autocomplete', strpos( $compact, 'aria-autocomplete' ) === false );
+gsearch_assert( 'compact renders no results listbox', strpos( $compact, 'role="listbox"' ) === false );
 gsearch_assert( 'the field has a label', strpos( $compact, 'global-search__label' ) !== false );
-gsearch_assert( 'there is a polite live region for the states', strpos( $compact, 'aria-live="polite"' ) !== false );
+gsearch_assert( 'no live status in compact', strpos( $compact, 'aria-live' ) === false );
 
 echo "\n== Providers ==\n";
-foreach ( $service->get_providers() as $provider ) {
+foreach ( $service->get_available_providers() as $provider ) {
 	gsearch_assert( 'provider available: ' . $provider->get_id(), $provider->is_available() );
 }
 $per_source = $service->search( 'university' );

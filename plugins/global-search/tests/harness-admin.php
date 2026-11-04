@@ -117,7 +117,7 @@ function gsearch_test_admin(): void {
 		$settings_html = gsearch_test_capture_page( 'gsearch_render_settings_page' );
 		gsearch_assert( 'the existing option name is unchanged', GSEARCH_OPTION === 'gsearch_settings' );
 		gsearch_assert( 'Settings groups providers under Search Sources', strpos( $settings_html, 'Search Sources' ) !== false );
-		foreach ( [ 'search_posts', 'search_pages', 'results_per_page', 'results_page', 'compact_max_results', 'live_search', 'min_characters', 'debounce_ms' ] as $field ) {
+		foreach ( [ 'search_posts', 'search_pages', 'results_per_page', 'results_page', 'live_search', 'min_characters', 'debounce_ms' ] as $field ) {
 			gsearch_assert( 'Settings retains the ' . $field . ' field', preg_match( '/\bname=[\'"]' . $field . '[\'"]/', $settings_html ) === 1 );
 		}
 		foreach ( gsearch_service()->get_providers() as $provider ) {
@@ -254,8 +254,8 @@ function gsearch_test_admin(): void {
 
 	echo "\n== Public search contracts remain intact ==\n";
 	$providers = gsearch_service()->get_providers();
-	gsearch_assert( 'default provider ids and order are unchanged', array_map( static fn( $provider ) => $provider->get_id(), $providers ) === [ 'wordpress', 'documents', 'institutions' ] );
-	gsearch_assert( 'default provider implementations are unchanged', array_map( 'get_class', $providers ) === [ 'Global_Search_WordPress_Provider', 'Global_Search_Documents_Provider', 'Global_Search_Institutions_Provider' ] );
+	gsearch_assert( 'new providers append after unchanged original ids', array_map( static fn( $provider ) => $provider->get_id(), $providers ) === [ 'wordpress', 'documents', 'institutions', 'staff', 'document_library' ] );
+	gsearch_assert( 'original provider implementations are unchanged', array_slice( array_map( 'get_class', $providers ), 0, 3 ) === [ 'Global_Search_WordPress_Provider', 'Global_Search_Documents_Provider', 'Global_Search_Institutions_Provider' ] );
 	$routes = rest_get_server()->get_routes();
 	foreach ( [ '/global-search/v1/search' => 'gsearch_rest_search', '/global-search/v1/providers' => 'gsearch_rest_providers' ] as $route => $callback ) {
 		$endpoint = $routes[ $route ][0] ?? [];

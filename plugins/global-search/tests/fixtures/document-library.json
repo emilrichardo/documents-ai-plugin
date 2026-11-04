@@ -1,0 +1,8 @@
+{
+  "observed_at": "2026-09-16",
+  "source": "https://4094.cirlot.com/wp-json/wp/v2/dlp_document",
+  "documents": [
+    {"staging_id":14912,"title":"SC Reports Program Expansion","slug":"sc-reports-program-expansion","excerpt":"","content":"","filename":"SCReportsProgram-Expansion.docx","staging_url":"https://4094.cirlot.com/document/sc-reports-program-expansion/"},
+    {"staging_id":14483,"title":"2028 Track B (Graduate Institutions)","slug":"2028-track-b-graduate-institutions","excerpt":"(Added January 2026)","content":"","filename":"","staging_url":"https://4094.cirlot.com/document/2028-track-b-graduate-institutions/"}
+  ]
+}

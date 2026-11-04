@@ -15,7 +15,7 @@ $_SERVER['REQUEST_METHOD'] = 'GET';
 $GLOBALS['wp_filter']['option_active_plugins'][10][] = [
 	'function' => static function ( $plugins ) {
 		return array_values( array_filter( $plugins, static function ( $plugin ) {
-			return ! in_array( basename( $plugin ), [ 'ai-documents.php', 'sacscoc-institutions.php' ], true );
+			return ! in_array( basename( $plugin ), [ 'ai-documents.php', 'sacscoc-institutions.php', 'init.php', 'document-library-pro.php' ], true );
 		} ) );
 	},
 	'accepted_args' => 1,

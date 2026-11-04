@@ -76,7 +76,7 @@ function gsearch_render_overview_page(): void {
 	?>
 	<div class="wrap">
 		<h1><?php esc_html_e( 'Global Search', 'global-search' ); ?></h1>
-		<p><?php esc_html_e( 'Search your site, policies and institutions from one search box. Optional sources are included when their plugins are available and enabled.', 'global-search' ); ?></p>
+		<p><?php esc_html_e( 'Search your site, policies, institutions, staff and document library from one search box. Optional sources are included when their plugins are available and enabled.', 'global-search' ); ?></p>
 		<p><?php esc_html_e( 'Version:', 'global-search' ); ?> <code><?php echo esc_html( GSEARCH_VERSION ); ?></code></p>
 		<p><a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=global-search-settings' ) ); ?>"><?php esc_html_e( 'Settings', 'global-search' ); ?></a></p>
 
@@ -185,7 +185,9 @@ function gsearch_render_settings_page(): void {
 								<input type="checkbox" name="providers[<?php echo esc_attr( $id ); ?>][enabled]" value="1" <?php checked( $enabled ); ?> />
 								<?php esc_html_e( 'Enabled', 'global-search' ); ?>
 							</label>
-							<?php if ( ! $available ) : ?>
+							<?php if ( $available ) : ?>
+								<span class="description"> — <?php esc_html_e( 'Available', 'global-search' ); ?></span>
+							<?php else : ?>
 								<span class="description"> — <?php esc_html_e( 'unavailable; this source is skipped until its plugin is active and ready.', 'global-search' ); ?></span>
 							<?php endif; ?>
 							<br />
@@ -200,7 +202,7 @@ function gsearch_render_settings_page(): void {
 
 			<h2><?php esc_html_e( 'Results page', 'global-search' ); ?></h2>
 			<p class="description" style="max-width:44em;margin-bottom:12px;">
-				<?php esc_html_e( 'The page carrying the full results — where a compact header search box sends a visitor who presses Search or Enter, and where its dropdown\'s "View all results" link goes. The page needs a Global Search block, or the [global_search] shortcode, on it. Left as None, a header box falls back to WordPress\'s own search instead: plainer, but never broken.', 'global-search' ); ?>
+				<?php esc_html_e( 'The page carrying the full results — where a compact header search box sends a visitor who presses Search or Enter. The page needs a Global Search block, or the [global_search] shortcode, on it. Left as None, a header box falls back to WordPress search. Compact search never displays suggestions.', 'global-search' ); ?>
 			</p>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -226,16 +228,10 @@ function gsearch_render_settings_page(): void {
 						</p>
 					</td>
 				</tr>
-				<tr>
-					<th scope="row"><label for="gsearch_compact_max"><?php esc_html_e( 'Rows in the compact dropdown', 'global-search' ); ?></label></th>
-					<td>
-						<input type="number" id="gsearch_compact_max" name="compact_max_results" min="1" max="20" value="<?php echo esc_attr( (string) $settings['compact_max_results'] ); ?>" />
-						<p class="description"><?php esc_html_e( 'How many matches a header search box shows before "View all results". Small on purpose.', 'global-search' ); ?></p>
-					</td>
-				</tr>
 			</table>
 
 			<h2><?php esc_html_e( 'Live search', 'global-search' ); ?></h2>
+			<p class="description"><?php esc_html_e( 'Applies only to full/default search. Compact header search always uses GO or Enter, without live requests or suggestions.', 'global-search' ); ?></p>
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Search while typing', 'global-search' ); ?></th>
@@ -272,7 +268,8 @@ function gsearch_handle_settings_save(): void {
 	$settings['min_characters']    = max( 1, min( 10, absint( $_POST['min_characters'] ?? 3 ) ) );
 	$settings['debounce_ms']       = max( 0, min( 2000, absint( $_POST['debounce_ms'] ?? 300 ) ) );
 	$settings['results_page']        = absint( $_POST['results_page'] ?? 0 );
-	$settings['compact_max_results'] = max( 1, min( 20, absint( $_POST['compact_max_results'] ?? 6 ) ) );
+	// Retain the legacy stored key; it no longer controls compact markup.
+	if ( isset( $_POST['compact_max_results'] ) ) $settings['compact_max_results'] = max( 1, min( 20, absint( $_POST['compact_max_results'] ) ) );
 
 	$posted_providers = is_array( $_POST['providers'] ?? null ) ? $_POST['providers'] : [];
 	foreach ( $posted_providers as $id => $fields ) {

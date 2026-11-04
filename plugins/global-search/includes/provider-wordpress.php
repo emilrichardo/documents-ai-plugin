@@ -57,7 +57,8 @@ class Global_Search_WordPress_Provider implements Global_Search_Provider {
 		// Attachments are technically public but are media, not content —
 		// exclude them explicitly even if someone adds 'attachment' via the
 		// filter above.
-		$public_types = array_diff( $public_types, [ 'attachment' ] );
+		// Independent sources must not leak back through Site when disabled.
+		$public_types = array_diff( $public_types, [ 'attachment', 'staff', 'dlp_document' ] );
 
 		return array_values( array_unique( array_intersect( $types, $public_types ) ) );
 	}
