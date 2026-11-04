@@ -1,17 +1,32 @@
 name: Deploy Institutions
 
-# One workflow per plugin. The `paths` filter is what keeps the two plugins
-# independent: touching plugins/sacscoc-institutions never redeploys
-# ai-documents, and vice versa. Each can also be pushed on its own from the
-# Actions tab via workflow_dispatch.
+# One workflow per plugin; the `paths` filter keeps them independent, so a push
+# touching plugins/sacscoc-institutions never redeploys the other plugins.
+#
+# Two destinations on the same server (one SFTP account, two WordPress installs):
+#   staging     stage.commissioncu.org   deploys automatically on every push to
+#                                         the `staging` branch
+#   production  commissioncu.org         manual only: Actions tab -> Run workflow
+#                                         -> target "production", and only when
+#                                         run from `main`
+# Nothing reaches production from a push. Promote by merging staging into main,
+# testing on staging, then running this workflow by hand against production.
 on:
   push:
     branches:
-      - main
+      - staging
     paths:
       - 'plugins/sacscoc-institutions/**'
       - '.github/workflows/deploy-sacscoc-institutions.yml'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy (production only from main)
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 concurrency:
   group: deploy-sacscoc-institutions
@@ -24,41 +39,57 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Everything dev-only (.git, .github, .claude, .gitignore) now lives at
-      # the repository root, outside the plugin directory, so it is already
-      # excluded by local_path. Only the built zip and macOS cruft remain.
+      # A push can only mean staging. A manual run picks its target, and
+      # production is refused unless it runs from main, so an unreviewed branch
+      # can never be shipped to the live site by hand either.
+      - name: Pick the destination
+        id: dest
+        env:
+          TARGET: ${{ github.event_name == 'push' && 'staging' || inputs.target }}
+        run: |
+          case "$TARGET" in
+            staging)    root='stage.commissioncu.org/wp-content/plugins' ;;
+            production)
+              if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+                echo "Production deploys only run from main (this run is on $GITHUB_REF)." >&2
+                exit 1
+              fi
+              root='public_html/wp-content/plugins' ;;
+            *) echo "Unknown target: $TARGET" >&2; exit 1 ;;
+          esac
+          echo "Deploying plugins/sacscoc-institutions to $TARGET ($root)"
+          echo "remote_path=$root/sacscoc-institutions" >> "$GITHUB_OUTPUT"
+
+      # Everything dev-only (.git, .github, .claude, .gitignore) lives at the
+      # repository root, outside the plugin directory, so local_path already
+      # excludes it. Only the built zip and macOS cruft remain.
       - name: Strip dev-only files before deploy
         run: |
           rm -rf plugins/sacscoc-institutions/docs/downloads
           find plugins/sacscoc-institutions -name '.DS_Store' -delete
 
-
       # `put -r` will not create its destination, and sftp_only: true stops the
-      # action from creating it either ("skip the command to create a
-      # directory"). A plugin's first ever deploy therefore has nowhere to
-      # land — which is exactly how this one failed. The leading dash on
-      # -mkdir tells sftp to carry on when the directory is already there, so
-      # this is a no-op on every deploy after the first.
+      # action from creating it either, so a plugin's first deploy to a
+      # destination has nowhere to land. The leading dash on -mkdir tells sftp
+      # to carry on when the directory is already there. BatchMode=no and
+      # PreferredAuthentications=password are what let sshpass answer the
+      # prompt (-b implies BatchMode=yes, which disables password auth).
       - name: Ensure the remote directory exists
         env:
           SFTP_HOST: ${{ secrets.SFTP_HOST }}
           SFTP_PORT: ${{ secrets.SFTP_PORT }}
           SFTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
           SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          REMOTE_PATH: ${{ steps.dest.outputs.remote_path }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
-          # -b implies BatchMode=yes, and BatchMode disables password
-          # authentication outright — which is why the first attempt at this
-          # step was refused with "Permission denied (publickey,password)"
-          # despite holding the same password the deploy itself uses. Turning
-          # it back off is what lets sshpass answer the prompt.
           sshpass -p "$SFTP_PASSWORD" sftp \
             -o StrictHostKeyChecking=no \
             -o BatchMode=no \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
-            -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<'SFTP'
-          -mkdir public_html/wp-content/plugins/sacscoc-institutions
+            -P "$SFTP_PORT" -b - "$SFTP_USERNAME@$SFTP_HOST" <<SFTP
+          -mkdir $REMOTE_PATH
           bye
           SFTP
 
@@ -70,5 +101,5 @@ jobs:
           username: ${{ secrets.SFTP_USERNAME }}
           password: ${{ secrets.SFTP_PASSWORD }}
           local_path: './plugins/sacscoc-institutions/*'
-          remote_path: 'public_html/wp-content/plugins/sacscoc-institutions'
+          remote_path: ${{ steps.dest.outputs.remote_path }}
           sftp_only: true

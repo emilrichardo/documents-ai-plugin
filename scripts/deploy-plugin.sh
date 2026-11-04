@@ -6,8 +6,14 @@ set -euo pipefail
 # without waiting on a commit, a push, or a CI run.
 #
 # Usage:
-#   scripts/deploy-plugin.sh <plugin-slug>
-#   scripts/deploy-plugin.sh sacscoc-institutions
+#   scripts/deploy-plugin.sh <plugin-slug> [staging|production]
+#   scripts/deploy-plugin.sh ai-documents              # -> stage.commissioncu.org
+#   scripts/deploy-plugin.sh ai-documents production   # -> commissioncu.org
+#
+# The target defaults to staging on purpose: production has to be asked for by
+# name. Both live under the same SFTP account:
+#   staging     stage.commissioncu.org/wp-content/plugins/<slug>
+#   production  public_html/wp-content/plugins/<slug>
 #
 # ── This is not the same thing as the GitHub Actions deploy ─────────────────
 #
@@ -34,12 +40,19 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLUG="${1:-}"
+TARGET="${2:-staging}"
 
 if [ -z "$SLUG" ]; then
-  echo "Usage: $0 <plugin-slug>" >&2
-  echo "  e.g. $0 sacscoc-institutions" >&2
+  echo "Usage: $0 <plugin-slug> [staging|production]" >&2
+  echo "  e.g. $0 ai-documents staging" >&2
   exit 1
 fi
+
+case "$TARGET" in
+  staging)    REMOTE_ROOT="stage.commissioncu.org/wp-content/plugins" ;;
+  production) REMOTE_ROOT="public_html/wp-content/plugins" ;;
+  *) echo "Unknown target '$TARGET' — use staging or production." >&2; exit 1 ;;
+esac
 
 PLUGIN_DIR="$REPO_ROOT/plugins/$SLUG"
 if [ ! -d "$PLUGIN_DIR" ]; then
@@ -52,10 +65,22 @@ fi
 # wins, so `SFTP_PASSWORD=... scripts/deploy-plugin.sh x` can override it
 # per-run without editing the file.
 if [ -f "$REPO_ROOT/.env" ]; then
+  # `source` overwrites whatever the caller already exported, so remember the
+  # caller's values first and put them back afterwards — otherwise the
+  # "exported values win" promise above is false and a one-off override is
+  # silently ignored in favour of .env.
+  for _v in SFTP_HOST SFTP_PORT SFTP_USERNAME SFTP_PASSWORD; do
+    if [ -n "${!_v+x}" ]; then export "_KEEP_$_v=${!_v}"; fi
+  done
   set -a
   # shellcheck disable=SC1091
   source "$REPO_ROOT/.env"
   set +a
+  for _v in SFTP_HOST SFTP_PORT SFTP_USERNAME SFTP_PASSWORD; do
+    _k="_KEEP_$_v"
+    if [ -n "${!_k+x}" ]; then export "$_v=${!_k}"; fi
+    unset "$_k"
+  done
 fi
 
 : "${SFTP_HOST:?Set SFTP_HOST — export it, or add it to $REPO_ROOT/.env (copy .env.example)}"
@@ -69,9 +94,9 @@ if ! command -v sshpass >/dev/null 2>&1; then
   exit 1
 fi
 
-REMOTE_PATH="public_html/wp-content/plugins/$SLUG"
+REMOTE_PATH="$REMOTE_ROOT/$SLUG"
 
-echo "Deploying plugins/$SLUG -> ${SFTP_USERNAME}@${SFTP_HOST}:${REMOTE_PATH}"
+echo "Deploying plugins/$SLUG ($TARGET) -> ${SFTP_USERNAME}@${SFTP_HOST}:${REMOTE_PATH}"
 
 # A clean staging copy, so dev-only cruft never reaches the site — the same
 # thing the CI workflow's own "Strip dev-only files before deploy" step does,
