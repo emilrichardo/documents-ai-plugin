@@ -182,6 +182,26 @@ Pruebas: `tests/test-pdf-markers.js` (nuevo, 4 casos) y 4 casos nuevos en
 `tests/test-pdf-furniture.js`. Comparado antes/después sobre 40 PDF locales:
 solo cambian el del cliente y una política de una página que terminaba en «1».
 
+## 6. 1.6.3 — membrete de la página 1 en los PDF
+
+Pedido del cliente: el membrete (nombre de la organización y dirección postal,
+centrados sobre el título) no debe llegar al texto importado. Antes salía como
+un párrafo en cursiva delante del título.
+
+`stripLetterhead()` lo reconoce por la dirección, no por quién sea: una línea de
+calle (empieza por número) justo encima de una línea «Ciudad, Estado ZIP», entre
+las primeras 5 líneas de la página 1 y seguida de un hueco mayor que el de un
+párrafo. Se quita desde el principio de la página hasta la línea del ZIP, porque
+el nombre de arriba es parte del mismo bloque. Solo la página 1.
+
+Efecto lateral esperado: el título pasa a ser lo primero del texto y sale como
+`#` (título) en lugar de `##`, igual que en los PDF que no tienen membrete.
+
+Riesgos: un documento que abra con una dirección postal por otro motivo (una
+carta) la pierde; y una plantilla con un membrete sin dirección postal no se
+limpia. Pruebas: `tests/test-pdf-letterhead.js` (7 casos). Comprobado con los dos
+PDF de SACSCOC que hay en local; en 40 PDF locales solo cambian esos.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

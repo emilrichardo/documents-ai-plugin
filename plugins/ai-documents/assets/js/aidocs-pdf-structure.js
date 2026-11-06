@@ -768,6 +768,41 @@
         return out;
     }
 
+    // The organisation's letterhead: a name, then a street line and a "City,
+    // State ZIP" line, set at the top of page 1 above the title. It is the
+    // same on every page 1 and says nothing about the policy.
+    var ZIP_LINE_RE    = /,\s*[A-Za-z.]+(?:\s+[A-Za-z.]+)*\s+\d{5}(?:-\d{4})?$/;
+    var STREET_LINE_RE = /^\d{1,6}\s+\S/;
+    var LETTERHEAD_MAX_LINES = 5;
+
+    /**
+     * Drop the letterhead from the first page. It is recognised by its postal
+     * address, not by who it belongs to: a street line directly above a "City,
+     * State ZIP" line, within the first few lines of page 1 and followed by a
+     * gap wider than a paragraph's. Everything from the top of the page down to
+     * the ZIP line goes with it, because the name above the address is part of
+     * the same block.
+     *
+     * A document that opens with a postal address for some other reason — a
+     * letter — loses it too. That is the price of not naming the organisation.
+     *
+     * @param {Array<Array>} pages Lines per page.
+     * @return {Array<Array>} The same pages, page 1 without its letterhead.
+     */
+    function stripLetterhead( pages ) {
+        if ( ! pages || ! pages.length || ! pages[ 0 ] || pages[ 0 ].length < 3 ) return pages || [];
+        var lines = pages[ 0 ];
+        var limit = Math.min( LETTERHEAD_MAX_LINES, lines.length - 1 );
+        for ( var z = 1; z < limit; z++ ) {
+            if ( ! ZIP_LINE_RE.test( lines[ z ].text.trim() ) ) continue;
+            if ( ! STREET_LINE_RE.test( lines[ z - 1 ].text.trim() ) ) continue;
+            var below = lines[ z ].y - lines[ z + 1 ].y;
+            if ( below <= linePitch( lines ) * 2 ) continue;
+            return [ lines.slice( z + 1 ) ].concat( pages.slice( 1 ) );
+        }
+        return pages;
+    }
+
     // "3", "Page 3", "Page 3 of 71", "- 3 -". Nothing else qualifies: a line
     // with any other word in it is content, and so is a number with a unit.
     var PAGE_NUMBER_RE = /^(?:(?:page|p\.)\s*)?\d{1,3}(?:\s*(?:of|\/)\s*\d{1,3})?$|^[-\u2013\u2014]\s*\d{1,3}\s*[-\u2013\u2014]$/i;
@@ -880,7 +915,7 @@
         }
 
         return next( 1 ).then( function () {
-            pages = stripPageFurniture( pages );
+            pages = stripLetterhead( stripPageFurniture( pages ) );
             var metrics = documentMetrics( pages );
             var result  = canonical( pages, metrics );
             result.metrics = metrics;
@@ -895,6 +930,7 @@
         canonical:        canonical,
         fontFlags:        fontFlags,
         stripPageFurniture: stripPageFurniture,
+        stripLetterhead:    stripLetterhead,
         furnitureKey:       furnitureKey
     };
 } ) );
