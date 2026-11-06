@@ -160,6 +160,28 @@ sitio viejo, el filtro `aidocs_keep_link` es el lugar.
 
 ---
 
+## 5. 1.6.2 — listas en PDF y números de página en PDF cortos
+
+Hallado con el PDF que subió el cliente para «Antitrust Compliance» (3 páginas).
+
+- **Ítems 10 a 15 pegados en un párrafo.** El importador reconoce un número de
+  lista por el hueco que lo separa del texto. «10.» es más ancho que «9.» y la
+  tabulación está a la misma distancia del margen, así que su hueco (4,2 pt) caía
+  por debajo del mínimo (0,45 em). Para números de dos dígitos el mínimo es ahora
+  0,3 em; un espacio normal entre palabras mide 0,22 em.
+- **«A.» como fila de tabla.** «A.» en el margen con el texto 36 pt más allá
+  superaba el hueco de columna y el marcador contaba como celda. Ya no.
+- **PDF de 1 o 2 páginas.** Sin páginas entre las que comparar no hay
+  recurrencia, así que solo se quita la primera o la última línea de la página si
+  es *únicamente* un número de página («3», «Page 3», «Page 3 of 71», «- 3 -») y
+  está separada del texto. Un número pegado al texto, «Appendix 1», «10%» o una
+  página que sea solo un número se conservan. Riesgo residual: un número suelto
+  real, aislado al borde de la página, se tomaría por folio.
+
+Pruebas: `tests/test-pdf-markers.js` (nuevo, 4 casos) y 4 casos nuevos en
+`tests/test-pdf-furniture.js`. Comparado antes/después sobre 40 PDF locales:
+solo cambian el del cliente y una política de una página que terminaba en «1».
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

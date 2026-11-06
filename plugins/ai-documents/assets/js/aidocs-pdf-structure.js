@@ -236,7 +236,21 @@
         if ( MARKER_RE.test( markerText ) ) {
             var rest = words.slice( 1 );
             var gapAfter = rest.length ? rest[ 0 ].x - ( first.x + first.width ) : Infinity;
-            if ( gapAfter > size * 0.45 ) {
+            // A tab stop sets the text 0.45em or more past the marker. "10." is
+            // wider than "9." and the stop is the same distance from the left
+            // edge, so on a hanging indent of 18pt the gap after it shrinks to
+            // 0.38em: still twice a word space, but under the bar. Two-digit
+            // numbers get the lower bar, which a word space (0.22em) stays
+            // clear of.
+            var wide    = /^\d{2}[.)]$/.test( markerText );
+            if ( gapAfter > size * ( wide ? 0.3 : 0.45 ) ) {
+                // "A." at the margin with the text on a tab stop 36pt away is
+                // further apart than a table's column gap, so the marker was
+                // being counted as a cell of its own and the item came out as
+                // a one-row table. The marker is not a cell.
+                if ( line.cells.length > 1 && line.cells[ 0 ].text === markerText ) {
+                    line.cells = line.cells.slice( 1 );
+                }
                 line.marker   = markerText;
                 line.markerX  = first.x;
                 line.contentX = rest.length ? rest[ 0 ].x : first.x + size * 2;
@@ -754,6 +768,30 @@
         return out;
     }
 
+    // "3", "Page 3", "Page 3 of 71", "- 3 -". Nothing else qualifies: a line
+    // with any other word in it is content, and so is a number with a unit.
+    var PAGE_NUMBER_RE = /^(?:(?:page|p\.)\s*)?\d{1,3}(?:\s*(?:of|\/)\s*\d{1,3})?$|^[-\u2013\u2014]\s*\d{1,3}\s*[-\u2013\u2014]$/i;
+
+    /**
+     * One page of a short document: drop the first or last line when it is only
+     * a page number and sits clear of the text beside it (further off than a
+     * paragraph gap would put it). A lone number inside a block of text is
+     * left alone, and so is a page that is nothing but that number.
+     */
+    function stripLonePageNumber( lines ) {
+        if ( ! lines || lines.length < 3 ) return lines || [];
+        var pitch = linePitch( lines ) * 1.5;
+        var drop  = [];
+        if ( PAGE_NUMBER_RE.test( lines[ 0 ].text.trim() ) && lines[ 0 ].y - lines[ 1 ].y > pitch ) {
+            drop.push( lines[ 0 ] );
+        }
+        var last = lines.length - 1;
+        if ( PAGE_NUMBER_RE.test( lines[ last ].text.trim() ) && lines[ last - 1 ].y - lines[ last ].y > pitch ) {
+            drop.push( lines[ last ] );
+        }
+        return drop.length ? lines.filter( function ( line ) { return drop.indexOf( line ) === -1; } ) : lines;
+    }
+
     /**
      * Drop running headers, running footers and page numbers.
      *
@@ -774,7 +812,11 @@
      * @return {Array<Array>} The same pages with furniture removed.
      */
     function stripPageFurniture( pages ) {
-        if ( ! pages || pages.length < FURNITURE_MIN_PAGES ) return pages || [];
+        if ( ! pages ) return [];
+        // Recurrence needs pages to recur on. With one or two there is nothing
+        // to compare, so the only thing removed is a line that is nothing but a
+        // page number, standing apart at the very top or bottom of its page.
+        if ( pages.length < FURNITURE_MIN_PAGES ) return pages.map( stripLonePageNumber );
 
         // key → [{ y, pages: {pageIndex: true} }]
         var tally = {};

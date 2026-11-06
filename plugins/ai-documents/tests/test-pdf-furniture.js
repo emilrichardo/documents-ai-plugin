@@ -100,10 +100,45 @@ test( 'A phrase repeated in the body, not at a page edge, survives', function ()
     equal( texts( out[ 0 ] ), [ 'Opening.', repeated, 'Closing.' ] );
 } );
 
-test( 'A one- or two-page document is not touched at all', function () {
+test( 'A one- or two-page document keeps its header and footer text', function () {
     var pages = [ page( 1, [ 'Only body.' ] ), page( 2, [ 'Second body.' ] ) ];
     var out = pdf.stripPageFurniture( pages );
     equal( texts( out[ 0 ] ), [ 'The Commission on Colleges', 'Only body.', 'Policy Statement', 'Page 1 of 5' ] );
+} );
+
+/** A body of evenly spaced lines, so the page's line pitch is a real one. */
+function bodyPage( numberLine, body ) {
+    var lines = body.map( function ( text, i ) { return { y: 700 - i * 14, text: text }; } );
+    if ( numberLine ) lines.push( numberLine );
+    return lines;
+}
+var BODY = [ 'One.', 'Two.', 'Three.', 'Four.', 'Five.', 'Six.', 'Seven.', 'Eight.' ];
+
+test( 'A lone page number at the foot of a short document goes', function () {
+    var out = pdf.stripPageFurniture( [ bodyPage( { y: 50, text: '1' }, BODY ), bodyPage( { y: 50, text: '2' }, BODY ) ] );
+    equal( texts( out[ 0 ] ).indexOf( '1' ), -1 );
+    equal( texts( out[ 1 ] ).indexOf( '2' ), -1 );
+    equal( out[ 0 ].length, BODY.length );
+} );
+
+test( 'So does a page number at the head, and "Page 2 of 2"', function () {
+    var out = pdf.stripPageFurniture( [ [ { y: 760, text: '3' } ].concat( bodyPage( { y: 50, text: 'Page 2 of 2' }, BODY ) ) ] );
+    equal( texts( out[ 0 ] ), BODY );
+} );
+
+test( 'A number that is part of the text, or any other line, stays', function () {
+    // Directly under the text, not set apart from it: a list item, not a folio.
+    var tight = bodyPage( { y: 700 - BODY.length * 14, text: '9' }, BODY );
+    equal( texts( pdf.stripPageFurniture( [ tight ] )[ 0 ] ).slice( -1 ), [ '9' ] );
+    // Set apart, but a word in it: not a page number.
+    var word = bodyPage( { y: 50, text: 'Appendix 1' }, BODY );
+    equal( texts( pdf.stripPageFurniture( [ word ] )[ 0 ] ).slice( -1 ), [ 'Appendix 1' ] );
+    var amount = bodyPage( { y: 50, text: '10%' }, BODY );
+    equal( texts( pdf.stripPageFurniture( [ amount ] )[ 0 ] ).slice( -1 ), [ '10%' ] );
+} );
+
+test( 'A page that is only a number is kept', function () {
+    equal( texts( pdf.stripPageFurniture( [ [ { y: 400, text: '1' } ] ] )[ 0 ] ), [ '1' ] );
 } );
 
 test( 'A header on a minority of pages is not furniture', function () {
