@@ -284,6 +284,31 @@ Comparado el texto guardado en staging con una extracción nueva del mismo Word:
 
 Pruebas: 2 casos nuevos en `tests/test-docx-links.js`.
 
+## 10. 1.6.7 — enlazar en un texto largo sin volver a la barra
+
+Reporte del cliente: resaltar texto, pulsar el icono de enlace, poner un enlace
+interno y publicar tampoco funcionaba, y en bloques largos hay que subir hasta
+el icono.
+
+- **Publicar con un enlace nuevo** es el fallo de 1.6.4 (el texto sin aplicar no
+  se guardaba). Comprobado en staging con esos pasos exactos y un enlace
+  interno `/policies/credit-hours/`: Publish publica, el enlace queda en el
+  editor y en la página, y la dirección responde 200.
+- **La barra de herramientas se queda pegada** bajo la barra de WordPress
+  (`position: sticky`). El editor crece hasta alojar todo el texto (205 414 px
+  en Substantive Change), así que la barra estaba a miles de píxeles de la frase
+  que se edita. Para que `sticky` funcione, `#cd-extract-wrap` y el contenedor
+  de EasyMDE pasan de `overflow:hidden` a `overflow:clip`: `hidden` crea un
+  contenedor de scroll y la barra se pegaba a una caja que nunca se desplaza.
+  `hidden` se mantiene como respaldo en navegadores sin `clip`; ahí la barra
+  simplemente no se pega.
+- **Ctrl/Cmd+K inserta el enlace.** EasyMDE ya enlazaba `Cmd-K` a su propio
+  `drawLink`, que escribe `[texto](#url#)` sin ninguno de los escapes del botón
+  de este plugin. Se desactiva ese atajo y se enlaza el mismo código del botón,
+  así que atajo y botón hacen exactamente lo mismo.
+
+Pruebas: el comportamiento es de navegador; se comprueba en staging.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

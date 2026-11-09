@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.6
+ * Version: 1.6.7
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.6' );
+define( 'AIDOCS_VERSION', '1.6.7' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -1083,7 +1083,7 @@ function aidocs_meta_box_html( $post ) {
            edited, with the AI panels arranged around it — so it is given a
            white card and a title row of its own rather than reading as one
            more grey box in the stack. */
-        #cd-extract-wrap { margin-top:20px; border:1px solid #dcdcde; border-radius:8px; background:#fff; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+        #cd-extract-wrap { margin-top:20px; border:1px solid #dcdcde; border-radius:8px; background:#fff; overflow:hidden; overflow:clip; box-shadow:0 1px 3px rgba(0,0,0,.04); }
         #cd-extract-wrap > .cd-step-head { padding:13px 18px; background:#f6f7f7; border-bottom:1px solid #dcdcde; }
         #cd-extract-wrap > .cd-step-head strong { font-size:14px; }
         #cd-extract-wrap > .cd-step-hint,
@@ -1174,9 +1174,16 @@ function aidocs_meta_box_html( $post ) {
         .cd-tab-panel { padding-top:12px; }
         /* The markdown editor is the working surface: a real border and a focus
            ring, so it reads as a field rather than as loose text on the card. */
-        #cd-raw-text-edit + .EasyMDEContainer { border:1px solid #dcdcde; border-radius:6px; overflow:hidden; }
+        #cd-raw-text-edit + .EasyMDEContainer { border:1px solid #dcdcde; border-radius:6px; overflow:hidden; overflow:clip; }
         #cd-raw-text-edit + .EasyMDEContainer:focus-within { border-color:#2271b1; box-shadow:0 0 0 1px #2271b1; }
         #cd-raw-text-edit + .EasyMDEContainer .editor-toolbar { border:none; border-bottom:1px solid #e5e5e5; background:#fafafa; }
+        /* The editor grows to fit its text, so in a long policy the toolbar is
+           thousands of pixels above the sentence being edited. Stuck under the
+           admin bar it stays within reach. The two ancestors above clip instead
+           of hiding: overflow:hidden makes each a scroll container, and sticky
+           then pins to a box that never scrolls. */
+        #cd-raw-text-edit + .EasyMDEContainer .editor-toolbar { position:sticky; top:var(--wp-admin--admin-bar--height, 32px); z-index:99; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+        @media (max-width:600px) { #cd-raw-text-edit + .EasyMDEContainer .editor-toolbar { top:0; } }
         #cd-raw-text-edit + .EasyMDEContainer .CodeMirror { border:none; }
         /* Step 2: AI (opt-in) */
         #cd-ai-panel { margin-top:14px; }
@@ -2036,34 +2043,41 @@ function aidocs_meta_box_html( $post ) {
          * to encode the URL before it is written. assets/js/aidocs-link-markup.js
          * holds both rules and is the same code the tests exercise.
          */
+        function cdLinkAction(editor) {
+            var markup = window.AidocsLinkMarkup;
+            // The helper failing to load must not take the button
+            // with it; EasyMDE's own behaviour is the fallback.
+            if (! markup) { EasyMDE.prototype.drawLink.call(editor); return; }
+
+            var cm    = editor.codemirror;
+            var label = cm.getSelection();
+            var url   = window.prompt('Link destination (URL):', 'https://');
+            if (url === null) return;
+            url = markup.completeUrl(markup.normalizeUrl(url));
+            if (url === '') return;
+            if (markup.needsScheme(url)) {
+                window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
+                return;
+            }
+            if (! markup.isExpressible(url)) {
+                window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
+                return;
+            }
+            cm.replaceSelection(markup.linkMarkup(label === '' ? url : label, url));
+            cm.focus();
+        }
+
+        /**
+         * The same action, as the toolbar button. It is also bound to Ctrl/Cmd+K
+         * below, so a link can be added without going back up to the toolbar
+         * in a long policy.
+         */
         function cdLinkButton() {
             return {
                 name: 'link',
                 className: 'fa fa-link',
-                title: 'Insert link',
-                action: function(editor) {
-                    var markup = window.AidocsLinkMarkup;
-                    // The helper failing to load must not take the button
-                    // with it; EasyMDE's own behaviour is the fallback.
-                    if (! markup) { EasyMDE.prototype.drawLink.call(editor); return; }
-
-                    var cm    = editor.codemirror;
-                    var label = cm.getSelection();
-                    var url   = window.prompt('Link destination (URL):', 'https://');
-                    if (url === null) return;
-                    url = markup.completeUrl(markup.normalizeUrl(url));
-                    if (url === '') return;
-                    if (markup.needsScheme(url)) {
-                        window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
-                        return;
-                    }
-                    if (! markup.isExpressible(url)) {
-                        window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
-                        return;
-                    }
-                    cm.replaceSelection(markup.linkMarkup(label === '' ? url : label, url));
-                    cm.focus();
-                }
+                title: 'Insert link (Ctrl/Cmd+K)',
+                action: cdLinkAction
             };
         }
 
@@ -2079,6 +2093,10 @@ function aidocs_meta_box_html( $post ) {
                 spellChecker: false,
                 status: false,
                 minHeight: '380px',
+                // EasyMDE binds Ctrl/Cmd+K to its own drawLink, which writes
+                // "[text](#url#)" and none of the escaping the button above
+                // does. Unbound here, and bound to the button's action below.
+                shortcuts: { drawLink: null },
                 toolbar: [
                     'bold', 'italic', 'heading-2', 'heading-3', '|',
                     'unordered-list', 'ordered-list', 'table', cdLinkButton(), '|',
@@ -2087,6 +2105,10 @@ function aidocs_meta_box_html( $post ) {
             });
             cdMde.codemirror.on('change', function() {
                 $('#cd-raw-text-edit').val(cdMde.value());
+            });
+            cdMde.codemirror.addKeyMap({
+                'Ctrl-K': function() { cdLinkAction(cdMde); },
+                'Cmd-K':  function() { cdLinkAction(cdMde); }
             });
         });
 
