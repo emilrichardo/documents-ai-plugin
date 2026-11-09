@@ -144,6 +144,21 @@ results.forEach( function ( r ) {
     if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
 } );
 
+test( 'An image-size attribute left in the text is not part of the policy', function () {
+    equal(
+        docx.htmlToCanonical( '<ol><li>{width=\u201c2.5078619860017497in\u201d height=\u201c2.8548589238845143in\u201d}The change requires either</li></ol>' ),
+        '1. The change requires either'
+    );
+    equal(
+        docx.htmlToCanonical( '<p>The up arrow is a hyperlink. {width="0.21in" height="0.21in"}</p>' ),
+        'The up arrow is a hyperlink.'
+    );
+} );
+
+test( 'Braces that are not an image attribute stay', function () {
+    equal( docx.htmlToCanonical( '<p>Use the {Section} placeholder and {width} too.</p>' ), 'Use the {Section} placeholder and {width} too.' );
+} );
+
 var failed = results.filter( function ( r ) { return ! r.ok; } ).length;
 console.log( '\n' + ( results.length - failed ) + ' passed, ' + failed + ' failed (of ' + results.length + ')' );
 process.exit( failed ? 1 : 0 );

@@ -257,6 +257,33 @@ cambió de expectativa (era exactamente el comportamiento reportado) y hay 4
 casos nuevos. Con el PDF real del cliente: lista A/B con las dos sub-listas a
 profundidad 2 y el párrafo dentro del `li` de A.
 
+## 9. 1.6.6 — Substantive Change: restos de imagen en el Word
+
+Reporte del cliente: la sección «Procedures» de Substantive Change importada
+«parece un desastre» frente al Word original.
+
+Comparado el texto guardado en staging con una extracción nueva del mismo Word:
+
+- **El texto guardado era de una importación antigua**, no del importador
+  actual: 210 líneas con letras publicadas como dígitos, 45 con números romanos
+  publicados como dígitos y 160 numeradas publicadas como viñetas (de ahí que
+  «2. A committee visit» y «3. A fee» salgan como viñetas y «4.» como «1.»), y
+  ningún enlace del cuerpo (205 líneas difieren más allá del marcador). El
+  importador actual lee bien ese Word: `1.`, `2.`/`3.` (`start="2"`) y `4.`
+  (`start="4"`), intercalados con las viñetas igual que en Word.
+- **Lo único que el importador actual hace mal en ese Word:** el archivo trae
+  escrito a mano, como texto, `{width="2.5…in" height="2.8…in"}` (resto de una
+  conversión con pandoc) en dos sitios, y llegaba al texto
+  («1. {width=…}The change requires either»). `tidy()` ya lo quita; solo con
+  ese patrón exacto (`width=`/`height=` entre comillas dentro de llaves), no con
+  cualquier llave.
+- **Los enlaces a `sacscoc.org/app/uploads/…` siguen sin enlazarse**: son medios
+  del sitio antiguo y `aidocs_classify_link()` los descarta a propósito. Hay
+  siete en la lista «Policies» de ese documento; se rehacen a mano con el botón
+  de enlace apuntando a la política correspondiente del sitio nuevo.
+
+Pruebas: 2 casos nuevos en `tests/test-docx-links.js`.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

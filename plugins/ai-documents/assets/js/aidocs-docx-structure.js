@@ -71,8 +71,17 @@
         return href;
     }
 
+    // An image-size attribute typed into the document as text:
+    //     {width="2.5078619860017497in" height="2.8548589238845143in"}
+    // That is what a pandoc conversion writes after an image, and when the
+    // Word file went through one the attribute stayed behind as literal
+    // characters. It is not part of any policy's wording, and it was landing
+    // in the middle of sentences ("1. {width=…}The change requires either").
+    // Both curly and straight quotes appear, depending on what Word did to them.
+    var IMAGE_ATTR_RE = /\{(?:\s*(?:width|height)\s*=\s*["\u201c\u201d][^"\u201c\u201d]*["\u201c\u201d])+\s*\}/g;
+
     function tidy( text ) {
-        return text.replace( /\s+/g, ' ' ).trim();
+        return text.replace( IMAGE_ATTR_RE, ' ' ).replace( /\s+/g, ' ' ).trim();
     }
 
     /**
