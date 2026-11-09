@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.3
+ * Version: 1.6.4
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.3' );
+define( 'AIDOCS_VERSION', '1.6.4' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -2051,8 +2051,12 @@ function aidocs_meta_box_html( $post ) {
                     var label = cm.getSelection();
                     var url   = window.prompt('Link destination (URL):', 'https://');
                     if (url === null) return;
-                    url = markup.normalizeUrl(url);
+                    url = markup.completeUrl(markup.normalizeUrl(url));
                     if (url === '') return;
+                    if (markup.needsScheme(url)) {
+                        window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
+                        return;
+                    }
                     if (! markup.isExpressible(url)) {
                         window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
                         return;
@@ -2687,7 +2691,7 @@ function aidocs_meta_box_html( $post ) {
                 // text, and editing it (or running Restructure again) would
                 // silently discard the approved result. cdSetRawText() keeps
                 // the EasyMDE editor and the underlying textarea in step.
-                if (res.data.raw_text !== undefined) cdSetRawText(res.data.raw_text);
+                if (res.data.raw_text !== undefined) { cdSetRawText(res.data.raw_text); cdAppliedText = cdCurrentText(); }
                 if (res.data.indexed !== undefined) cdSetEmbeddingBadge(res.data.indexed);
                 $status.text('<?php echo esc_js( __( 'Applied — content replaced.' ) ); ?>');
             })
@@ -2730,12 +2734,21 @@ function aidocs_meta_box_html( $post ) {
          *                   "Apply edited content" button.
          * @param {jQuery}   [$triggerBtn]  Button to disable while this runs,
          *                   when it isn't the default "Extract again" one.
+         * @param {function} [onSettled]    Called once with true when the server
+         *                   took the text, false when it did not.
          */
-        function cdExtractContent(automatic, overrideText, $triggerBtn) {
+        function cdExtractContent(automatic, overrideText, $triggerBtn, onSettled) {
+            var settled = false;
+            function settle(ok) {
+                if (settled) return;
+                settled = true;
+                if (typeof onSettled === 'function') onSettled(ok);
+            }
             var rawText = (typeof overrideText === 'string') ? overrideText : cdRawText();
 
             if (!rawText.trim()) {
                 if (!automatic) $('#cd-ai-status').text('<?php echo esc_js( __( 'No text extracted yet — load a PDF or Word file and wait for extraction.' ) ); ?>');
+                settle(false);
                 return;
             }
 
@@ -2753,6 +2766,7 @@ function aidocs_meta_box_html( $post ) {
             .done(function(res) {
                 if (!res.success) {
                     $('#cd-ai-status').text('Error: ' + res.data);
+                    settle(false);
                     return;
                 }
                 var d = res.data;
@@ -2779,6 +2793,7 @@ function aidocs_meta_box_html( $post ) {
                 $('#cd-content-tabs').prop('hidden', false);
                 $('#cd-content-preview-body').html(d.html || '');
                 cdSetRawText(rawText);
+                cdAppliedText = cdCurrentText();
                 if (d.indexed !== undefined) cdSetEmbeddingBadge(d.indexed);
 
                 var msg = d.headings + ' headings, ' + d.paragraphs + ' paragraphs, ' + d.lists + ' lists';
@@ -2790,15 +2805,77 @@ function aidocs_meta_box_html( $post ) {
                         + (extra.length ? ' — filled ' + extra.join(', ') : '');
                 }
                 $('#cd-ai-status').text(msg);
+                settle(true);
             })
             .fail(function(xhr) {
                 var msg = xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data : xhr.statusText;
                 $('#cd-ai-status').text('Error: ' + msg);
+                settle(false);
             })
             .always(function() {
                 $btn.prop('disabled', false).html(btnLabel);
+                settle(false);
             });
         }
+
+        /**
+         * Text typed into "Edit content" is saved only by the "Apply edited
+         * content" request: the textarea has no name, so the post form never
+         * carries it, and Update, Publish and Save Draft all leave it behind.
+         * The Preview tab renders from what is typed, applied or not, so an
+         * editor who adds a link, checks the preview, sees it working and then
+         * presses Update gets a page without it and no word of why.
+         *
+         * cdAppliedText is the text the server holds, or the text as the page
+         * loaded. When the form is submitted with the box reading anything
+         * else, the submit waits for the apply request and goes ahead only if
+         * the server took the text. If it did not, the editor stays on the
+         * page with their text still in the box and the error showing, which
+         * is better than a save that quietly drops it.
+         */
+        var cdAppliedText = null;
+        var cdAutoApplying = false;
+
+        /** What is in the box now. EasyMDE's value, which line endings are
+         * already normalised in, rather than the textarea it mirrors into. */
+        function cdCurrentText() {
+            return cdMde ? cdMde.value() : ($('#cd-raw-text-edit').val() || '');
+        }
+
+        $(function() {
+            // Taken after EasyMDE has mirrored the textarea, so it is the
+            // value the box actually opened with.
+            setTimeout(function() {
+                if ($('#cd-raw-text-edit').length) cdAppliedText = cdCurrentText();
+            }, 0);
+
+            $('#post').on('submit.aidocsApply', function(e) {
+                if (cdAutoApplying || cdAppliedText === null) return;
+                var text = cdCurrentText();
+                if (typeof text !== 'string' || !text.trim() || text === cdAppliedText) return;
+
+                e.preventDefault();
+                var form = this;
+                var submitter = e.originalEvent && e.originalEvent.submitter ? e.originalEvent.submitter : null;
+                $('#cd-ai-status').text('<?php echo esc_js( __( 'Applying your edited content before saving…' ) ); ?>');
+
+                cdExtractContent(false, text, $('#cd-apply-raw-text-btn'), function(ok) {
+                    if (!ok) {
+                        $('#cd-ai-status').text('<?php echo esc_js( __( 'Your edited content could not be applied, so nothing was saved. Fix the error above and try again.' ) ); ?>');
+                        return;
+                    }
+                    cdAutoApplying = true;
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit(submitter || undefined);
+                    } else {
+                        if (submitter && submitter.name) {
+                            $('<input type="hidden">').attr('name', submitter.name).val(submitter.value).appendTo(form);
+                        }
+                        form.submit();
+                    }
+                });
+            });
+        });
 
         // ── Several policies in one upload ─────────────
         // Reading the file and writing the entries are kept apart on purpose: an

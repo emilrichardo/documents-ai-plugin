@@ -86,6 +86,32 @@ results.forEach( function ( r ) {
     console.log( ( r.ok ? 'PASS' : 'FAIL' ) + ' — ' + r.name );
     if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
 } );
+test( 'A web address typed without its scheme gets https://', function () {
+    equal( markup.completeUrl( 'commissioncu.org/policies/credit-hours/' ), 'https://commissioncu.org/policies/credit-hours/' );
+    equal( markup.completeUrl( 'www.sacscoc.org' ), 'https://www.sacscoc.org' );
+} );
+
+test( 'A scheme, a leading slash, a fragment and mailto are left as typed', function () {
+    equal( markup.completeUrl( 'https://a.org/x' ), 'https://a.org/x' );
+    equal( markup.completeUrl( '/policies/credit-hours/' ), '/policies/credit-hours/' );
+    equal( markup.completeUrl( '#section-2' ), '#section-2' );
+    equal( markup.completeUrl( 'mailto:a@b.org' ), 'mailto:a@b.org' );
+    equal( markup.completeUrl( '   ' ), '' );
+} );
+
+test( 'A bare file name is not mistaken for a host', function () {
+    equal( markup.completeUrl( 'form.pdf' ), 'form.pdf' );
+    equal( markup.needsScheme( markup.completeUrl( 'form.pdf' ) ), true );
+} );
+
+test( 'A bare path is flagged, because WordPress would make it http://policies/…', function () {
+    equal( markup.needsScheme( markup.completeUrl( 'policies/credit-hours' ) ), true );
+    equal( markup.needsScheme( 'https://a.org' ), false );
+    equal( markup.needsScheme( '/policies/x/' ), false );
+    equal( markup.needsScheme( '#top' ), false );
+    equal( markup.needsScheme( '' ), false );
+} );
+
 var failed = results.filter( function ( r ) { return ! r.ok; } ).length;
 console.log( '\n' + ( results.length - failed ) + ' passed, ' + failed + ' failed (of ' + results.length + ')' );
 process.exit( failed ? 1 : 0 );

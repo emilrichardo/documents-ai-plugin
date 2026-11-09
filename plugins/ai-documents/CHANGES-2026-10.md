@@ -202,6 +202,30 @@ carta) la pierde; y una plantilla con un membrete sin dirección postal no se
 limpia. Pruebas: `tests/test-pdf-letterhead.js` (7 casos). Comprobado con los dos
 PDF de SACSCOC que hay en local; en 40 PDF locales solo cambian esos.
 
+## 7. 1.6.4 — los cambios sin aplicar ya no se pierden al guardar
+
+Reporte del cliente: «añadí un enlace y no funciona».
+
+- **Causa confirmada en staging.** El texto de «Edit content» solo se guarda con
+  el botón «Apply edited content» (petición AJAX): el `textarea` no tiene `name`,
+  así que el formulario nunca lo envía. Update, Publish y Save Draft lo dejan
+  atrás. La pestaña Preview dibuja lo que hay escrito, aplicado o no, de modo
+  que el enlace se ve funcionando y luego desaparece al guardar (el borrador de
+  prueba volvió vacío, «No content»).
+- **Ahora.** Si al enviar el formulario el texto de la caja difiere del último
+  aplicado, el envío espera a la petición de «Apply» y sigue solo si el servidor
+  la aceptó. Si falla, el editor se queda en la página con su texto y el error a
+  la vista, en lugar de guardar sin él. Se reenvía con el mismo botón
+  (`requestSubmit`), así que Publish sigue siendo Publish.
+- **Direcciones sin esquema.** `commissioncu.org/policies/x/` pasa a
+  `https://commissioncu.org/policies/x/`. Una ruta como `policies/credit-hours`
+  (sin `https://` ni `/` inicial) se rechaza con un aviso: `esc_url()` de
+  WordPress la convertía en `http://policies/credit-hours`, un enlace muerto.
+
+Sin probar en navegador al escribir esto (el sitio local no estaba en marcha);
+el comportamiento del formulario se comprueba en staging. Pruebas:
+`tests/test-link-markup.js` (+4 casos para las direcciones).
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

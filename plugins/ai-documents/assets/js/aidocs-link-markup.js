@@ -86,6 +86,48 @@
         return normalized !== '' && ! /[()\s]/.test( normalized );
     }
 
+    // A file name has a dot and letters after it, which is also what a host
+    // looks like. These extensions are files; anything else with that shape
+    // is read as a web address.
+    var FILE_EXT_RE = /\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|rtf|zip|png|jpe?g|gif|svg|html?)(?:[?#]|$)/i;
+
+    /**
+     * Give a typed address the scheme it was missing, where that is certain.
+     *
+     * "commissioncu.org/policies/credit-hours/" is plainly a web address and
+     * becomes "https://…". A scheme, a leading "/" or "#" or "?", and
+     * mailto:/tel: are left as they are. Anything else — "policies/credit-hours"
+     * — is left alone too, and needsScheme() says so: WordPress would turn it
+     * into "http://policies/credit-hours", a host that does not exist, and the
+     * link would be dead without a word.
+     *
+     * @param {string} url
+     * @return {string}
+     */
+    function completeUrl( url ) {
+        var raw = String( url == null ? '' : url ).trim();
+        if ( raw === '' ) return '';
+        if ( /^(?:[a-z][a-z0-9+.\-]*:|[\/#?])/i.test( raw ) ) return raw;
+        var first = raw.split( /[\/?#]/ )[ 0 ];
+        if ( /\.[a-z]{2,24}(?::\d+)?$/i.test( first ) && ! ( first === raw && FILE_EXT_RE.test( raw ) ) ) {
+            return 'https://' + raw;
+        }
+        return raw;
+    }
+
+    /**
+     * True for an address with no scheme and no leading "/", "#" or "?" —
+     * the one shape that cannot be told apart from a host. Run completeUrl()
+     * first.
+     *
+     * @param {string} url
+     * @return {boolean}
+     */
+    function needsScheme( url ) {
+        var raw = String( url == null ? '' : url ).trim();
+        return raw !== '' && ! /^(?:[a-z][a-z0-9+.\-]*:|[\/#?])/i.test( raw );
+    }
+
     /**
      * "[text](href)" — the whole markup, both halves made safe.
      *
@@ -100,6 +142,8 @@
     return {
         escapeLabel:   escapeLabel,
         normalizeUrl:  normalizeUrl,
+        completeUrl:   completeUrl,
+        needsScheme:   needsScheme,
         isExpressible: isExpressible,
         linkMarkup:    linkMarkup
     };
