@@ -748,7 +748,83 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
 
     $blocks = aidocs_demote_heading_runs( $blocks );
     $blocks = aidocs_mark_note_headings( $blocks );
+    $blocks = aidocs_fold_outline_interludes( $blocks );
     $blocks = aidocs_drop_title_echo( $blocks, $title );
+
+    return $blocks;
+}
+
+/**
+ * Put what sits between two lettered items back inside the first of them.
+ *
+ * The source documents set a definition like this:
+ *
+ *     A. Antitrust laws of the United States: …
+ *          1. Fixing fees … 15. Facilitating …
+ *        Higher education related activities … may include:
+ *          1. Policies … 7. Discussions …
+ *     B. The Commission representative(s): …
+ *
+ * everything between A and B hangs from A. Word's own file gives no hint of
+ * that — the paragraph is an ordinary flush one and "A." is typed text — and a
+ * PDF's indent is the only trace, so what the parser is handed is A, its
+ * digits, a flush paragraph, a second run of digits and B. Read literally that
+ * ends A at its first sub-list, and the paragraph and the second sub-list
+ * come out aligned with A and B instead of under A.
+ *
+ * What gives it away is the lettering resuming: B continues A's count, and
+ * between them there is a sub-list of a deeper kind than the letters. That is
+ * the only shape this folds. Paragraphs alone between two lettered items are
+ * left where they are — a closing remark is as likely as a continuation — and
+ * so are decimal procedures, which the source documents interrupt with
+ * paragraphs and resume on purpose.
+ *
+ * @param array $blocks Top-level blocks.
+ * @return array The same blocks, the interlude moved under its item and the
+ *               two lettered lists joined into one.
+ */
+function aidocs_fold_outline_interludes( array $blocks ) {
+    $parents = [ 'upper-alpha', 'lower-alpha', 'upper-roman', 'lower-roman' ];
+    $i = 0;
+
+    while ( $i < count( $blocks ) ) {
+        $head = $blocks[ $i ];
+        $style = $head['style'] ?? '';
+        if ( ( $head['type'] ?? '' ) !== 'list' || ! in_array( $style, $parents, true ) || empty( $head['items'] ) ) {
+            $i++;
+            continue;
+        }
+
+        $expected = (int) ( $head['start'] ?? 1 ) + count( $head['items'] );
+        $found    = null;
+        $has_sub  = false;
+
+        for ( $j = $i + 1; $j < count( $blocks ) && $j <= $i + 12; $j++ ) {
+            $type = $blocks[ $j ]['type'] ?? '';
+            if ( $type === 'paragraph' ) continue;
+            if ( $type !== 'list' ) break;
+
+            $inner = $blocks[ $j ]['style'] ?? '';
+            if ( $inner === $style ) {
+                if ( (int) ( $blocks[ $j ]['start'] ?? 1 ) === $expected ) $found = $j;
+                break;
+            }
+            if ( ! aidocs_outline_is_deeper( $style, $inner ) ) break;
+            $has_sub = true;
+        }
+
+        if ( $found === null || ! $has_sub ) {
+            $i++;
+            continue;
+        }
+
+        $last      = count( $head['items'] ) - 1;
+        $interlude = array_slice( $blocks, $i + 1, $found - $i - 1 );
+        $head['items'][ $last ]['blocks'] = array_merge( $head['items'][ $last ]['blocks'] ?? [], $interlude );
+        $head['items'] = array_merge( $head['items'], $blocks[ $found ]['items'] );
+        array_splice( $blocks, $i, $found - $i + 1, [ $head ] );
+        // Not advanced: the joined list may have another interlude after it.
+    }
 
     return $blocks;
 }

@@ -226,6 +226,37 @@ Sin probar en navegador al escribir esto (el sitio local no estaba en marcha);
 el comportamiento del formulario se comprueba en staging. Pruebas:
 `tests/test-link-markup.js` (+4 casos para las direcciones).
 
+## 8. 1.6.5 — lo que cuelga de «A.» vuelve a quedar dentro de «A.»
+
+Reporte del cliente (Antitrust Compliance): la segunda lista numerada, y el
+párrafo que la introduce, salían alineados con «A.» y «B.» y deben quedar bajo
+«A.», igual que la primera.
+
+Mi comprobación anterior de esta política contó cuatro listas y no miró dónde
+estaba cada una; por eso dije que estaba bien cuando no lo estaba.
+
+- **Qué pasaba.** El Word no dice que ese párrafo cuelgue de «A.»: es un párrafo
+  normal y «A.» es texto escrito. El PDF solo lo dice con la sangría. Al
+  analizar, A terminaba en su primera sub-lista y el párrafo y la segunda
+  sub-lista quedaban sueltos, a nivel de A y B.
+- **Ahora.** `aidocs_fold_outline_interludes()` mete lo que hay entre dos
+  elementos con letra dentro del primero, y une las dos listas con letras en
+  una. Solo cuando hay una sub-lista de rango inferior entre medias **y** la
+  letra siguiente continúa la cuenta (B tras A). Un párrafo suelto entre dos
+  letras, un encabezado, una nota o un procedimiento numerado con dígitos no
+  se tocan.
+- **Qué no cambia solo.** Las políticas ya publicadas guardan sus bloques ya
+  analizados: hay que volver a pulsar «Apply edited content» para que la
+  política tome la estructura nueva.
+- **No medido.** No pude medir cuántas de las 71 políticas tienen esta forma ni
+  cuáles cambiarían al reaplicarse; la regla se ha estrechado a propósito para
+  limitar ese riesgo.
+
+Pruebas: la prueba «The reported case, end to end» de `tests/test-lists.php`
+cambió de expectativa (era exactamente el comportamiento reportado) y hay 4
+casos nuevos. Con el PDF real del cliente: lista A/B con las dos sub-listas a
+profundidad 2 y el párrafo dentro del `li` de A.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

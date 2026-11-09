@@ -74,20 +74,86 @@ test( 'The reported case, end to end', function () {
         'B. The Commission representative(s): any individual acting on its behalf.',
     ] ) );
 
+    // Everything between A and B hangs from A: its digits, the paragraph that
+    // introduces the next run, and that run. The client saw the second run
+    // aligned with A and B instead of under A.
     $types = array_column( $blocks, 'type' );
-    assert_equal( $types, [ 'heading', 'paragraph', 'list', 'paragraph', 'list', 'list' ] );
+    assert_equal( $types, [ 'heading', 'paragraph', 'list' ] );
 
-    // The definition B is its own upper-alpha item, numbered two — not the
-    // third bullet of the antitrust violations.
-    $last = $blocks[5];
-    assert_equal( $last['style'], 'upper-alpha' );
-    assert_equal( $last['start'], 2 );
-    assert_equal( count( $last['items'] ), 1 );
-    assert_true( strpos( $last['items'][0]['text'], 'The Commission representative' ) === 0 );
+    $outline = $blocks[2];
+    assert_equal( $outline['style'], 'upper-alpha' );
+    assert_equal( count( $outline['items'] ), 2, 'A and B are siblings' );
+    assert_true( ! isset( $outline['start'] ), 'one list starting at A' );
+    assert_true( strpos( $outline['items'][1]['text'], 'The Commission representative' ) === 0, 'B is its own item' );
+    assert_equal( $outline['items'][1]['blocks'], [], 'B holds nothing of A' );
+
+    $inside = $outline['items'][0]['blocks'];
+    assert_equal( array_column( $inside, 'type' ), [ 'list', 'paragraph', 'list' ] );
+    assert_equal( $inside[0]['style'], 'decimal' );
+    assert_equal( count( $inside[0]['items'] ), 2 );
+    assert_true( strpos( $inside[1]['text'], 'Higher education related activities' ) === 0 );
 
     // The list interrupted by the paragraph starts over at one, as Word does.
-    assert_equal( $blocks[4]['style'], 'decimal' );
-    assert_true( ! isset( $blocks[4]['start'] ), 'a restarted list carries no start' );
+    assert_equal( $inside[2]['style'], 'decimal' );
+    assert_true( ! isset( $inside[2]['start'] ), 'a restarted list carries no start' );
+    assert_equal( count( $inside[2]['items'] ), 1 );
+} );
+
+test( 'A paragraph alone between two lettered items is left where it is', function () {
+    // A closing remark is as likely as a continuation, and nothing in the
+    // lettering says which. Only a deeper sub-list in between does.
+    $blocks = aidocs_parse_structured_content( implode( "\n", [
+        '## Definitions',
+        'A. First definition.',
+        'A remark that follows it.',
+        'B. Second definition.',
+    ] ) );
+    assert_equal( array_column( $blocks, 'type' ), [ 'heading', 'list', 'paragraph', 'list' ] );
+} );
+
+test( 'A decimal procedure interrupted by text and a sub-list is not folded', function () {
+    $blocks = aidocs_parse_structured_content( implode( "\n", [
+        '## Procedure',
+        '1. Step one.',
+        'The reviewer then records:',
+        'a. a finding;',
+        '2. Step two.',
+    ] ) );
+    assert_equal( array_column( $blocks, 'type' ), [ 'heading', 'list', 'paragraph', 'list', 'list' ] );
+} );
+
+test( 'A heading between two lettered items ends the outline', function () {
+    $blocks = aidocs_parse_structured_content( implode( "\n", [
+        '## Definitions',
+        'A. First definition.',
+        '1. A point under it.',
+        '## Another section',
+        '1. Unrelated.',
+        'B. Second definition.',
+    ] ) );
+    $heads = array_filter( $blocks, function ( $b ) { return $b['type'] === 'heading'; } );
+    assert_equal( count( $heads ), 2, 'the second heading is still a heading' );
+    assert_equal( count( $blocks[1]['items'] ), 1, 'A did not absorb B across a heading' );
+} );
+
+test( 'Three lettered items each with an interlude fold into one list', function () {
+    $blocks = aidocs_parse_structured_content( implode( "\n", [
+        '## Definitions',
+        'A. Alpha:',
+        '1. a one;',
+        'More about alpha:',
+        '1. a two;',
+        'B. Bravo:',
+        '1. b one;',
+        'More about bravo:',
+        '1. b two;',
+        'C. Charlie.',
+    ] ) );
+    assert_equal( array_column( $blocks, 'type' ), [ 'heading', 'list' ] );
+    assert_equal( count( $blocks[1]['items'] ), 3 );
+    assert_equal( array_column( $blocks[1]['items'][0]['blocks'], 'type' ), [ 'list', 'paragraph', 'list' ] );
+    assert_equal( array_column( $blocks[1]['items'][1]['blocks'], 'type' ), [ 'list', 'paragraph', 'list' ] );
+    assert_equal( $blocks[1]['items'][2]['blocks'], [] );
 } );
 
 test( 'Items after a numbering change are not dropped on the floor', function () {
