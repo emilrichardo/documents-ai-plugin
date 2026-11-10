@@ -309,6 +309,40 @@ el icono.
 
 Pruebas: el comportamiento es de navegador; se comprueba en staging.
 
+## 11. 1.6.8 — caracteres raros, línea h4 enorme y tipo de bloque en el editor
+
+Tres observaciones del cliente sobre Substantive Change.
+
+- **Caracteres raros (cuadrito) en el texto y en un encabezado del acordeón.**
+  Están en el propio Word: 161 caracteres de uso privado (U+E000–U+F8FF), que son
+  los códigos de una fuente de iconos (Wingdings/Symbol) y sin esa fuente se
+  ven como un cuadro vacío. U+F0FE (29) va delante de «What to submit»; U+F06E
+  (57) y U+F098 (75) están solos en un párrafo. Una de esas líneas está en
+  negrita y la regla «una línea en negrita de punta a punta es un encabezado»
+  la convertía en una sección del acordeón titulada con un cuadro. No he podido
+  confirmar a qué fuente pertenecen (las ejecuciones no la nombran) ni qué dibujo
+  tenían; son decorativos. Ahora se descartan al extraer (`ICON_GLYPH_RE`) y,
+  como red de seguridad, en `aidocs_normalize_lines()` — así también se limpian
+  textos ya guardados al volver a aplicarlos y textos pegados. Un párrafo que
+  era solo un glifo desaparece. Los demás símbolos (•, ✓, comillas…) no se tocan.
+- **La línea h4 era enorme (y el cursor también).** El CSS que oculta los `####`
+  los metía en una caja de ancho cero; allí cada `#` saltaba a su propia línea
+  (CodeMirror pone `word-wrap: break-word`), así que un h4 medía cuatro líneas y
+  un h3 tres. Con `white-space: nowrap` la línea mide lo que su texto: h3 71→27 px,
+  h4 81→25 px y el cursor 81→25 px, medido en la página real de staging.
+- **El editor no decía qué es cada línea.** Un párrafo y un h4 se ven parecidos y
+  ninguno lleva marca. La barra tiene ahora un selector «tipo de bloque»
+  (Párrafo, Título, Heading 2/3/4) que muestra el de la línea bajo el cursor y
+  permite cambiarlo; sustituye a los botones H2/H3. Una línea de lista o de
+  tabla muestra su tipo y no se cambia (perdería su marcador), y una línea en
+  negrita avisa de que se lee como Heading 3. La lógica está en
+  `assets/js/aidocs-block-type.js`, sin DOM, con `tests/test-block-type.js`.
+
+Pruebas: 3 casos nuevos en `tests/test-docx-links.js`, 1 en `tests/test-lists.php`
+y 7 en `tests/test-block-type.js`. De camino, los casos añadidos a
+`test-docx-links.js` en 1.6.6 quedaron tras el bloque que imprime resultados y no
+se mostraban uno a uno (sí contaban en el total); corregido.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

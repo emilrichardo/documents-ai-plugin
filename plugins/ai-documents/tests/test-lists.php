@@ -252,3 +252,20 @@ test( 'The outline ranks the numberings the way Word nests them', function () {
     assert_true( ! aidocs_outline_is_deeper( 'decimal', 'bullet' ) );
     assert_true( ! aidocs_outline_is_deeper( 'decimal', 'decimal' ) );
 } );
+
+test( 'Icon-font glyphs in stored or pasted text do not reach the page', function () {
+    $blocks = aidocs_parse_structured_content( implode( "\n", [
+        '## Procedures',
+        "\u{F0FE} *What to submit*",
+        '**A prospectus:** Submit one.',
+        "\u{F06E}",
+        "**\u{F06E}**",
+        'The next paragraph.',
+    ] ) );
+    $types = array_column( $blocks, 'type' );
+    assert_equal( count( array_keys( $types, 'heading', true ) ), 1, 'a bold glyph is not a heading' );
+    $text = json_encode( $blocks, JSON_UNESCAPED_UNICODE );
+    assert_true( ! preg_match( '/[\x{E000}-\x{F8FF}]/u', $text ), 'no private-use character is left' );
+    assert_true( strpos( $text, 'What to submit' ) !== false );
+    assert_true( strpos( $text, 'The next paragraph.' ) !== false );
+} );

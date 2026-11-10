@@ -460,6 +460,17 @@ function aidocs_normalize_lines( $raw_text ) {
 
     $out = [];
     foreach ( explode( "\n", $text ) as $line ) {
+        // Icon-font glyphs (private-use code points), and the one space after
+        // each. They are Wingdings checkboxes and squares in the Word files
+        // and print as an empty box without the font. A line that was only a
+        // glyph goes with it. See ICON_GLYPH_RE in aidocs-docx-structure.js,
+        // which keeps them out of new imports; this is for text already stored
+        // and for text pasted in.
+        $clean = preg_replace( '/[\x{E000}-\x{F8FF}]\h?/u', '', $line );
+        if ( $clean !== null && $clean !== $line ) {
+            $line = $clean;
+            if ( trim( $line ) === '' ) continue;
+        }
         $line = rtrim( $line );
         $bare = ltrim( $line );
         if ( $bare === '' ) { $out[] = ''; continue; }

@@ -80,6 +80,15 @@
     // Both curly and straight quotes appear, depending on what Word did to them.
     var IMAGE_ATTR_RE = /\{(?:\s*(?:width|height)\s*=\s*["\u201c\u201d][^"\u201c\u201d]*["\u201c\u201d])+\s*\}/g;
 
+    // Private-use characters (U+E000–U+F8FF). In a Word file they are the code
+    // points of an icon font — Wingdings and Symbol put their checkboxes,
+    // squares and arrows there — and mean nothing without that font. Without
+    // it they print as an empty box, and a paragraph that is only one of them
+    // became a stray box in the text or, when bold, a section heading with a
+    // box for a title. The Substantive Change file has 161 of them: U+F0FE
+    // before "What to submit", and U+F06E / U+F098 alone in paragraphs.
+    var ICON_GLYPH_RE = /[\uE000-\uF8FF]/g;
+
     function tidy( text ) {
         return text.replace( IMAGE_ATTR_RE, ' ' ).replace( /\s+/g, ' ' ).trim();
     }
@@ -97,7 +106,8 @@
         var out = '';
         ( node.childNodes || [] ).forEach( function ( child ) {
             if ( child.nodeType === 3 ) { // Text
-                out += inLink ? escapeLinkText( child.textContent ) : escapeMarkers( child.textContent );
+                var raw = child.textContent.replace( ICON_GLYPH_RE, '' );
+                out += inLink ? escapeLinkText( raw ) : escapeMarkers( raw );
                 return;
             }
             if ( child.nodeType !== 1 ) return; // skip comments etc.
@@ -290,7 +300,10 @@
                     out.push( inline( el ).replace( /\*\*/g, '' ) );
                     return;
                 }
-                out.push( tidy( inline( el ) ) );
+                // plainText() still sees an icon glyph the inline text has
+                // dropped, so a paragraph that was only one gets here empty.
+                var line = tidy( inline( el ) );
+                if ( line !== '' ) out.push( line );
                 return;
             }
 

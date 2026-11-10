@@ -137,13 +137,6 @@ test( 'A document with no links extracts exactly as it did before', function () 
     );
 } );
 
-// ── Report ──────────────────────────────────────────────────────────────
-
-results.forEach( function ( r ) {
-    console.log( ( r.ok ? 'PASS' : 'FAIL' ) + ' — ' + r.name );
-    if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
-} );
-
 test( 'An image-size attribute left in the text is not part of the policy', function () {
     equal(
         docx.htmlToCanonical( '<ol><li>{width=\u201c2.5078619860017497in\u201d height=\u201c2.8548589238845143in\u201d}The change requires either</li></ol>' ),
@@ -157,6 +150,27 @@ test( 'An image-size attribute left in the text is not part of the policy', func
 
 test( 'Braces that are not an image attribute stay', function () {
     equal( docx.htmlToCanonical( '<p>Use the {Section} placeholder and {width} too.</p>' ), 'Use the {Section} placeholder and {width} too.' );
+} );
+
+test( 'Icon-font glyphs are not part of the text', function () {
+    // U+F0FE before "What to submit"; the space after it goes with it.
+    equal( docx.htmlToCanonical( '<p>\uf0fe <em>What to submit</em></p>' ), '*What to submit*' );
+    equal( docx.htmlToCanonical( '<p>Notification, the \uf0fe<em>What to submit</em> information</p>' ), 'Notification, the *What to submit* information' );
+} );
+
+test( 'A paragraph that is only a glyph, even a bold one, disappears', function () {
+    equal( docx.htmlToCanonical( '<p>Before</p><p>\uf06e</p><p><strong>\uf06e</strong></p><p>After</p>' ), 'Before\nAfter' );
+} );
+
+test( 'Ordinary symbols are not touched', function () {
+    equal( docx.htmlToCanonical( '<p>5 \u2022 6 \u2713 caf\u00e9 \u201cquoted\u201d</p>' ), '5 \u2022 6 \u2713 caf\u00e9 \u201cquoted\u201d' );
+} );
+
+// ── Report ──────────────────────────────────────────────────────────────
+
+results.forEach( function ( r ) {
+    console.log( ( r.ok ? 'PASS' : 'FAIL' ) + ' — ' + r.name );
+    if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
 } );
 
 var failed = results.filter( function ( r ) { return ! r.ok; } ).length;

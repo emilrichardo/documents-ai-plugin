@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.7
+ * Version: 1.6.8
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.7' );
+define( 'AIDOCS_VERSION', '1.6.8' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -530,6 +530,16 @@ function aidocs_enqueue_scripts( $hook ) {
     wp_enqueue_script(
         'aidocs-link-markup',
         AIDOCS_URL . 'assets/js/aidocs-link-markup.js',
+        [ 'aidocs-easymde' ],
+        AIDOCS_VERSION,
+        true
+    );
+
+    // What kind of block each line is, for the toolbar's block-type picker —
+    // see assets/js/aidocs-block-type.js.
+    wp_enqueue_script(
+        'aidocs-block-type',
+        AIDOCS_URL . 'assets/js/aidocs-block-type.js',
         [ 'aidocs-easymde' ],
         AIDOCS_VERSION,
         true
@@ -1147,7 +1157,17 @@ function aidocs_meta_box_html( $post ) {
         #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-strong,
         #cd-raw-text-edit + .EasyMDEContainer .cm-formatting-em {
             display: inline-block; width: 0; overflow: hidden;
+            /* A zero-width box wraps its text one character per line, because
+               CodeMirror sets word-wrap:break-word. "####" in there was four
+               lines tall, so an h4 line was four times the height of the text
+               on it, with a caret to match; an h3 was three. Kept on one line,
+               the line is as tall as what is written on it. */
+            white-space: nowrap; vertical-align: top;
         }
+        /* The block-type picker in the toolbar: what the line under the cursor
+           is, and the way to change it. */
+        .cd-block-type { height:30px; margin:0 6px 0 0; padding:0 24px 0 8px; border:1px solid #c3c4c7; border-radius:4px; background-color:#fff; font-size:13px; line-height:28px; max-width:170px; vertical-align:middle; }
+        .cd-block-type:disabled { color:#50575e; background-color:#f6f7f7; opacity:1; }
         /* EasyMDE's stylesheet sizes cm-header-1..6 off Bootstrap's display
            classes — calc(1.375rem + 1.5vw) and similar, up to ~55px on a wide
            screen — meant for a rendered page, not a fixed-line-height
@@ -2081,6 +2101,57 @@ function aidocs_meta_box_html( $post ) {
             };
         }
 
+        /**
+         * A "block type" box at the left of the toolbar: Paragraph, Title,
+         * Heading 2, 3 or 4. It shows what the line under the cursor is —
+         * a paragraph and an h4 look alike in the editor, and neither is
+         * marked — and changing it rewrites that line's "#" prefix. A list
+         * item or table row shows its kind and is left as it is: turning one
+         * into a heading would drop its marker.
+         */
+        function cdBlockTypePicker(mde) {
+            var bt = window.AidocsBlockType;
+            if (! bt) return;       // the toolbar works without it
+            var cm = mde.codemirror;
+            var select = document.createElement('select');
+            select.className = 'cd-block-type';
+            select.setAttribute('aria-label', 'Block type of the current line');
+            [['p', 'Paragraph'], ['h1', 'Title (#)'], ['h2', 'Heading 2'], ['h3', 'Heading 3'], ['h4', 'Heading 4']].forEach(function(o) {
+                var opt = document.createElement('option'); opt.value = o[0]; opt.textContent = o[1]; select.appendChild(opt);
+            });
+            var extra = document.createElement('option'); extra.hidden = true; extra.disabled = true; select.appendChild(extra);
+
+            function sync() {
+                var info = bt.classify(cm.getLine(cm.getCursor().line));
+                if (info.locked) {
+                    extra.value = info.key; extra.textContent = info.label; extra.hidden = false;
+                    select.value = info.key; select.disabled = true;
+                    select.title = info.label + ' — set with the list and table buttons.';
+                } else {
+                    extra.hidden = true; select.disabled = false; select.value = info.key;
+                    select.title = 'Change this line to a paragraph or a heading';
+                }
+            }
+            cm.on('cursorActivity', sync);
+            cm.on('change', sync);
+
+            select.addEventListener('change', function() {
+                var key = select.value;
+                var from = cm.getCursor('from').line, to = cm.getCursor('to').line;
+                cm.operation(function() {
+                    for (var i = from; i <= to; i++) {
+                        var line = cm.getLine(i), next = bt.restyle(line, key);
+                        if (next !== line) cm.replaceRange(next, { line: i, ch: 0 }, { line: i, ch: line.length });
+                    }
+                });
+                cm.focus();
+                sync();
+            });
+
+            mde.gui.toolbar.insertBefore(select, mde.gui.toolbar.firstChild);
+            sync();
+        }
+
         var cdMde = null;
         // This whole meta box is one big IIFE that runs the instant its
         // <script> tag is parsed — well before wp_enqueue_script's own
@@ -2098,7 +2169,7 @@ function aidocs_meta_box_html( $post ) {
                 // does. Unbound here, and bound to the button's action below.
                 shortcuts: { drawLink: null },
                 toolbar: [
-                    'bold', 'italic', 'heading-2', 'heading-3', '|',
+                    'bold', 'italic', '|',
                     'unordered-list', 'ordered-list', 'table', cdLinkButton(), '|',
                     'undo', 'redo'
                 ]
@@ -2106,6 +2177,7 @@ function aidocs_meta_box_html( $post ) {
             cdMde.codemirror.on('change', function() {
                 $('#cd-raw-text-edit').val(cdMde.value());
             });
+            cdBlockTypePicker(cdMde);
             cdMde.codemirror.addKeyMap({
                 'Ctrl-K': function() { cdLinkAction(cdMde); },
                 'Cmd-K':  function() { cdLinkAction(cdMde); }
