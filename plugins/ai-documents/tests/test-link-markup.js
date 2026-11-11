@@ -110,39 +110,51 @@ test( 'A bare path is flagged, because WordPress would make it http://policies/â
 
 test( 'A cursor inside an existing link finds that link', function () {
     var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
-    var at   = function ( ch ) { return markup.findLinkAt( line, ch, ch ); };
-    var link = at( 8 );
+    var at   = function ( ch ) { return markup.linksTouching( line, ch, ch ); };
+    var link = at( 8 )[ 0 ];
     equal( link.label, 'Credit Hours' );
     equal( link.url, '/document/credit-hours/' );
     equal( line.slice( link.from, link.to ), '[Credit Hours](/document/credit-hours/)' );
-    equal( at( link.from ).url, '/document/credit-hours/', 'at the opening bracket' );
-    equal( at( link.to ).url, '/document/credit-hours/', 'at the end of the markup' );
-    equal( at( 30 ).url, '/document/credit-hours/', 'inside the address' );
+    equal( at( link.from ).length, 1, 'at the opening bracket' );
+    equal( at( link.to ).length, 1, 'at the end of the markup' );
+    equal( at( 30 )[ 0 ].url, '/document/credit-hours/', 'inside the address' );
 } );
 
-test( 'A selection of part of the label still edits the link', function () {
+test( 'A selection of the label, or part of it, edits the link', function () {
     var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
-    equal( markup.findLinkAt( line, 4, 10 ).label, 'Credit Hours' );
+    equal( markup.linksTouching( line, 4, 16 )[ 0 ].label, 'Credit Hours' );
+    equal( markup.linksTouching( line, 4, 10 )[ 0 ].label, 'Credit Hours' );
 } );
 
-test( 'Outside a link, or spanning past it, is a new link', function () {
+test( 'A drag that takes in a bracket, the address or a space beside it still edits the link', function () {
+    // What the editor shows is the whole markup, so these are all "the link".
+    var line = 'to [providing](/policies/a/) Pell Grant';
+    equal( markup.linksTouching( line, 3, 14 ).length, 1, 'the label with both brackets' );
+    equal( markup.linksTouching( line, 4, 28 )[ 0 ].url, '/policies/a/', 'label and address' );
+    equal( markup.linksTouching( line, 0, 40 ).length, 1, 'the whole line' );
+    equal( markup.linksTouching( line, 20, 29 ).length, 1, 'address and the space after' );
+    equal( markup.linksTouching( line, 28, 33 ).length, 0, 'only text after the link is not a touch' );
+} );
+
+test( 'Outside a link is a new link', function () {
     var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
-    equal( markup.findLinkAt( line, 1, 1 ), null, 'before it' );
-    equal( markup.findLinkAt( line, 46, 46 ), null, 'on the plain [PDF] after it' );
-    equal( markup.findLinkAt( line, 0, 20 ), null, 'selection runs out of it' );
-    equal( markup.findLinkAt( 'no links here', 3, 3 ), null );
+    equal( markup.linksTouching( line, 1, 1 ).length, 0, 'before it' );
+    equal( markup.linksTouching( line, 46, 46 ).length, 0, 'on the plain [PDF] after it' );
+    equal( markup.linksTouching( line, 43, 49 ).length, 0, 'selecting the plain [PDF]' );
+    equal( markup.linksTouching( 'no links here', 3, 3 ).length, 0 );
 } );
 
-test( 'With two links on a line, the one under the cursor is found', function () {
+test( 'With two links on a line, the one under the cursor is found, and a drag over both finds both', function () {
     var line = '[One](/a/) and [Two](/b/)';
-    equal( markup.findLinkAt( line, 3, 3 ).url, '/a/' );
-    equal( markup.findLinkAt( line, 18, 18 ).url, '/b/' );
+    equal( markup.linksTouching( line, 3, 3 )[ 0 ].url, '/a/' );
+    equal( markup.linksTouching( line, 18, 18 )[ 0 ].url, '/b/' );
+    equal( markup.linksTouching( line, 0, line.length ).length, 2 );
 } );
 
 test( 'A label holding [PDF] and escaped brackets is one link, kept as stored', function () {
     var line = 'x [Credit Hours [PDF]](/c/) y [a \\[b\\]](/d/)';
-    equal( markup.findLinkAt( line, 5, 5 ).label, 'Credit Hours [PDF]' );
-    var second = markup.findLinkAt( line, line.length - 6, line.length - 6 );
+    equal( markup.linksTouching( line, 5, 5 )[ 0 ].label, 'Credit Hours [PDF]' );
+    var second = markup.linksTouching( line, line.length - 6, line.length - 6 )[ 0 ];
     equal( second.label, 'a \\[b\\]' );
     equal( markup.unescapeLabel( second.label ), 'a [b]' );
 } );
@@ -153,7 +165,7 @@ test( 'Changing the address keeps the label exactly and encodes the new one', fu
 } );
 
 test( 'An address with spaces around it still counts, as the parser allows', function () {
-    equal( markup.findLinkAt( '[A]( /a/ )', 2, 2 ).url, '/a/' );
+    equal( markup.linksTouching( '[A]( /a/ )', 2, 2 )[ 0 ].url, '/a/' );
 } );
 
 results.forEach( function ( r ) {

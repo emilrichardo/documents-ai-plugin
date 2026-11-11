@@ -150,40 +150,42 @@
     }
 
     /**
-     * The link markup a position in one line sits inside, if any.
+     * The links in one line that a cursor or a selection touches.
      *
      * Same shape as AIDOCS_LINK_PATTERN in the parser: a label that may hold
      * one level of "[…]" (the "[PDF]" these documents carry) and escaped
      * brackets, then an address with no whitespace or parenthesis. A link that
      * pattern would not read is not a link here either.
      *
-     * The whole selection has to be inside the markup — the label, the
-     * brackets or the address — so a selection that only touches one is a new
-     * link, not an edit of that one.
+     * "Touches" is deliberately wide. The editor shows the whole markup, so a
+     * drag that picks up a bracket, a parenthesis or the space after the
+     * address is still a drag over that link — and starting another link
+     * over it would wrap the first in the second, which the parser reads as
+     * neither. A cursor counts when it is anywhere in the markup, its two ends
+     * included; a selection counts when it shares at least one character.
      *
      * @param {string} line  One line of the editor's text.
      * @param {number} from  Start offset in the line (selection start or the cursor).
      * @param {number} to    End offset in the line.
-     * @return {?{from:number,to:number,label:string,url:string}} label is as stored (escaped).
+     * @return {Array<{from:number,to:number,label:string,url:string}>} label is as stored (escaped).
      */
-    function findLinkAt( line, from, to ) {
+    function linksTouching( line, from, to ) {
         var re = /\[((?:\\.|[^\[\]\\]|\[(?:\\.|[^\[\]\\])*\])+)\]\(\s*([^()\s]+)\s*\)/g;
-        var m;
+        var m, found = [];
         line = String( line == null ? '' : line );
         while ( ( m = re.exec( line ) ) !== null ) {
             var start = m.index, end = m.index + m[ 0 ].length;
-            if ( start <= from && to <= end ) {
-                return { from: start, to: end, label: m[ 1 ], url: m[ 2 ] };
-            }
+            var hit = from === to ? ( start <= from && from <= end ) : ( from < end && to > start );
+            if ( hit ) found.push( { from: start, to: end, label: m[ 1 ], url: m[ 2 ] } );
             if ( start > to ) break;
         }
-        return null;
+        return found;
     }
 
     /**
      * An existing link with a new address, its label exactly as it was stored.
      *
-     * @param {string} storedLabel  The label as findLinkAt() returned it.
+     * @param {string} storedLabel  The label as linksTouching() returned it.
      * @param {string} href
      * @return {string}
      */
@@ -199,7 +201,7 @@
         needsScheme:   needsScheme,
         isExpressible: isExpressible,
         linkMarkup:    linkMarkup,
-        findLinkAt:    findLinkAt,
+        linksTouching: linksTouching,
         relink:        relink
     };
 } ) );

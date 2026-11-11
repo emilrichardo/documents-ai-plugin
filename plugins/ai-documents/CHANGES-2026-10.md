@@ -365,11 +365,29 @@ lo que el editor reconoce como enlace es lo que el analizador lee.
 
 | Archivo | Qué cambia |
 | --- | --- |
-| `assets/js/aidocs-link-markup.js` | `findLinkAt`, `relink`, `unescapeLabel` |
+| `assets/js/aidocs-link-markup.js` | `linksTouching`, `relink`, `unescapeLabel` |
 | `ai-documents.php` | `cdLinkAction` edita el enlace existente; versión 1.6.9 |
 | `tests/test-link-markup.js` | +7 casos; el bucle que imprime los resultados pasó al final del archivo (a mitad, no mostraba los casos posteriores) |
 
 `php tests/run.php` — **193 pruebas, todas verdes**.
+
+## 13. 1.6.10 — una selección que roza un enlace también lo edita
+
+**Lo que se vio.** Stuart añadió un enlace a una palabra, volvió a seleccionarla,
+pulsó el botón y le salió un segundo enlace en vez de cambiar el primero. Con
+doble clic sobre la palabra funciona (comprobado en staging con ratón real,
+1.6.9); falla cuando la selección no cae exactamente dentro del enlace, o cuando
+la página no se recargó tras el despliegue y seguía con el botón anterior.
+
+**Qué hace ahora.** El editor enseña el marcado entero, así que cualquier
+selección que **comparta al menos un carácter** con un enlace cuenta como «ese
+enlace»: la palabra con sus corchetes, la palabra y la dirección, la línea
+entera (también el triple clic, que llega hasta el principio de la línea
+siguiente). Si la selección toca **dos enlaces**, o un enlace y varias líneas,
+avisa en lugar de anidar. `findLinkAt` pasó a `linksTouching`, que devuelve la
+lista de enlaces tocados.
+
+`php tests/run.php` — **194 pruebas, todas verdes**.
 
 ## Verificado en el navegador (29/10)
 

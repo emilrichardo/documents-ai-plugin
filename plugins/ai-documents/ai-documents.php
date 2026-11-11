@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.9
+ * Version: 1.6.10
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.9' );
+define( 'AIDOCS_VERSION', '1.6.10' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -2072,14 +2072,28 @@ function aidocs_meta_box_html( $post ) {
             var cm    = editor.codemirror;
             var label = cm.getSelection();
 
-            // The cursor, or the whole selection, sits inside a link that is
-            // already there: the button edits that link instead of starting
-            // another one. Starting one here wrapped the old markup in new
-            // markup, "[[Credit Hours](old)](new)", which reads as neither.
+            // The cursor or the selection touches a link that is already
+            // there: the button edits that link instead of starting another
+            // one. Starting one here wrapped the old markup in new markup,
+            // "[[Credit Hours](old)](new)", which reads as neither. The editor
+            // shows the whole markup, so a drag that takes in a bracket, a
+            // parenthesis or a space beside the link counts too.
             var from = cm.getCursor('from'), to = cm.getCursor('to');
-            var existing = from.line === to.line
-                ? markup.findLinkAt(cm.getLine(from.line), from.ch, to.ch)
-                : null;
+            // A triple-click selects a line through the start of the next
+            // one; that is still just the one line.
+            if (to.line > from.line && to.ch === 0) to = { line: to.line - 1, ch: cm.getLine(to.line - 1).length };
+            var touched = [];
+            for (var n = from.line; n <= to.line; n++) {
+                var text = cm.getLine(n);
+                var lo = n === from.line ? from.ch : 0;
+                var hi = n === to.line ? to.ch : text.length;
+                touched = touched.concat(markup.linksTouching(text, lo, hi).map(function (l) { l.line = n; return l; }));
+            }
+            if (touched.length > 1 || (touched.length === 1 && from.line !== to.line)) {
+                window.alert('The selection includes a link already. Put the cursor inside that link, or select just its words, to change its address.');
+                return;
+            }
+            var existing = touched.length === 1 ? touched[0] : null;
             if (existing) {
                 var shown = markup.unescapeLabel(existing.label);
                 var next  = window.prompt(
@@ -2087,7 +2101,7 @@ function aidocs_meta_box_html( $post ) {
                     existing.url
                 );
                 if (next === null) return;
-                var range = [ { line: from.line, ch: existing.from }, { line: from.line, ch: existing.to } ];
+                var range = [ { line: existing.line, ch: existing.from }, { line: existing.line, ch: existing.to } ];
                 next = markup.completeUrl(markup.normalizeUrl(next));
                 if (next === '') {
                     // Removing a link leaves its words, as plain text.
