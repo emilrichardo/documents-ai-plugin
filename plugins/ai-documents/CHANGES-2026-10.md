@@ -343,6 +343,34 @@ y 7 en `tests/test-block-type.js`. De camino, los casos añadidos a
 `test-docx-links.js` en 1.6.6 quedaron tras el bloque que imprime resultados y no
 se mostraban uno a uno (sí contaban en el total); corregido.
 
+## 12. 1.6.9 — el botón del enlace edita el enlace que ya existe
+
+**Lo que se vio.** Con el cursor, o seleccionando «Credit Hours», dentro de
+`[Credit Hours](/document/credit-hours/)` el icono del enlace se ilumina (eso lo
+hace el editor: el cursor está en un enlace), pero al pulsarlo se abría una
+ventana en blanco con `https://`. No mostraba el enlace actual y, de aceptarse,
+envolvía el enlace viejo en uno nuevo: `[[Credit Hours](viejo)](nuevo)`, que no
+se lee como enlace.
+
+**Qué hace ahora.** Si el cursor o toda la selección está dentro de un enlace
+ya escrito, el botón (y Ctrl/Cmd+K) abre la ventana con **su dirección actual**
+y cambia esa dirección, dejando el texto tal cual estaba. Si se deja vacía, quita
+el enlace y conserva las palabras. Con texto sin enlace, o con la selección
+saliéndose del enlace, sigue creando uno nuevo como antes. Las mismas
+comprobaciones de dirección (`https://` o `/`, sin espacios ni paréntesis).
+
+`findLinkAt()` usa la misma forma que `AIDOCS_LINK_PATTERN` del analizador
+(etiqueta con un nivel de `[…]`, corchetes escapados, dirección sin espacios):
+lo que el editor reconoce como enlace es lo que el analizador lee.
+
+| Archivo | Qué cambia |
+| --- | --- |
+| `assets/js/aidocs-link-markup.js` | `findLinkAt`, `relink`, `unescapeLabel` |
+| `ai-documents.php` | `cdLinkAction` edita el enlace existente; versión 1.6.9 |
+| `tests/test-link-markup.js` | +7 casos; el bucle que imprime los resultados pasó al final del archivo (a mitad, no mostraba los casos posteriores) |
+
+`php tests/run.php` — **193 pruebas, todas verdes**.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

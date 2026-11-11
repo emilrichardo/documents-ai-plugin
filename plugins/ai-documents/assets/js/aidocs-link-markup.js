@@ -139,12 +139,67 @@
         return '[' + escapeLabel( text ) + '](' + normalizeUrl( href ) + ')';
     }
 
+    /**
+     * Undo escapeLabel(): the text a reader sees for a stored label.
+     *
+     * @param {string} label
+     * @return {string}
+     */
+    function unescapeLabel( label ) {
+        return String( label == null ? '' : label ).replace( /\\([\s\S])/g, '$1' );
+    }
+
+    /**
+     * The link markup a position in one line sits inside, if any.
+     *
+     * Same shape as AIDOCS_LINK_PATTERN in the parser: a label that may hold
+     * one level of "[…]" (the "[PDF]" these documents carry) and escaped
+     * brackets, then an address with no whitespace or parenthesis. A link that
+     * pattern would not read is not a link here either.
+     *
+     * The whole selection has to be inside the markup — the label, the
+     * brackets or the address — so a selection that only touches one is a new
+     * link, not an edit of that one.
+     *
+     * @param {string} line  One line of the editor's text.
+     * @param {number} from  Start offset in the line (selection start or the cursor).
+     * @param {number} to    End offset in the line.
+     * @return {?{from:number,to:number,label:string,url:string}} label is as stored (escaped).
+     */
+    function findLinkAt( line, from, to ) {
+        var re = /\[((?:\\.|[^\[\]\\]|\[(?:\\.|[^\[\]\\])*\])+)\]\(\s*([^()\s]+)\s*\)/g;
+        var m;
+        line = String( line == null ? '' : line );
+        while ( ( m = re.exec( line ) ) !== null ) {
+            var start = m.index, end = m.index + m[ 0 ].length;
+            if ( start <= from && to <= end ) {
+                return { from: start, to: end, label: m[ 1 ], url: m[ 2 ] };
+            }
+            if ( start > to ) break;
+        }
+        return null;
+    }
+
+    /**
+     * An existing link with a new address, its label exactly as it was stored.
+     *
+     * @param {string} storedLabel  The label as findLinkAt() returned it.
+     * @param {string} href
+     * @return {string}
+     */
+    function relink( storedLabel, href ) {
+        return '[' + storedLabel + '](' + normalizeUrl( href ) + ')';
+    }
+
     return {
         escapeLabel:   escapeLabel,
+        unescapeLabel: unescapeLabel,
         normalizeUrl:  normalizeUrl,
         completeUrl:   completeUrl,
         needsScheme:   needsScheme,
         isExpressible: isExpressible,
-        linkMarkup:    linkMarkup
+        linkMarkup:    linkMarkup,
+        findLinkAt:    findLinkAt,
+        relink:        relink
     };
 } ) );

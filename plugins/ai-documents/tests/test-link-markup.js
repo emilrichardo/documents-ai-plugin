@@ -82,10 +82,6 @@ test( 'A null or undefined label does not become the string "null"', function ()
     equal( markup.escapeLabel( undefined ), '' );
 } );
 
-results.forEach( function ( r ) {
-    console.log( ( r.ok ? 'PASS' : 'FAIL' ) + ' — ' + r.name );
-    if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
-} );
 test( 'A web address typed without its scheme gets https://', function () {
     equal( markup.completeUrl( 'commissioncu.org/policies/credit-hours/' ), 'https://commissioncu.org/policies/credit-hours/' );
     equal( markup.completeUrl( 'www.sacscoc.org' ), 'https://www.sacscoc.org' );
@@ -110,6 +106,59 @@ test( 'A bare path is flagged, because WordPress would make it http://policies/�
     equal( markup.needsScheme( '/policies/x/' ), false );
     equal( markup.needsScheme( '#top' ), false );
     equal( markup.needsScheme( '' ), false );
+} );
+
+test( 'A cursor inside an existing link finds that link', function () {
+    var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
+    var at   = function ( ch ) { return markup.findLinkAt( line, ch, ch ); };
+    var link = at( 8 );
+    equal( link.label, 'Credit Hours' );
+    equal( link.url, '/document/credit-hours/' );
+    equal( line.slice( link.from, link.to ), '[Credit Hours](/document/credit-hours/)' );
+    equal( at( link.from ).url, '/document/credit-hours/', 'at the opening bracket' );
+    equal( at( link.to ).url, '/document/credit-hours/', 'at the end of the markup' );
+    equal( at( 30 ).url, '/document/credit-hours/', 'inside the address' );
+} );
+
+test( 'A selection of part of the label still edits the link', function () {
+    var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
+    equal( markup.findLinkAt( line, 4, 10 ).label, 'Credit Hours' );
+} );
+
+test( 'Outside a link, or spanning past it, is a new link', function () {
+    var line = 'b. [Credit Hours](/document/credit-hours/) [PDF];';
+    equal( markup.findLinkAt( line, 1, 1 ), null, 'before it' );
+    equal( markup.findLinkAt( line, 46, 46 ), null, 'on the plain [PDF] after it' );
+    equal( markup.findLinkAt( line, 0, 20 ), null, 'selection runs out of it' );
+    equal( markup.findLinkAt( 'no links here', 3, 3 ), null );
+} );
+
+test( 'With two links on a line, the one under the cursor is found', function () {
+    var line = '[One](/a/) and [Two](/b/)';
+    equal( markup.findLinkAt( line, 3, 3 ).url, '/a/' );
+    equal( markup.findLinkAt( line, 18, 18 ).url, '/b/' );
+} );
+
+test( 'A label holding [PDF] and escaped brackets is one link, kept as stored', function () {
+    var line = 'x [Credit Hours [PDF]](/c/) y [a \\[b\\]](/d/)';
+    equal( markup.findLinkAt( line, 5, 5 ).label, 'Credit Hours [PDF]' );
+    var second = markup.findLinkAt( line, line.length - 6, line.length - 6 );
+    equal( second.label, 'a \\[b\\]' );
+    equal( markup.unescapeLabel( second.label ), 'a [b]' );
+} );
+
+test( 'Changing the address keeps the label exactly and encodes the new one', function () {
+    equal( markup.relink( 'Credit Hours', '/x/' ), '[Credit Hours](/x/)' );
+    equal( markup.relink( 'a \\[b\\]', 'https://x.org/a b' ), '[a \\[b\\]](https://x.org/a%20b)' );
+} );
+
+test( 'An address with spaces around it still counts, as the parser allows', function () {
+    equal( markup.findLinkAt( '[A]( /a/ )', 2, 2 ).url, '/a/' );
+} );
+
+results.forEach( function ( r ) {
+    console.log( ( r.ok ? 'PASS' : 'FAIL' ) + ' — ' + r.name );
+    if ( ! r.ok ) console.log( '       ' + r.error.replace( /\n/g, '\n       ' ) );
 } );
 
 var failed = results.filter( function ( r ) { return ! r.ok; } ).length;

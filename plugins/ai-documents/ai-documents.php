@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.8
+ * Version: 1.6.9
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.8' );
+define( 'AIDOCS_VERSION', '1.6.9' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -2071,6 +2071,43 @@ function aidocs_meta_box_html( $post ) {
 
             var cm    = editor.codemirror;
             var label = cm.getSelection();
+
+            // The cursor, or the whole selection, sits inside a link that is
+            // already there: the button edits that link instead of starting
+            // another one. Starting one here wrapped the old markup in new
+            // markup, "[[Credit Hours](old)](new)", which reads as neither.
+            var from = cm.getCursor('from'), to = cm.getCursor('to');
+            var existing = from.line === to.line
+                ? markup.findLinkAt(cm.getLine(from.line), from.ch, to.ch)
+                : null;
+            if (existing) {
+                var shown = markup.unescapeLabel(existing.label);
+                var next  = window.prompt(
+                    'Link destination for "' + shown + '".\nChange the address, or clear it to remove the link:',
+                    existing.url
+                );
+                if (next === null) return;
+                var range = [ { line: from.line, ch: existing.from }, { line: from.line, ch: existing.to } ];
+                next = markup.completeUrl(markup.normalizeUrl(next));
+                if (next === '') {
+                    // Removing a link leaves its words, as plain text.
+                    cm.replaceRange(markup.unescapeLabel(existing.label), range[0], range[1]);
+                    cm.focus();
+                    return;
+                }
+                if (markup.needsScheme(next)) {
+                    window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
+                    return;
+                }
+                if (! markup.isExpressible(next)) {
+                    window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
+                    return;
+                }
+                cm.replaceRange(markup.relink(existing.label, next), range[0], range[1]);
+                cm.focus();
+                return;
+            }
+
             var url   = window.prompt('Link destination (URL):', 'https://');
             if (url === null) return;
             url = markup.completeUrl(markup.normalizeUrl(url));
