@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.7.0
+ * Version: 1.7.1
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.7.0' );
+define( 'AIDOCS_VERSION', '1.7.1' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -3820,6 +3820,36 @@ function aidocs_ai_credentials_ajax() {
     ] );
 }
 
+/**
+ * How well a title matches what was typed into the link dialog.
+ *
+ * The whole title scores highest, then a title that starts with it, then one
+ * where it starts a word, then one where every typed word starts some word,
+ * and only last one where the letters are somewhere inside a word —
+ * "Accreditation" for "credit". Hyphens and underscores count as spaces, so a
+ * slug typed as "credit-hours" finds "Credit Hours". Shorter titles edge out
+ * longer ones of the same score.
+ *
+ * @param string   $title Title of a candidate.
+ * @param string[] $words The typed words.
+ * @return float
+ */
+function aidocs_link_title_score( $title, array $words ) {
+    $needle = mb_strtolower( implode( ' ', $words ) );
+    $low    = mb_strtolower( trim( preg_replace( '/[\-_\s]+/u', ' ', $title ) ) );
+
+    if     ( $low === $needle )          $score = 100;
+    elseif ( mb_strpos( $low, $needle ) === 0 ) $score = 80;
+    elseif ( preg_match( '/(^|\s)' . preg_quote( $needle, '/' ) . '/u', $low ) ) $score = 60;
+    else {
+        $score = 50;   // every word starts a word, in whatever order
+        foreach ( $words as $word ) {
+            if ( ! preg_match( '/(^|\s)' . preg_quote( mb_strtolower( $word ), '/' ) . '/u', $low ) ) { $score = 20; break; }
+        }
+    }
+    return $score - mb_strlen( $title ) / 1000;
+}
+
 // ── AJAX: Find a page to link to (admin) ───────────────────
 //
 // The editor's link dialog searches the site's own pages instead of asking
@@ -3839,6 +3869,10 @@ function aidocs_link_search_ajax() {
         wp_send_json_success( [ 'results' => [] ] );
     }
 
+    // "credit-hours" is how a slug is typed; the title says "Credit Hours".
+    $words = array_slice( array_values( array_filter( preg_split( '/[\s\-_]+/u', $term ) ) ), 0, 5 );
+    if ( ! $words ) wp_send_json_success( [ 'results' => [] ] );
+
     // Everything with a public page, plus uploaded files — a policy may well
     // link to a PDF in the Media Library.
     $types = array_values( array_diff(
@@ -3848,18 +3882,34 @@ function aidocs_link_search_ajax() {
     $types[] = 'attachment';
     $types   = apply_filters( 'aidocs_link_search_post_types', $types );
 
+    // Titles only. WordPress's own search also reads the body, so "dual" found
+    // every page that mentions dual enrollment in passing and buried the policy
+    // of that name. Every word has to be in the title.
+    $titles_only = function ( $search ) use ( $words ) {
+        global $wpdb;
+        $sql = '';
+        foreach ( $words as $word ) {
+            $sql .= $wpdb->prepare( " AND {$wpdb->posts}.post_title LIKE %s", '%' . $wpdb->esc_like( $word ) . '%' );
+        }
+        return $sql;
+    };
+    add_filter( 'posts_search', $titles_only, 999 );
     $query = new WP_Query( [
         'post_type'              => $types,
         'post_status'            => [ 'publish', 'inherit' ],
-        's'                      => $term,
-        'posts_per_page'         => 12,
+        'posts_per_page'         => 80,
+        'orderby'                => 'title',
+        'order'                  => 'ASC',
         'no_found_rows'          => true,
         'ignore_sticky_posts'    => true,
         'update_post_term_cache' => false,
         'update_post_meta_cache' => false,
     ] );
+    remove_filter( 'posts_search', $titles_only, 999 );
 
-    $results = [];
+    $needle  = mb_strtolower( implode( ' ', $words ) );
+    $weights = [ 'aidoc' => 8, 'page' => 6, 'document' => 4, 'post' => 2 ];
+    $scored  = [];
     foreach ( $query->posts as $post ) {
         // A file uploaded for a private entry stays private.
         if ( $post->post_type === 'attachment' ) {
@@ -3871,14 +3921,32 @@ function aidocs_link_search_ajax() {
         }
         if ( ! $url ) continue;
 
-        $object = get_post_type_object( $post->post_type );
-        $results[] = [
-            'title' => html_entity_decode( get_the_title( $post ), ENT_QUOTES, 'UTF-8' ),
-            'type'  => $post->post_type === 'attachment'
-                ? __( 'File' )
-                : ( $object && isset( $object->labels->singular_name ) ? $object->labels->singular_name : $post->post_type ),
-            'url'   => wp_make_link_relative( $url ),
+        $title = trim( html_entity_decode( get_the_title( $post ), ENT_QUOTES, 'UTF-8' ) );
+        $score = aidocs_link_title_score( $title, $words ) + ( $weights[ $post->post_type ] ?? 0 );
+
+        $object   = get_post_type_object( $post->post_type );
+        $scored[] = [
+            'score' => $score,
+            'file'  => $post->post_type === 'attachment',
+            'row'   => [
+                'title' => $title,
+                'type'  => $post->post_type === 'attachment'
+                    ? __( 'File' )
+                    : ( $object && isset( $object->labels->singular_name ) ? $object->labels->singular_name : $post->post_type ),
+                'url'   => wp_make_link_relative( $url ),
+            ],
         ];
+    }
+    usort( $scored, function ( $a, $b ) { return $b['score'] <=> $a['score']; } );
+
+    // Every document here has its PDF in the Media Library under the same
+    // name, so files are allowed a few places and no more.
+    $results = [];
+    $files   = 0;
+    foreach ( $scored as $item ) {
+        if ( $item['file'] && ++$files > 4 ) continue;
+        $results[] = $item['row'];
+        if ( count( $results ) >= 12 ) break;
     }
 
     wp_send_json_success( [ 'results' => $results ] );

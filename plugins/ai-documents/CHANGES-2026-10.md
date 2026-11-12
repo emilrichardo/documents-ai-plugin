@@ -425,10 +425,32 @@ letras.
 | `assets/js/aidocs-link-dialog.js` | **nuevo** — el cuadro; `looksLikeAddress()` |
 | `ai-documents.php` | `aidocs_link_search_ajax`; `cdLinkAction` abre el cuadro (con `cdLinkTarget`, `cdCheckLinkUrl`, `cdLinkSearch`); respaldo con `window.prompt`; versión 1.7.0 |
 | `tests/test-link-dialog.js` | **nuevo** — 6 casos |
+| `tests/test-link-search.php` | **nuevo** — 6 casos (1.7.1) |
 
 Verificado en el navegador sobre una página aparte (teclado, clic, Esc, quitar,
 error, Intro antes de que responda la búsqueda). La búsqueda en el servidor y
 el cuadro dentro del editor real se verifican en staging.
+
+## 15. 1.7.1 — la búsqueda del cuadro, por título y ordenada
+
+**Lo que se vio en staging con la 1.7.0.** El buscador usaba la búsqueda de
+WordPress, que también lee el cuerpo de cada página: «credit» ponía primero
+«Separate Accreditation», y «dual» listaba noticias que mencionan la matrícula
+dual de pasada por encima de la política que se llama así. Además cada
+documento de la biblioteca trae su PDF con el mismo nombre, así que la lista
+salía llena de pares repetidos.
+
+**Qué hace ahora.**
+- Busca **solo en el título**, y todas las palabras tienen que estar. «credit-hours»
+  (cómo se escribe un enlace) encuentra «Credit Hours».
+- Orden: título entero, título que empieza así, palabra que empieza así, todas
+  las palabras empezando palabra (en cualquier orden) y, al final, letras dentro
+  de una palabra («Accreditation» para «credit»). Después, por tipo: política,
+  página, documento, entrada, archivo; y a igualdad, el título más corto.
+- **Como mucho 4 archivos** de los 12 resultados.
+
+`aidocs_link_title_score()` es una función pura con `tests/test-link-search.php`
+(6 casos). `php tests/run.php` — **206 pruebas, todas verdes**.
 
 ## Verificado en el navegador (29/10)
 
