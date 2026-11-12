@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Policies
  * Description: Policy library with AI-assisted metadata entry, semantic search, and a conversational policy finder.
- * Version: 1.6.10
+ * Version: 1.7.0
  * Requires PHP: 8.0
  * Text Domain: ai-documents
  *
@@ -27,7 +27,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'AIDOCS_VERSION', '1.6.10' );
+define( 'AIDOCS_VERSION', '1.7.0' );
 define( 'AIDOCS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIDOCS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -530,6 +530,16 @@ function aidocs_enqueue_scripts( $hook ) {
     wp_enqueue_script(
         'aidocs-link-markup',
         AIDOCS_URL . 'assets/js/aidocs-link-markup.js',
+        [ 'aidocs-easymde' ],
+        AIDOCS_VERSION,
+        true
+    );
+
+    // The link dialog: search the site for a page to link to, or type an
+    // address — see assets/js/aidocs-link-dialog.js.
+    wp_enqueue_script(
+        'aidocs-link-dialog',
+        AIDOCS_URL . 'assets/js/aidocs-link-dialog.js',
         [ 'aidocs-easymde' ],
         AIDOCS_VERSION,
         true
@@ -2058,26 +2068,26 @@ function aidocs_meta_box_html( $post ) {
          * spelling these documents use constantly — and getting
          * "[[PDF]](url)" published as literal text.
          *
-         * Asking for the URL up front, rather than leaving EasyMDE's "#url#"
+         * Asking for the URL up front — in the dialog from
+         * assets/js/aidocs-link-dialog.js, which can also search the site for
+         * the page to link to — rather than leaving EasyMDE's "#url#"
          * placeholder for the editor to type over, is what makes it possible
          * to encode the URL before it is written. assets/js/aidocs-link-markup.js
          * holds both rules and is the same code the tests exercise.
          */
-        function cdLinkAction(editor) {
-            var markup = window.AidocsLinkMarkup;
-            // The helper failing to load must not take the button
-            // with it; EasyMDE's own behaviour is the fallback.
-            if (! markup) { EasyMDE.prototype.drawLink.call(editor); return; }
-
-            var cm    = editor.codemirror;
-            var label = cm.getSelection();
-
-            // The cursor or the selection touches a link that is already
-            // there: the button edits that link instead of starting another
-            // one. Starting one here wrapped the old markup in new markup,
-            // "[[Credit Hours](old)](new)", which reads as neither. The editor
-            // shows the whole markup, so a drag that takes in a bracket, a
-            // parenthesis or a space beside the link counts too.
+        /**
+         * What the link button is about to act on: a link that is already
+         * there, a new one over the selection, or neither because the
+         * selection takes in more than one.
+         *
+         * The cursor or selection touches a link that is already there: the
+         * button edits that link instead of starting another one. Starting one
+         * wrapped the old markup in new markup, "[[Credit Hours](old)](new)",
+         * which reads as neither. The editor shows the whole markup, so a drag
+         * that takes in a bracket, a parenthesis or a space beside the link
+         * counts too.
+         */
+        function cdLinkTarget(cm, markup) {
             var from = cm.getCursor('from'), to = cm.getCursor('to');
             // A triple-click selects a line through the start of the next
             // one; that is still just the one line.
@@ -2089,11 +2099,86 @@ function aidocs_meta_box_html( $post ) {
                 var hi = n === to.line ? to.ch : text.length;
                 touched = touched.concat(markup.linksTouching(text, lo, hi).map(function (l) { l.line = n; return l; }));
             }
-            if (touched.length > 1 || (touched.length === 1 && from.line !== to.line)) {
+            if (touched.length > 1 || (touched.length === 1 && from.line !== to.line)) return { blocked: true };
+            return { from: from, to: to, existing: touched.length === 1 ? touched[0] : null };
+        }
+
+        /** An address as typed → the one to store, or what is wrong with it. */
+        function cdCheckLinkUrl(markup, raw) {
+            var url = markup.completeUrl(markup.normalizeUrl(raw));
+            if (url === '') return { problem: 'Type an address, or pick a page from the list.' };
+            if (markup.needsScheme(url)) return { problem: 'Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).' };
+            if (! markup.isExpressible(url)) return { problem: 'That address cannot be stored as a link. Remove any spaces or parentheses and try again.' };
+            return { url: url };
+        }
+
+        /** Pages and files whose names match, for the link dialog's search box. */
+        function cdLinkSearch(term) {
+            return new Promise(function (resolve, reject) {
+                $.post(cdAjaxUrl, { action: 'aidocs_link_search', nonce: cdAjaxNonce, term: term })
+                    .done(function (res) { if (res && res.success) resolve(res.data.results || []); else reject(); })
+                    .fail(reject);
+            });
+        }
+
+        function cdLinkAction(editor) {
+            var markup = window.AidocsLinkMarkup;
+            // The helper failing to load must not take the button
+            // with it; EasyMDE's own behaviour is the fallback.
+            if (! markup) { EasyMDE.prototype.drawLink.call(editor); return; }
+
+            var cm     = editor.codemirror;
+            var target = cdLinkTarget(cm, markup);
+            if (target.blocked) {
                 window.alert('The selection includes a link already. Put the cursor inside that link, or select just its words, to change its address.');
                 return;
             }
-            var existing = touched.length === 1 ? touched[0] : null;
+
+            var dialog   = window.AidocsLinkDialog;
+            var existing = target.existing;
+            var from = target.from, to = target.to;
+
+            // The dialog is the way in; the browser's own prompt is only
+            // here so a script that failed to load cannot take links away.
+            if (! dialog) { cdLinkActionPrompt(cm, markup, target); return; }
+
+            if (existing) {
+                var range0 = { line: existing.line, ch: existing.from }, range1 = { line: existing.line, ch: existing.to };
+                dialog.open({
+                    label:  markup.unescapeLabel(existing.label),
+                    url:    existing.url,
+                    search: cdLinkSearch,
+                    onSave: function (raw) {
+                        var c = cdCheckLinkUrl(markup, raw);
+                        if (c.problem) return c.problem;
+                        cm.replaceRange(markup.relink(existing.label, c.url), range0, range1);
+                    },
+                    // Removing a link leaves its words, as plain text.
+                    onRemove: function () { cm.replaceRange(markup.unescapeLabel(existing.label), range0, range1); },
+                    onClose:  function () { cm.focus(); }
+                });
+                return;
+            }
+
+            var label = cm.getRange(from, to);
+            dialog.open({
+                label:  label,
+                url:    '',
+                search: cdLinkSearch,
+                onSave: function (raw) {
+                    var c = cdCheckLinkUrl(markup, raw);
+                    if (c.problem) return c.problem;
+                    var text = markup.linkMarkup(label === '' ? c.url : label, c.url);
+                    cm.replaceRange(text, from, to);
+                    if (text.indexOf('\n') === -1) cm.setCursor({ line: from.line, ch: from.ch + text.length });
+                },
+                onClose: function () { cm.focus(); }
+            });
+        }
+
+        /** The same thing through window.prompt(), for when the dialog is missing. */
+        function cdLinkActionPrompt(cm, markup, target) {
+            var existing = target.existing, from = target.from, to = target.to;
             if (existing) {
                 var shown = markup.unescapeLabel(existing.label);
                 var next  = window.prompt(
@@ -2101,40 +2186,20 @@ function aidocs_meta_box_html( $post ) {
                     existing.url
                 );
                 if (next === null) return;
-                var range = [ { line: existing.line, ch: existing.from }, { line: existing.line, ch: existing.to } ];
-                next = markup.completeUrl(markup.normalizeUrl(next));
-                if (next === '') {
-                    // Removing a link leaves its words, as plain text.
-                    cm.replaceRange(markup.unescapeLabel(existing.label), range[0], range[1]);
-                    cm.focus();
-                    return;
-                }
-                if (markup.needsScheme(next)) {
-                    window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
-                    return;
-                }
-                if (! markup.isExpressible(next)) {
-                    window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
-                    return;
-                }
-                cm.replaceRange(markup.relink(existing.label, next), range[0], range[1]);
+                var range0 = { line: existing.line, ch: existing.from }, range1 = { line: existing.line, ch: existing.to };
+                if (next.trim() === '') { cm.replaceRange(shown, range0, range1); cm.focus(); return; }
+                var c = cdCheckLinkUrl(markup, next);
+                if (c.problem) { window.alert(c.problem); return; }
+                cm.replaceRange(markup.relink(existing.label, c.url), range0, range1);
                 cm.focus();
                 return;
             }
-
+            var label = cm.getRange(from, to);
             var url   = window.prompt('Link destination (URL):', 'https://');
             if (url === null) return;
-            url = markup.completeUrl(markup.normalizeUrl(url));
-            if (url === '') return;
-            if (markup.needsScheme(url)) {
-                window.alert('Start the address with https:// for another site, or with / for a page on this site (for example /policies/credit-hours/).');
-                return;
-            }
-            if (! markup.isExpressible(url)) {
-                window.alert('That address cannot be stored as a link. Remove any spaces or parentheses and try again.');
-                return;
-            }
-            cm.replaceSelection(markup.linkMarkup(label === '' ? url : label, url));
+            var d = cdCheckLinkUrl(markup, url);
+            if (d.problem) { window.alert(d.problem); return; }
+            cm.replaceRange(markup.linkMarkup(label === '' ? d.url : label, d.url), from, to);
             cm.focus();
         }
 
@@ -3753,6 +3818,70 @@ function aidocs_ai_credentials_ajax() {
         'models'  => $models,
         'current' => get_option( 'aidocs_gemini_model', 'gemini-3.6-flash' ),
     ] );
+}
+
+// ── AJAX: Find a page to link to (admin) ───────────────────
+//
+// The editor's link dialog searches the site's own pages instead of asking
+// the editor to type "/policies/credit-hours/" from memory. Results carry the
+// address as a path, not a full URL: that is how every internal link in these
+// documents is already written, it survives a move between the staging and
+// live domains, and the link policy reads it as a link to this site.
+add_action( 'wp_ajax_aidocs_link_search', 'aidocs_link_search_ajax' );
+function aidocs_link_search_ajax() {
+    check_ajax_referer( 'aidocs_ai', 'nonce' );
+    if ( ! current_user_can( 'edit_posts' ) ) {
+        wp_send_json_error( __( 'You do not have permission to do that.' ), 403 );
+    }
+
+    $term = trim( sanitize_text_field( wp_unslash( $_POST['term'] ?? '' ) ) );
+    if ( mb_strlen( $term ) < 2 ) {
+        wp_send_json_success( [ 'results' => [] ] );
+    }
+
+    // Everything with a public page, plus uploaded files — a policy may well
+    // link to a PDF in the Media Library.
+    $types = array_values( array_diff(
+        get_post_types( [ 'public' => true, 'show_ui' => true ], 'names' ),
+        [ 'attachment' ]
+    ) );
+    $types[] = 'attachment';
+    $types   = apply_filters( 'aidocs_link_search_post_types', $types );
+
+    $query = new WP_Query( [
+        'post_type'              => $types,
+        'post_status'            => [ 'publish', 'inherit' ],
+        's'                      => $term,
+        'posts_per_page'         => 12,
+        'no_found_rows'          => true,
+        'ignore_sticky_posts'    => true,
+        'update_post_term_cache' => false,
+        'update_post_meta_cache' => false,
+    ] );
+
+    $results = [];
+    foreach ( $query->posts as $post ) {
+        // A file uploaded for a private entry stays private.
+        if ( $post->post_type === 'attachment' ) {
+            $parent = $post->post_parent ? get_post( $post->post_parent ) : null;
+            if ( $parent && $parent->post_status !== 'publish' ) continue;
+            $url = wp_get_attachment_url( $post->ID );
+        } else {
+            $url = get_permalink( $post );
+        }
+        if ( ! $url ) continue;
+
+        $object = get_post_type_object( $post->post_type );
+        $results[] = [
+            'title' => html_entity_decode( get_the_title( $post ), ENT_QUOTES, 'UTF-8' ),
+            'type'  => $post->post_type === 'attachment'
+                ? __( 'File' )
+                : ( $object && isset( $object->labels->singular_name ) ? $object->labels->singular_name : $post->post_type ),
+            'url'   => wp_make_link_relative( $url ),
+        ];
+    }
+
+    wp_send_json_success( [ 'results' => $results ] );
 }
 
 // ── AJAX: Extract structured content from PDF text (admin) ─

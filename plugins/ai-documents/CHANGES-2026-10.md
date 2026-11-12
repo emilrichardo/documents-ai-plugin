@@ -389,6 +389,47 @@ lista de enlaces tocados.
 
 `php tests/run.php` — **194 pruebas, todas verdes**.
 
+## 14. 1.7.0 — buscador de páginas en el botón del enlace
+
+**Pedido de Stuart:** «lo principal ahora es que los enlaces funcionen y que su
+administración se entienda con facilidad». Lo que seguía difícil: había que
+escribir `/policies/credit-hours/` de memoria en una ventana del navegador
+(`window.prompt`), sin buscar nada.
+
+**Qué hace ahora.** El botón del enlace (y Ctrl/Cmd+K) abre un cuadro propio:
+
+- Se escriben unas letras («credit») y aparecen políticas, documentos, páginas
+  y archivos del sitio con su tipo y su dirección; un clic (o flechas + Intro)
+  crea el enlace. La dirección sale del propio sitio, como ruta (`/policies/…`),
+  que es como ya se escriben los enlaces internos y sirve igual en staging y en
+  producción.
+- Si lo escrito parece una dirección (`https://…`, `/…`, `#…`,
+  `dominio.org/…`) se usa tal cual; si no, se busca. Sin espacios no hay
+  dirección posible, así que «credit hours» siempre es una búsqueda.
+- Sobre un enlace que ya existe se abre en modo «Edit link» con su dirección,
+  «Update link» y «Remove link» (quita el enlace y deja las palabras).
+- Las mismas comprobaciones de dirección de antes; los avisos salen dentro del
+  cuadro y no lo cierran. Esc cierra; Tab no se sale del cuadro.
+- Si el script del cuadro no cargara, el botón vuelve a `window.prompt`, para
+  que un fallo de carga no deje a nadie sin poder enlazar.
+
+**Servidor.** `aidocs_link_search_ajax()` (`wp_ajax_aidocs_link_search`): exige
+el nonce del editor y `edit_posts`; busca en los tipos de contenido públicos
+con interfaz de administración más los archivos de la biblioteca (filtro
+`aidocs_link_search_post_types`), solo publicados; un archivo cuyo padre no
+está publicado no sale. Doce resultados como máximo y nada con menos de dos
+letras.
+
+| Archivo | Qué cambia |
+| --- | --- |
+| `assets/js/aidocs-link-dialog.js` | **nuevo** — el cuadro; `looksLikeAddress()` |
+| `ai-documents.php` | `aidocs_link_search_ajax`; `cdLinkAction` abre el cuadro (con `cdLinkTarget`, `cdCheckLinkUrl`, `cdLinkSearch`); respaldo con `window.prompt`; versión 1.7.0 |
+| `tests/test-link-dialog.js` | **nuevo** — 6 casos |
+
+Verificado en el navegador sobre una página aparte (teclado, clic, Esc, quitar,
+error, Intro antes de que responda la búsqueda). La búsqueda en el servidor y
+el cuadro dentro del editor real se verifican en staging.
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva
