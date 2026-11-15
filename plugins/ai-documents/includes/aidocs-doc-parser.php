@@ -2641,6 +2641,12 @@ function aidocs_content_block_css() {
 .aidocs-content-link{color:var(--cd-secondary);text-decoration:underline;text-underline-offset:2px;}
 .aidocs-content-link:hover,.aidocs-content-link:focus{color:var(--cd-primary);}
 .aidocs-content-h4{font-size:13px;font-weight:700;color:var(--cd-primary);margin:18px 0 6px;}
+/* A page builder's own heading rule (Elementor's ".elementor-kit-N h4" sets
+   weight 500 on this site) is more specific than a lone class and won, so the
+   headings rendered lighter than the body copy around them. Naming the
+   container and the tag as well lifts the weight above it without touching
+   size or colour, which the theme still decides. */
+.aidocs-content h2.aidocs-content-h2,.aidocs-content h3.aidocs-content-h3,.aidocs-content h4.aidocs-content-h4{font-weight:700;}
 
 /* Accordion: every level-2/3 section heading is collapsible, starting closed. */
 .aidocs-accordion-item{border:1px solid #e5e9ef;border-radius:var(--cd-radius);margin:0 0 10px;overflow:hidden;}

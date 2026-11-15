@@ -452,6 +452,29 @@ salía llena de pares repetidos.
 `aidocs_link_title_score()` es una función pura con `tests/test-link-search.php`
 (6 casos). `php tests/run.php` — **206 pruebas, todas verdes**.
 
+## 16. 1.7.2 — los títulos de la política, en negrita
+
+Cirlot: *"los títulos deberían ser al menos negrita, no texto plano"*.
+
+**Causa.** El plugin ya definía sus títulos en negrita (700), pero la regla
+`.elementor-kit-10 h4` de Elementor (peso 500) es más específica que una clase
+sola y ganaba. En «Substantive Change Policy and Procedures» los 33 títulos
+salían con peso 500.
+
+**Arreglo.** `includes/aidocs-doc-parser.php` (`aidocs_content_block_css()`):
+una regla más específica (`.aidocs-content h4.aidocs-content-h4`, y lo mismo
+para h2 y h3) que fija **solo el peso** en 700. Tamaño y color los sigue
+decidiendo el tema, así que nada cambia de tamaño.
+
+**Verificado.** En la página de staging, inyectando esa misma regla: de 500 a
+700 en los 33 títulos, tamaño igual (22 px). Prueba nueva:
+`tests/test-heading-weight.php`.
+
+**Alcance.** Es CSS público: cambia cómo se ve la política en el sitio.
+Producción no cambia hasta que se despliegue.
+
+---
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva
