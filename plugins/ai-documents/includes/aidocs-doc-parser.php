@@ -281,7 +281,7 @@ function aidocs_promote_policy_title( array $lines ) {
         // a title the extractor never marked up as a heading at all.
         if ( $run_level === null && $level ) $run_level = $level;
 
-        $title[] = trim( $is_heading ? $m[2] : $line );
+        $title[] = trim( $is_heading ? aidocs_split_heading_anchor( $m[2] )[0] : $line );
         $index++;
     }
 
@@ -322,7 +322,7 @@ function aidocs_parse_labeled_document( $raw_text, $known_title = '' ) {
         // The document title is the one level-1 heading, written by the
         // extractor for the line above the first label.
         if ( $title === '' && preg_match( '/^#\s+(.+)$/', $line, $m ) ) {
-            $title = aidocs_plain_text( $m[1] );
+            $title = aidocs_plain_text( aidocs_split_heading_anchor( $m[1] )[0] );
             continue;
         }
 
@@ -667,12 +667,14 @@ function aidocs_parse_structured_content( $raw_text, $title = '', $annotated = n
             // "Note:" paragraph is the recurring case. Route it through the
             // paragraph pipeline instead, so a "Note:" opening still becomes a
             // callout rather than a fake heading.
-            if ( ! aidocs_reads_like_heading( $m[2] ) ) {
-                aidocs_append_downgraded_text( $blocks, $m[2] );
+            list( $heading_text, $heading_id ) = aidocs_split_heading_anchor( $m[2] );
+
+            if ( ! aidocs_reads_like_heading( $heading_text ) ) {
+                aidocs_append_downgraded_text( $blocks, $heading_text );
                 continue;
             }
 
-            $blocks[] = aidocs_heading_block( max( 2, min( 4, strlen( $m[1] ) ) ), $m[2] );
+            $blocks[] = aidocs_heading_block( max( 2, min( 4, strlen( $m[1] ) ) ), $heading_text, $heading_id );
             continue;
         }
 
@@ -947,15 +949,34 @@ function aidocs_append_downgraded_text( array &$blocks, $text ) {
     foreach ( aidocs_paragraph_blocks( $text ) as $block ) $blocks[] = $block;
 }
 
+/**
+ * A heading line may end in an explicit anchor: "#### Acquisition {#bm-acquisition}".
+ *
+ * That is how a Word bookmark that other text links to survives the trip:
+ * the extractor writes the bookmark onto the heading it sits on, and the
+ * links that point at it are rewritten to the same id. Only "bm-" ids are
+ * read, with a plain set of characters, so text typed into the editor cannot
+ * claim an id the theme or the plugin already uses.
+ *
+ * @return array{0:string,1:string} The heading text without the marker, and the id ('' if none).
+ */
+function aidocs_split_heading_anchor( $text ) {
+    $text = (string) $text;
+    if ( preg_match( '/^(.*?)\s*\{#(bm-[A-Za-z0-9_-]{1,100})\}\s*$/su', $text, $m ) && trim( $m[1] ) !== '' ) {
+        return [ $m[1], $m[2] ];
+    }
+    return [ $text, '' ];
+}
+
 /** A heading block, with an anchor id for in-page navigation. */
-function aidocs_heading_block( $level, $text ) {
+function aidocs_heading_block( $level, $text, $id = '' ) {
     $plain = aidocs_plain_text( $text );
     return [
         'type'  => 'heading',
         'level' => (int) $level,
         'text'  => $plain,
         'runs'  => aidocs_inline_runs( $text ),
-        'id'    => aidocs_anchor_id( $plain ),
+        'id'    => $id !== '' ? $id : aidocs_anchor_id( $plain ),
         'note'  => aidocs_note_variant( $plain ),
     ];
 }
@@ -2201,7 +2222,8 @@ function aidocs_blocks_to_canonical_text( array $blocks, $depth = 1 ) {
         switch ( $block['type'] ?? '' ) {
             case 'heading':
                 $level   = max( 2, min( 4, (int) ( $block['level'] ?? 3 ) ) );
-                $lines[] = $indent . str_repeat( '#', $level ) . ' ' . ( $block['text'] ?? '' );
+                $anchor  = ( isset( $block['id'] ) && strpos( (string) $block['id'], 'bm-' ) === 0 ) ? ' {#' . $block['id'] . '}' : '';
+                $lines[] = $indent . str_repeat( '#', $level ) . ' ' . ( $block['text'] ?? '' ) . $anchor;
                 break;
 
             case 'paragraph':

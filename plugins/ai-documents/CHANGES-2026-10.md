@@ -475,6 +475,51 @@ Producción no cambia hasta que se despliegue.
 
 ---
 
+## 17. 1.7.3 — títulos de nivel 7 a 9 y anclas internas del Word
+
+Cirlot: *"los títulos deberían ser al menos negrita"* y *"hay muchas anclas, pero
+nada enlaza a una página específica dentro del mismo documento"*.
+
+**Causa común.** mammoth solo lee «Heading 1» a «Heading 6». El Word de la
+compilación usa «Heading 7» y «Heading 8» para 97 títulos («Acquisition»,
+«Common Content B – Faculty Qualifications»…). Llegaban como párrafos
+normales: sin negrita y sin un destino al que saltar. De los 159 enlaces
+internos del Word, 109 apuntan a esos títulos y 33 a títulos de nivel 1 a 6
+cuyo nombre de marcador no coincide con el id de la página.
+
+**Arreglo.**
+- `assets/js/aidocs-docx-structure.js`: un mapa de estilos lee «Heading 7/8/9»
+  como títulos. Cada marcador de Word al que apunta un enlace se escribe en su
+  título como `{#bm-nombre}`, y los enlaces que apuntan a él se reescriben a
+  `#bm-nombre`. Un marcador sobre un párrafo cae en el título que tiene encima.
+  Los marcadores a los que nada apunta no se escriben, para no ensuciar cada
+  línea de título en «Edit content».
+- `includes/aidocs-doc-parser.php`: `aidocs_split_heading_anchor()` lee el
+  `{#bm-…}` final y lo usa como id del título; `aidocs_blocks_to_canonical_text()`
+  lo vuelve a escribir, así que editar el texto no lo pierde. Solo se aceptan ids
+  `bm-` con caracteres seguros: nada escrito a mano puede tomar un id del tema.
+  El título del documento nunca muestra la marca.
+
+**Verificado con el Word real de la compilación** (`Documents section - Policies
+UPDATED.docx`, 31/7): 159 enlaces internos; con el extractor nuevo 142 caen en un
+título existente, y pasando por el analizador y el renderizador del servidor, 141
+de 158. Los 17 restantes apuntan a 15 marcadores que **ya no existen en el propio
+Word** — se pueden dejar como están o decidir qué hacer con ellos.
+
+**Pruebas nuevas.** `tests/test-docx-anchors.js` (recorre mammoth y el extractor
+con un `.docx` mínimo, `tests/fixtures/deep-headings-anchors.docx`) y
+`tests/test-heading-anchors.php`.
+
+**Alcance y qué falta.**
+- Solo afecta a lo que se importe **desde ahora**. Las políticas ya publicadas no
+  cambian hasta volver a importarlas. Nada se reimportó ni se tocó en staging.
+- Los enlaces cuyo texto es un número de página («79», «(p. 83)») siguen igual:
+  falta decidir con Cirlot qué debe decir ese texto en una página larga.
+- Se verificó contra el Word de julio; falta confirmar con el último que usó
+  Cirlot.
+
+---
+
 ## Verificado en el navegador (29/10)
 
 Todo lo anterior se probó además en el sitio local `cirlot.local`, que lleva

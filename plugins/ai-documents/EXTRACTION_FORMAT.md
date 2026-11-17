@@ -58,6 +58,8 @@ Body:
 ## SECTION IN CAPS              level-2 heading (all caps or ≥15pt)
 ### Section                     level-3 heading (bold, at the margin)
 #### Sub-section                level-4 heading (bold, indented)
+#### Sub-section {#bm-name}    …with an explicit anchor: a Word bookmark that other text links to
+                                (only `bm-` ids are read; links to it are written `[text](#bm-name)`)
 A whole paragraph on one line.
 1. ordered item                 two spaces of indent per level
   a. nested item                Word's own numbering format, not always digits

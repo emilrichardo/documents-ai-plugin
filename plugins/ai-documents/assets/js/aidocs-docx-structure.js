@@ -49,6 +49,88 @@
         return text.replace( /([*\\\[\]])/g, '\\$1' );
     }
 
+    // Where each Word bookmark that something links to now lives on the page.
+    // Rebuilt by every htmlToCanonical() call; linkHref() reads it.
+    var anchorMap = {};
+
+    /**
+     * The id includes/aidocs-doc-parser.php gives a heading from its text —
+     * aidocs_anchor_id(): letters and digits, lower case, "-" between, 60
+     * characters, "sec-" in front. Kept identical on purpose: a link that is
+     * pointed at a heading with no marker of its own has to land on that id.
+     */
+    function headingSlugId( text ) {
+        var slug = String( text || '' ).replace( /[^a-zA-Z0-9]+/g, '-' ).toLowerCase().replace( /^-+|-+$/g, '' );
+        return slug === '' ? '' : 'sec-' + slug.slice( 0, 60 );
+    }
+
+    /** An id the parser will accept on a heading: "bm-" and a safe name. */
+    function bookmarkId( name ) {
+        return 'bm-' + String( name ).replace( /[^A-Za-z0-9_-]+/g, '-' ).slice( 0, 100 );
+    }
+
+    /** Every descendant element of `node`, in document order. */
+    function descendants( node, out ) {
+        out = out || [];
+        Array.prototype.forEach.call( node.childNodes || [], function ( child ) {
+            if ( child.nodeType !== 1 ) return;
+            out.push( child );
+            descendants( child, out );
+        } );
+        return out;
+    }
+
+    /**
+     * Work out where each bookmark that a link points at should land.
+     *
+     * Word keeps a bookmark on a heading, a paragraph or a list item; the page
+     * only has headings to jump to. A bookmark on a heading becomes that
+     * heading's own id, written into its line as "{#bm-name}" so it survives
+     * in the saved text. A bookmark anywhere else lands on the heading above
+     * it — the section it sits in — which is the nearest place that exists.
+     *
+     * Only bookmarks something links to are written out: the other 200-odd in
+     * a compilation would clutter every heading line in "Edit content" for no
+     * reason.
+     *
+     * @param {Element} container
+     * @return {{map: Object, headingIds: Array}} `headingIds[n]` is the explicit
+     *         id for the n-th heading element (by position among the
+     *         container's children), or ''.
+     */
+    function planAnchors( container ) {
+        var wanted = {};
+        descendants( container ).forEach( function ( el ) {
+            if ( el.tagName.toLowerCase() !== 'a' ) return;
+            var href = el.getAttribute( 'href' ) || '';
+            if ( href.charAt( 0 ) === '#' && href.length > 1 ) wanted[ href.slice( 1 ) ] = true;
+        } );
+
+        var map = {}, explicit = {};
+        var current = '';              // id of the heading the walk is inside
+        Array.prototype.forEach.call( container.children, function ( el, index ) {
+            var tag = el.tagName.toLowerCase();
+            var marks = descendants( el ).filter( function ( d ) {
+                return d.tagName.toLowerCase() === 'a' && d.getAttribute( 'id' ) && wanted[ d.getAttribute( 'id' ) ];
+            } ).map( function ( d ) { return d.getAttribute( 'id' ); } );
+
+            if ( HEADING_RE.test( tag ) ) {
+                var text = tidy( el.textContent || '' );
+                if ( text === '' ) return;
+                if ( marks.length ) {
+                    current = bookmarkId( marks[ 0 ] );
+                    explicit[ index ] = current;
+                } else {
+                    current = headingSlugId( text );
+                }
+            }
+            marks.forEach( function ( name ) {
+                if ( current !== '' ) map[ name ] = current;
+            } );
+        } );
+        return { map: map, explicit: explicit };
+    }
+
     /**
      * A hyperlink's destination, as it should appear in the canonical text.
      *
@@ -68,6 +150,12 @@
         var href = ( el.getAttribute( 'href' ) || '' ).trim();
         if ( href === '' ) return '';               // <a id="…"> — a bookmark target, not a link
         if ( /[\s()<>"']/.test( href ) ) return '';
+        // A bookmark inside the document: point it at where that bookmark's
+        // section now is on the page. One nothing was found for stays as Word
+        // had it — the server keeps in-page links either way.
+        if ( href.charAt( 0 ) === '#' && anchorMap[ href.slice( 1 ) ] ) {
+            return '#' + anchorMap[ href.slice( 1 ) ];
+        }
         return href;
     }
 
@@ -252,6 +340,19 @@
 
     var HEADING_RE = /^h([1-6])$/i;
 
+    // mammoth reads Word's "Heading 1" to "Heading 6" and nothing past them, so
+    // a paragraph in Heading 7, 8 or 9 arrived as ordinary body text: plain
+    // weight, and no heading for a link to land on. The Substantive Change
+    // compilation uses those levels for 97 headings — "Acquisition",
+    // "Common Content B – Faculty Qualifications" — and 109 of its 159
+    // in-document links point at them. Everything from level 4 down maps to the
+    // same "####" anyway (see htmlToCanonical), so h6 is as deep as it needs to go.
+    var STYLE_MAP = [
+        "p[style-name='heading 7'] => h6:fresh",
+        "p[style-name='heading 8'] => h6:fresh",
+        "p[style-name='heading 9'] => h6:fresh"
+    ];
+
     /**
      * Turn mammoth's HTML output into canonical text.
      *
@@ -262,11 +363,14 @@
         var container = document.createElement( 'div' );
         container.innerHTML = html;
 
+        var plan = planAnchors( container );
+        anchorMap = plan.map;
+
         var out       = [];
         var sawTitle  = false;
         var sawLabel  = false;
 
-        Array.prototype.forEach.call( container.children, function ( el ) {
+        Array.prototype.forEach.call( container.children, function ( el, elIndex ) {
             var tag = el.tagName.toLowerCase();
 
             if ( HEADING_RE.test( tag ) ) {
@@ -283,7 +387,8 @@
                     var n = parseInt( HEADING_RE.exec( tag )[ 1 ], 10 );
                     level = n <= 2 ? 2 : ( n === 3 ? 3 : 4 );
                 }
-                out.push( repeat( '#', level ) + ' ' + text );
+                out.push( repeat( '#', level ) + ' ' + text +
+                          ( plan.explicit[ elIndex ] ? ' {#' + plan.explicit[ elIndex ] + '}' : '' ) );
                 return;
             }
 
@@ -347,7 +452,7 @@
             : Promise.resolve( null );
 
         return Promise.all( [
-            mammoth.convertToHtml( { arrayBuffer: arrayBuffer } ),
+            mammoth.convertToHtml( { arrayBuffer: arrayBuffer }, { styleMap: STYLE_MAP } ),
             numbering
         ] ).then( function ( both ) {
             var text = htmlToCanonical( both[ 0 ].value, both[ 1 ] );
@@ -358,6 +463,7 @@
     return {
         extract:         extract,
         htmlToCanonical: htmlToCanonical,
-        formatOrdinal:   formatOrdinal
+        formatOrdinal:   formatOrdinal,
+        headingSlugId:   headingSlugId
     };
 } ) );
